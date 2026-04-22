@@ -776,6 +776,10 @@ const Styles=()=>(
     .ins-warning{background:rgba(234,179,8,.06);border-color:rgba(234,179,8,.2);}
     .ins-danger{background:rgba(239,68,68,.06);border-color:rgba(239,68,68,.2);}
     .ins-info{background:rgba(59,130,246,.06);border-color:rgba(59,130,246,.2);}
+    @keyframes ins-open{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+    .ins-body{animation:ins-open .18s ease both;}
+    .ins-row{cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;}
+    .ins-row:active{opacity:.85;}
   `}</style>
 );
 
@@ -1486,41 +1490,182 @@ const GoalEditor=({goals,onSave,onClose})=>{
 // ─────────────────────────────────────────────────────────────────
 // §L  INSIGHTS PANEL
 // ─────────────────────────────────────────────────────────────────
-const RISK_COLOR={ Low:"var(--gn)", Medium:"var(--yw)", High:"var(--rd)" };
-const Insights=({insights})=>(
-  <div className="f0" style={{marginBottom:14}}>
-    <div style={{fontSize:".72rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--tx2)",marginBottom:10}}>🧠 Coach Insights</div>
-    <div style={{display:"flex",flexDirection:"column",gap:8}}>
-      {insights.map((ins,i)=>(
-        <div key={i} className={`ins-${ins.type}`} style={{border:"1px solid",borderRadius:14,padding:"13px 14px"}}>
-          <div style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:8}}>
-            <span style={{fontSize:"1.2rem",flexShrink:0,lineHeight:1}}>{ins.icon}</span>
-            <div style={{flex:1}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:4}}>
-                <span style={{fontWeight:700,fontSize:".88rem"}}>{ins.title}</span>
-                {ins.risk&&<span className="badge" style={{background:`${RISK_COLOR[ins.risk]}18`,color:RISK_COLOR[ins.risk]}}>{ins.risk} Risk</span>}
-              </div>
-              {/* Signal */}
-              {ins.signal&&<div style={{fontSize:".78rem",color:"var(--tx2)",marginBottom:4}}>
-                <span style={{color:"var(--tx3)",fontSize:".68rem",fontWeight:600,textTransform:"uppercase",letterSpacing:".04em"}}>Signal </span>
-                {ins.signal}
-              </div>}
-              {/* Legacy body fallback */}
-              {ins.body&&!ins.signal&&<div style={{fontSize:".78rem",color:"var(--tx2)",marginBottom:4}}>{ins.body}</div>}
-            </div>
+const RISK_COLOR = { Low:"var(--gn)", Medium:"var(--yw)", High:"var(--rd)" };
+const RISK_BG    = { Low:"rgba(34,197,94,.12)", Medium:"rgba(234,179,8,.12)", High:"rgba(239,68,68,.12)" };
+const TYPE_LEFT  = { positive:"var(--gn)", warning:"var(--yw)", danger:"var(--rd)", info:"var(--bl)" };
+
+// ── Single accordion insight card ────────────────────────────────
+const InsightCard = ({ ins, isOpen, onToggle }) => {
+  const accentColor = TYPE_LEFT[ins.type] || "var(--tx2)";
+  const riskColor   = ins.risk ? RISK_COLOR[ins.risk] : accentColor;
+
+  // Short one-line summary shown when collapsed
+  const summary = ins.signal
+    ? ins.signal.length > 55 ? ins.signal.slice(0, 52) + "…" : ins.signal
+    : ins.body
+    ? ins.body.length   > 55 ? ins.body.slice(0, 52)   + "…" : ins.body
+    : null;
+
+  return (
+    <div
+      className={`ins-${ins.type} ins-row`}
+      style={{
+        border: "1px solid",
+        borderRadius: 13,
+        overflow: "hidden",
+        // Left accent stripe via box-shadow inset
+        boxShadow: `inset 3px 0 0 0 ${accentColor}`,
+      }}
+      onClick={onToggle}
+      role="button"
+      aria-expanded={isOpen}
+    >
+      {/* ── Collapsed row (always visible) ── */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "11px 12px 11px 14px",
+        minHeight: 48,
+      }}>
+        {/* Icon */}
+        <span style={{ fontSize: "1.1rem", flexShrink: 0, lineHeight: 1 }}>{ins.icon}</span>
+
+        {/* Title + optional one-liner */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700, fontSize: ".85rem", lineHeight: 1.3 }}>{ins.title}</span>
+            {ins.risk && (
+              <span style={{
+                fontSize: ".6rem", fontWeight: 700, letterSpacing: ".04em",
+                background: RISK_BG[ins.risk], color: riskColor,
+                padding: "1px 7px", borderRadius: 20, flexShrink: 0,
+              }}>
+                {ins.risk}
+              </span>
+            )}
           </div>
-          {/* Recommendation */}
-          {ins.recommendation&&(
-            <div style={{background:"rgba(0,0,0,.2)",borderRadius:8,padding:"8px 10px",display:"flex",gap:7,alignItems:"flex-start"}}>
-              <span style={{fontSize:".8rem",flexShrink:0}}>💡</span>
-              <div style={{fontSize:".76rem",color:"var(--tx)",lineHeight:1.55}}>{ins.recommendation}</div>
+          {!isOpen && summary && (
+            <div style={{
+              fontSize: ".73rem", color: "var(--tx2)", marginTop: 2,
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            }}>
+              {summary}
             </div>
           )}
         </div>
-      ))}
+
+        {/* Chevron */}
+        <span style={{
+          fontSize: ".72rem", color: "var(--tx2)", flexShrink: 0,
+          transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+          transition: "transform .2s ease",
+          display: "inline-block",
+          paddingLeft: 4,
+        }}>▼</span>
+      </div>
+
+      {/* ── Expanded body ── */}
+      {isOpen && (
+        <div className="ins-body" style={{ padding: "0 14px 12px 14px" }}>
+          {/* Divider */}
+          <div style={{ height: 1, background: "rgba(255,255,255,.06)", marginBottom: 10 }}/>
+
+          {/* Signal */}
+          {ins.signal && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: ".64rem", fontWeight: 700, textTransform: "uppercase",
+                letterSpacing: ".06em", color: "var(--tx3)", marginBottom: 4 }}>
+                Signal
+              </div>
+              <div style={{ fontSize: ".8rem", color: "var(--tx2)", lineHeight: 1.55 }}>
+                {ins.signal}
+              </div>
+            </div>
+          )}
+
+          {/* Legacy body fallback */}
+          {ins.body && !ins.signal && (
+            <div style={{ fontSize: ".8rem", color: "var(--tx2)", lineHeight: 1.55, marginBottom: 10 }}>
+              {ins.body}
+            </div>
+          )}
+
+          {/* Recommendation */}
+          {ins.recommendation && (
+            <div style={{
+              background: "rgba(0,0,0,.25)", borderRadius: 9,
+              padding: "9px 11px", display: "flex", gap: 8, alignItems: "flex-start",
+            }}>
+              <span style={{ fontSize: ".85rem", flexShrink: 0, marginTop: 1 }}>💡</span>
+              <div style={{ fontSize: ".77rem", color: "var(--tx)", lineHeight: 1.6 }}>
+                {ins.recommendation}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
-  </div>
-);
+  );
+};
+
+// ── Insights section — accordion, one open at a time ─────────────
+const Insights = ({ insights }) => {
+  const [openIdx, setOpenIdx] = useState(null);
+
+  const toggle = i => setOpenIdx(prev => prev === i ? null : i);
+
+  // Count by risk for the summary bar
+  const highCount   = insights.filter(x => x.risk === "High").length;
+  const mediumCount = insights.filter(x => x.risk === "Medium").length;
+
+  return (
+    <div className="f0" style={{ marginBottom: 14 }}>
+      {/* Section header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div style={{ fontSize: ".72rem", fontWeight: 700, textTransform: "uppercase",
+          letterSpacing: ".08em", color: "var(--tx2)" }}>
+          🧠 Coach Insights
+        </div>
+        <div style={{ display: "flex", gap: 5 }}>
+          {highCount > 0 && (
+            <span style={{ fontSize: ".62rem", fontWeight: 700, background: "var(--rd2)",
+              color: "var(--rd)", padding: "1px 8px", borderRadius: 20 }}>
+              {highCount} High
+            </span>
+          )}
+          {mediumCount > 0 && (
+            <span style={{ fontSize: ".62rem", fontWeight: 700, background: "var(--yw2)",
+              color: "var(--yw)", padding: "1px 8px", borderRadius: 20 }}>
+              {mediumCount} Medium
+            </span>
+          )}
+          <span style={{ fontSize: ".62rem", color: "var(--tx3)", padding: "1px 6px" }}>
+            {insights.length} total
+          </span>
+        </div>
+      </div>
+
+      {/* Tap hint (shown only when all collapsed) */}
+      {openIdx === null && (
+        <div style={{ fontSize: ".68rem", color: "var(--tx3)", marginBottom: 8, textAlign: "right" }}>
+          tap any card to expand ↓
+        </div>
+      )}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {insights.map((ins, i) => (
+          <InsightCard
+            key={i}
+            ins={ins}
+            isOpen={openIdx === i}
+            onToggle={() => toggle(i)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+};
 
 // ─────────────────────────────────────────────────────────────────
 // §M  DASHBOARD
