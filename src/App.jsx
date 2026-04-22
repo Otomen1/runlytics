@@ -2449,11 +2449,408 @@ const SettingsScreen = ({ acts, goals, hrProfile, onEditGoals, onEditHR, onClear
 };
 
 // ─────────────────────────────────────────────────────────────────
+// §S  MONTHLY REPORT
+// ─────────────────────────────────────────────────────────────────
+
+// ── Build monthly analytics from stored activities (read-only) ────
+function buildMonthlyReport(acts, monthKey) {
+  const all  = acts.filter(a => a.distanceKm > 0);
+  const monthOf = ts => { const d=new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
+
+  // All available months sorted descending
+  const allMonths = [...new Set(all.map(a => monthOf(a.dateTs||new Date(a.date).getTime())))].sort().reverse();
+
+  // Current selection
+  const key  = monthKey || allMonths[0] || monthOf(Date.now());
+  const prevKey = (() => {
+    const [y,m] = key.split("-").map(Number);
+    const d = new Date(y, m-2, 1); // one month back
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  })();
+
+  const runsFor = k => all.filter(a => monthOf(a.dateTs||new Date(a.date).getTime()) === k);
+  const cur  = runsFor(key);
+  const prev = runsFor(prevKey);
+
+  const stats = runs => {
+    if (!runs.length) return null;
+    const km      = runs.reduce((s,r)=>s+r.distanceKm,0);
+    const timeSec = runs.reduce((s,r)=>s+r.movingTimeSec,0);
+    const withPace= runs.filter(r=>r.avgPaceSecKm>0);
+    const avgPace = withPace.length ? withPace.reduce((s,r)=>s+r.avgPaceSecKm,0)/withPace.length : 0;
+    const withHR  = runs.filter(r=>r.avgHR);
+    const avgHR   = withHR.length ? Math.round(withHR.reduce((s,r)=>s+r.avgHR,0)/withHR.length) : null;
+    const elevGain= runs.reduce((s,r)=>s+(r.elevGainM||0),0);
+    const longest = runs.reduce((b,r)=>r.distanceKm>b.distanceKm?r:b);
+    const fastest = withPace.length ? withPace.reduce((b,r)=>r.avgPaceSecKm<b.avgPaceSecKm?r:b) : null;
+
+    // Weekly breakdown within this month
+    const weekOf  = ts => { const d=new Date(ts); d.setHours(0,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)); return d.getTime(); };
+    const wMap    = {};
+    runs.forEach(r=>{ const w=weekOf(r.dateTs||new Date(r.date).getTime()); if(!wMap[w])wMap[w]={km:0,runs:0}; wMap[w].km+=r.distanceKm; wMap[w].runs++; });
+    const weeks   = Object.entries(wMap).sort((a,b)=>a[0]-b[0]).map(([wTs,v])=>{
+      const d=new Date(+wTs); return { label:`${d.getDate()}/${d.getMonth()+1}`, km:parseFloat(v.km.toFixed(1)), runs:v.runs };
+    });
+
+    // Pace trend (sorted by date)
+    const paceTrend = withPace.sort((a,b)=>(a.dateTs||0)-(b.dateTs||0)).map(r=>({
+      date:fmtDateS(r.date), pace:parseFloat((r.avgPaceSecKm/60).toFixed(2))
+    }));
+
+    // Consistency: how many distinct weeks had at least 1 run
+    const totalWeeks = Math.ceil(runs.length > 0
+      ? (new Date(key.split("-")[0],key.split("-")[1],0).getTime() - new Date(key+"-01").getTime()) / (7*86400000) + 1
+      : 4);
+    const activeWeeks = Object.keys(wMap).length;
+    const consistency = Math.round(activeWeeks / Math.min(totalWeeks, 4) * 100);
+
+    return { km, timeSec, avgPace, avgHR, elevGain, longest, fastest, count:runs.length, weeks, paceTrend, activeWeeks, consistency };
+  };
+
+  const curStats  = stats(cur);
+  const prevStats = stats(prev);
+
+  // Delta helpers
+  const delta = (cur, prev) => (prev && cur) ? parseFloat(((cur-prev)/prev*100).toFixed(1)) : null;
+
+  const deltas = curStats && prevStats ? {
+    km:    delta(curStats.km,    prevStats.km),
+    pace:  delta(prevStats.avgPace, curStats.avgPace), // inverted: lower pace = better
+    hr:    delta(curStats.avgHR, prevStats.avgHR),
+    count: delta(curStats.count, prevStats.count),
+  } : null;
+
+  // Coach insights for this month
+  const insights = [];
+  if (curStats) {
+    // Mileage change
+    if (deltas?.km !== null) {
+      if (deltas.km > 30)
+        insights.push({ icon:"⚠️", type:"warning", text:`Mileage up ${deltas.km}% vs last month — watch for fatigue.` });
+      else if (deltas.km > 0)
+        insights.push({ icon:"📈", type:"positive", text:`Distance up ${deltas.km}% — solid progression.` });
+      else if (deltas.km < -20)
+        insights.push({ icon:"📉", type:"info", text:`Distance down ${Math.abs(deltas.km)}% — recovery month or life got busy?` });
+    }
+    // Pace trend
+    if (deltas?.pace !== null) {
+      if (deltas.pace > 3)
+        insights.push({ icon:"⚡", type:"positive", text:`Avg pace improved ${deltas.pace}% — fitness is building.` });
+      else if (deltas.pace < -3)
+        insights.push({ icon:"📉", type:"warning", text:`Avg pace slowed ${Math.abs(deltas.pace)}% — could signal fatigue or low mileage.` });
+    }
+    // HR at same pace
+    if (deltas?.hr !== null && deltas?.pace !== null) {
+      if (deltas.hr > 5 && deltas.pace < 2)
+        insights.push({ icon:"❤️", type:"warning", text:`HR rising at same pace — early fatigue signal. Prioritise recovery.` });
+      else if (deltas.hr < -3 && deltas.pace < 3)
+        insights.push({ icon:"💚", type:"positive", text:`HR lower at similar pace — aerobic fitness improving.` });
+    }
+    // Consistency
+    if (curStats.consistency < 50)
+      insights.push({ icon:"💤", type:"warning", text:`Low consistency (${curStats.activeWeeks} active week${curStats.activeWeeks!==1?"s":""}) — aim for 3+ runs/week.` });
+    else if (curStats.consistency >= 75)
+      insights.push({ icon:"🔥", type:"positive", text:`${curStats.activeWeeks} active weeks — excellent consistency this month!` });
+    // Volume-only (no prev)
+    if (!prevStats) {
+      if (curStats.km > 0) insights.push({ icon:"👟", type:"info", text:"First month on record. Keep stacking those runs!" });
+    }
+  }
+
+  return { allMonths, key, prevKey, curStats, prevStats, deltas, curRuns:cur, insights };
+}
+
+// ── Month picker dropdown ─────────────────────────────────────────
+const MonthPicker = ({ allMonths, selected, onChange }) => {
+  const fmt = k => { const [y,m]=k.split("-"); return new Date(+y,+m-1,1).toLocaleDateString("en-GB",{month:"long",year:"numeric"}); };
+  const idx = allMonths.indexOf(selected);
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <button className="btn b-gh" style={{padding:"6px 10px",fontSize:".82rem"}}
+        disabled={idx >= allMonths.length-1}
+        onClick={()=>onChange(allMonths[idx+1])}>‹</button>
+      <select value={selected} onChange={e=>onChange(e.target.value)}
+        style={{flex:1,background:"var(--s2)",border:"1px solid var(--bd)",color:"var(--tx)",
+          borderRadius:9,padding:"7px 10px",fontSize:".84rem",fontFamily:"inherit",outline:"none",textAlign:"center"}}>
+        {allMonths.map(k=><option key={k} value={k}>{fmt(k)}</option>)}
+      </select>
+      <button className="btn b-gh" style={{padding:"6px 10px",fontSize:".82rem"}}
+        disabled={idx <= 0}
+        onClick={()=>onChange(allMonths[idx-1])}>›</button>
+    </div>
+  );
+};
+
+// ── Delta badge ───────────────────────────────────────────────────
+const DeltaBadge = ({ val, invert=false, unit="%" }) => {
+  if (val === null || val === undefined) return null;
+  const good = invert ? val < 0 : val > 0;
+  const color = val === 0 ? "var(--tx3)" : good ? "var(--gn)" : "var(--rd)";
+  const bg    = val === 0 ? "var(--s3)"  : good ? "var(--gn2)" : "var(--rd2)";
+  const arrow = val > 0 ? "↑" : val < 0 ? "↓" : "→";
+  return (
+    <span style={{background:bg,color,borderRadius:20,padding:"2px 8px",fontSize:".65rem",fontWeight:700,display:"inline-flex",alignItems:"center",gap:2}}>
+      {arrow} {Math.abs(val)}{unit}
+    </span>
+  );
+};
+
+// ── Export helper ─────────────────────────────────────────────────
+function exportMonthReport(report, monthKey) {
+  const fmt = k => { const [y,m]=k.split("-"); return new Date(+y,+m-1,1).toLocaleDateString("en-GB",{month:"long",year:"numeric"}); };
+  const { curStats:s, curRuns, insights } = report;
+  const lines = [
+    `RUNLYTICS — Monthly Report`,
+    `Month: ${fmt(monthKey)}`,
+    `Generated: ${new Date().toLocaleString()}`,
+    ``,
+    `── SUMMARY ──────────────────────────────`,
+    `Total runs:      ${s?.count ?? 0}`,
+    `Total distance:  ${s ? fmtKm(s.km) : "0"} km`,
+    `Total time:      ${s ? fmtDur(s.timeSec) : "—"}`,
+    `Avg pace:        ${s ? fmtPace(s.avgPace) : "—"} /km`,
+    `Avg HR:          ${s?.avgHR ? `${s.avgHR} bpm` : "—"}`,
+    `Elevation gain:  ${s ? Math.round(s.elevGain) : 0} m`,
+    `Longest run:     ${s ? fmtKm(s.longest.distanceKm) : "—"} km (${s?.longest.name || ""})`,
+    `Fastest pace:    ${s ? fmtPace(s.fastest?.avgPaceSecKm) : "—"} /km`,
+    `Active weeks:    ${s?.activeWeeks ?? 0}`,
+    ``,
+    `── COACH INSIGHTS ───────────────────────`,
+    ...insights.map(i => `${i.icon} ${i.text}`),
+    ``,
+    `── RUNS ─────────────────────────────────`,
+    ...curRuns.map(r => `  • ${fmtDateS(r.date)} — ${fmtKm(r.distanceKm)} km @ ${fmtPace(r.avgPaceSecKm)}/km — ${r.name}`),
+  ];
+  const blob = new Blob([lines.join("\n")], { type:"text/plain" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href=url; a.download=`runlytics-${monthKey}.txt`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Monthly Report Screen ─────────────────────────────────────────
+const MonthlyReport = ({ acts, onSelectAct }) => {
+  const allMonthKeys = useMemo(() => {
+    const monthOf = ts => { const d=new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
+    return [...new Set(acts.filter(a=>a.distanceKm>0).map(a=>monthOf(a.dateTs||new Date(a.date).getTime())))].sort().reverse();
+  }, [acts]);
+
+  const [selectedMonth, setSelectedMonth] = useState(allMonthKeys[0] || "");
+  const report = useMemo(()=>buildMonthlyReport(acts, selectedMonth),[acts, selectedMonth]);
+  const { curStats:s, prevStats:p, deltas, curRuns, insights } = report;
+
+  const fmtMonthLabel = k => { if(!k)return ""; const [y,m]=k.split("-"); return new Date(+y,+m-1,1).toLocaleDateString("en-GB",{month:"long",year:"numeric"}); };
+  const fmtMonthShort = k => { if(!k)return ""; const [y,m]=k.split("-"); return new Date(+y,+m-1,1).toLocaleDateString("en-GB",{month:"short",year:"2-digit"}); };
+
+  if (!acts.length || !allMonthKeys.length) return (
+    <div style={{paddingTop:40,textAlign:"center",color:"var(--tx2)"}}>
+      <div style={{fontSize:"2.5rem",marginBottom:12}}>📅</div>
+      <div style={{fontWeight:600,marginBottom:6}}>No data yet</div>
+      <div style={{fontSize:".82rem"}}>Upload GPX files to generate monthly reports.</div>
+    </div>
+  );
+
+  return (
+    <div style={{paddingTop:16,paddingBottom:32}}>
+
+      {/* Month picker */}
+      <div className="f0" style={{marginBottom:16}}>
+        <MonthPicker allMonths={allMonthKeys} selected={selectedMonth} onChange={setSelectedMonth}/>
+      </div>
+
+      {!s ? (
+        <div className="c2 f0" style={{padding:24,textAlign:"center",color:"var(--tx2)"}}>
+          <div style={{fontSize:"1.6rem",marginBottom:10}}>🏖️</div>
+          <div style={{fontWeight:600,marginBottom:4}}>No runs in {fmtMonthLabel(selectedMonth)}</div>
+          <div style={{fontSize:".8rem"}}>Rest month — or try switching to a different month.</div>
+        </div>
+      ) : (
+        <>
+          {/* Summary cards */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+            {[
+              { ic:"📍", l:"Distance",    v:fmtKm(s.km),          u:"km",   delta:deltas?.km,    inv:false, c:"var(--or)" },
+              { ic:"🏃", l:"Runs",        v:s.count,               u:"",     delta:deltas?.count, inv:false, c:"var(--bl)" },
+              { ic:"⏱️", l:"Total Time",  v:fmtDur(s.timeSec),    u:"",     delta:null,           inv:false, c:"var(--gn)" },
+              { ic:"⚡", l:"Avg Pace",    v:fmtPace(s.avgPace),   u:"/km",  delta:deltas?.pace,  inv:true,  c:"var(--pu)" },
+              { ic:"❤️", l:"Avg HR",      v:s.avgHR||"—",         u:s.avgHR?"bpm":"", delta:null, inv:false, c:"var(--rd)" },
+              { ic:"⛰️", l:"Elev Gain",   v:Math.round(s.elevGain), u:"m",  delta:null,           inv:false, c:"var(--cy)" },
+            ].map((x,i)=>(
+              <div key={x.l} className={`card f${Math.min(i,4)} hov`} style={{padding:"13px 14px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+                  <div style={{width:30,height:30,borderRadius:8,background:`${x.c}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:".9rem"}}>{x.ic}</div>
+                  <DeltaBadge val={x.delta} invert={x.inv}/>
+                </div>
+                <div className="num" style={{fontSize:"1.4rem",fontWeight:900,color:x.c,lineHeight:1}}>
+                  {x.v}<span style={{fontSize:".68rem",fontWeight:400,color:"var(--tx2)",marginLeft:2}}>{x.u}</span>
+                </div>
+                <div style={{fontSize:".68rem",color:"var(--tx2)",marginTop:3}}>{x.l}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Highlights: longest + fastest */}
+          <div className="card f2" style={{padding:16,marginBottom:14}}>
+            <SH title="Month Highlights"/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div style={{background:"var(--or3)",border:"1px solid var(--or2)",borderRadius:12,padding:13,cursor:"pointer"}}
+                onClick={()=>onSelectAct(s.longest)}>
+                <div style={{fontSize:".64rem",color:"var(--or)",fontWeight:700,marginBottom:5}}>🏆 LONGEST RUN</div>
+                <div className="num" style={{fontSize:"1.4rem",fontWeight:900,color:"var(--or)"}}>{fmtKm(s.longest.distanceKm)}<span style={{fontSize:".7rem",color:"var(--tx2)",fontWeight:400}}> km</span></div>
+                <div style={{fontSize:".7rem",color:"var(--tx2)",marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.longest.name}</div>
+                <div style={{fontSize:".64rem",color:"var(--tx3)",marginTop:2}}>{fmtDateS(s.longest.date)}</div>
+              </div>
+              {s.fastest && (
+                <div style={{background:"var(--bl2)",border:"1px solid rgba(59,130,246,.18)",borderRadius:12,padding:13,cursor:"pointer"}}
+                  onClick={()=>onSelectAct(s.fastest)}>
+                  <div style={{fontSize:".64rem",color:"var(--bl)",fontWeight:700,marginBottom:5}}>⚡ FASTEST PACE</div>
+                  <div className="num" style={{fontSize:"1.4rem",fontWeight:900,color:"var(--bl)"}}>{fmtPace(s.fastest.avgPaceSecKm)}<span style={{fontSize:".7rem",color:"var(--tx2)",fontWeight:400}}> /km</span></div>
+                  <div style={{fontSize:".7rem",color:"var(--tx2)",marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.fastest.name}</div>
+                  <div style={{fontSize:".64rem",color:"var(--tx3)",marginTop:2}}>{fmtDateS(s.fastest.date)}</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Weekly mileage chart */}
+          {s.weeks.length > 0 && (
+            <div className="card f2" style={{padding:16,marginBottom:14}}>
+              <SH title="Weekly Mileage" sub={fmtMonthLabel(selectedMonth)}/>
+              <ResponsiveContainer width="100%" height={120}>
+                <BarChart data={s.weeks} barSize={28}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--bd)" vertical={false}/>
+                  <XAxis dataKey="label" tick={{fill:"var(--tx2)",fontSize:9}} axisLine={false} tickLine={false}/>
+                  <YAxis tick={{fill:"var(--tx2)",fontSize:10}} axisLine={false} tickLine={false}/>
+                  <Tooltip content={({active,payload,label})=>{
+                    if(!active||!payload?.length)return null;
+                    const w=s.weeks.find(x=>x.label===label);
+                    return <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:10,padding:"8px 12px"}}>
+                      <div style={{fontSize:".66rem",color:"var(--tx2)",marginBottom:2}}>Week of {label}</div>
+                      <div className="num" style={{color:"var(--or)",fontSize:"1rem"}}>{payload[0].value} km</div>
+                      <div style={{fontSize:".66rem",color:"var(--tx2)",marginTop:2}}>{w?.runs} run{w?.runs!==1?"s":""}</div>
+                    </div>;
+                  }}/>
+                  <Bar dataKey="km" fill="var(--or)" radius={[5,5,0,0]}/>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Pace trend */}
+          {s.paceTrend.length > 1 && (
+            <div className="card f3" style={{padding:16,marginBottom:14}}>
+              <SH title="Pace Trend" sub="Each run this month"/>
+              <ResponsiveContainer width="100%" height={110}>
+                <AreaChart data={s.paceTrend}>
+                  <defs>
+                    <linearGradient id="mpt" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#f97316" stopOpacity={.15}/>
+                      <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--bd)" vertical={false}/>
+                  <XAxis dataKey="date" tick={{fill:"var(--tx2)",fontSize:9}} axisLine={false} tickLine={false}/>
+                  <YAxis domain={["auto","auto"]} reversed tick={{fill:"var(--tx2)",fontSize:9}} axisLine={false} tickLine={false}
+                    tickFormatter={v=>`${Math.floor(v)}:${Math.round((v%1)*60).toString().padStart(2,"0")}`}/>
+                  <Tooltip content={({active,payload,label})=>{
+                    if(!active||!payload?.length)return null;
+                    const p=payload[0].value;
+                    return <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:10,padding:"8px 12px"}}>
+                      <div style={{fontSize:".66rem",color:"var(--tx2)"}}>{label}</div>
+                      <div className="num" style={{color:"var(--or)",fontSize:".96rem"}}>{Math.floor(p)}:{Math.round((p%1)*60).toString().padStart(2,"0")} /km</div>
+                    </div>;
+                  }}/>
+                  <Area type="monotone" dataKey="pace" stroke="var(--or)" strokeWidth={2} fill="url(#mpt)" dot={{r:3,fill:"var(--or)",strokeWidth:0}}/>
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Comparison vs last month */}
+          {p && (
+            <div className="card f3" style={{padding:16,marginBottom:14}}>
+              <SH title="vs Last Month" sub={`${fmtMonthShort(report.prevKey)} → ${fmtMonthShort(selectedMonth)}`}/>
+              <div style={{display:"flex",flexDirection:"column",gap:0}}>
+                {[
+                  { l:"Distance",  cur:`${fmtKm(s.km)} km`,        prev:`${fmtKm(p.km)} km`,       delta:deltas?.km,    inv:false },
+                  { l:"Runs",      cur:`${s.count}`,                prev:`${p.count}`,              delta:deltas?.count, inv:false },
+                  { l:"Avg Pace",  cur:`${fmtPace(s.avgPace)}/km`, prev:`${fmtPace(p.avgPace)}/km`,delta:deltas?.pace,  inv:true  },
+                  { l:"Avg HR",    cur:s.avgHR?`${s.avgHR} bpm`:"—", prev:p.avgHR?`${p.avgHR} bpm`:"—", delta:deltas?.hr, inv:false },
+                  { l:"Elev Gain", cur:`${Math.round(s.elevGain)}m`, prev:`${Math.round(p.elevGain)}m`, delta:null, inv:false },
+                  { l:"Consistency",cur:`${s.activeWeeks} wk`,     prev:`${p.activeWeeks} wk`,     delta:null,          inv:false },
+                ].map((row, i, arr) => (
+                  <div key={row.l} style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:8,alignItems:"center",padding:"9px 0",borderBottom:i<arr.length-1?"1px solid var(--bd)":"none"}}>
+                    <span style={{fontSize:".76rem",color:"var(--tx2)"}}>{row.l}</span>
+                    <span style={{fontSize:".76rem",color:"var(--tx3)",textAlign:"center"}}>{row.prev}</span>
+                    <span style={{fontSize:".8rem",fontWeight:600,textAlign:"center"}}>{row.cur}</span>
+                    <DeltaBadge val={row.delta} invert={row.inv}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Coach Insights */}
+          {insights.length > 0 && (
+            <div className="f3" style={{marginBottom:14}}>
+              <div style={{fontSize:".72rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--tx2)",marginBottom:8}}>🧠 Monthly Insights</div>
+              <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                {insights.map((ins,i)=>(
+                  <div key={i} style={{
+                    display:"flex",gap:10,padding:"11px 13px",borderRadius:12,border:"1px solid",
+                    background:ins.type==="positive"?"rgba(34,197,94,.06)":ins.type==="warning"?"rgba(234,179,8,.06)":"rgba(59,130,246,.06)",
+                    borderColor:ins.type==="positive"?"rgba(34,197,94,.2)":ins.type==="warning"?"rgba(234,179,8,.2)":"rgba(59,130,246,.2)",
+                  }}>
+                    <span style={{fontSize:"1rem",flexShrink:0,lineHeight:1.3}}>{ins.icon}</span>
+                    <span style={{fontSize:".79rem",color:"var(--tx2)",lineHeight:1.55}}>{ins.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Run list for this month */}
+          <div className="f4" style={{marginBottom:14}}>
+            <SH title={`All Runs · ${fmtMonthLabel(selectedMonth)}`} sub={`${curRuns.length} total`}/>
+            {curRuns.sort((a,b)=>b.dateTs-a.dateTs).map((r,i)=>(
+              <div key={r.id} className={`c2 hov f${Math.min(i,4)}`} style={{padding:"11px 14px",marginBottom:8,cursor:"pointer"}} onClick={()=>onSelectAct(r)}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:7}}>
+                  <div style={{flex:1,minWidth:0,paddingRight:8}}>
+                    <div style={{fontWeight:600,fontSize:".88rem",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginBottom:2}}>{r.name}</div>
+                    <div style={{fontSize:".7rem",color:"var(--tx2)"}}>{fmtDateS(r.date)}{r.startTimeLocal?` · ${r.startTimeLocal}`:""}</div>
+                  </div>
+                  <span style={{background:`${rc(r.type)}15`,color:rc(r.type),padding:"2px 9px",borderRadius:20,fontSize:".66rem",fontWeight:700,flexShrink:0}}>{r.type}</span>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
+                  {[{l:"km",v:fmtKm(r.distanceKm)},{l:"time",v:fmtDur(r.movingTimeSec)},{l:"pace",v:`${fmtPace(r.avgPaceSecKm)}/km`}].map(x=>(
+                    <div key={x.l} style={{background:"var(--s1)",borderRadius:9,padding:"6px 7px",textAlign:"center"}}>
+                      <div className="num" style={{fontSize:".84rem",fontWeight:700}}>{x.v}</div>
+                      <div style={{fontSize:".58rem",color:"var(--tx2)",marginTop:2}}>{x.l}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Export button */}
+          <button className="btn b-gh" style={{width:"100%",padding:"12px",fontSize:".84rem",gap:8}}
+            onClick={()=>exportMonthReport(report, selectedMonth)}>
+            📄 Export Monthly Report (.txt)
+          </button>
+        </>
+      )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────
 // §P  APP ROOT
 // ─────────────────────────────────────────────────────────────────
 const NAVS=[
   {id:"home",    ic:"📊", l:"Dashboard"},
   {id:"runs",    ic:"🏃", l:"Activities"},
+  {id:"monthly", ic:"📅", l:"Monthly"},
   {id:"upload",  ic:"📁", l:"Upload"},
   {id:"settings",ic:"⚙️", l:"Settings"},
 ];
@@ -2543,15 +2940,16 @@ export default function App(){
               <button className="btn b-or" style={{padding:"6px 13px",fontSize:".78rem"}} onClick={()=>setTab("upload")}>+ Upload</button>
             </div>
           </div>
-          <div style={{display:"flex",background:"var(--s1)",border:"1px solid var(--bd)",borderRadius:11,padding:3,gap:3}}>
+          <div style={{display:"flex",background:"var(--s1)",border:"1px solid var(--bd)",borderRadius:11,padding:3,gap:2}}>
             {NAVS.map(n=>(
               <button key={n.id} className={`tab ${tab===n.id?"on":""}`}
-                style={{flex:1,padding:"7px 4px",fontSize:".72rem",position:"relative"}}
+                style={{flex:1,padding:"6px 2px",fontSize:".65rem",position:"relative"}}
                 onClick={()=>setTab(n.id)}>
-                {n.ic} {n.l}
-                {/* Red dot when HR profile not configured */}
+                <div style={{fontSize:".9rem",marginBottom:1}}>{n.ic}</div>
+                <div>{n.l}</div>
+                {/* Orange dot when HR profile not configured */}
                 {n.id==="settings" && !hrProfile?.age && !hrProfile?.maxHROverride && (
-                  <span style={{position:"absolute",top:4,right:6,width:6,height:6,borderRadius:"50%",background:"var(--or)",display:"block"}}/>
+                  <span style={{position:"absolute",top:4,right:6,width:5,height:5,borderRadius:"50%",background:"var(--or)",display:"block"}}/>
                 )}
               </button>
             ))}
@@ -2577,6 +2975,9 @@ export default function App(){
             acts.length===0
               ? <Empty onUpload={()=>setTab("upload")}/>
               : <ActivityList acts={acts} allActs={acts} onSelect={setDetail}/>
+          )}
+          {tab==="monthly" && (
+            <MonthlyReport acts={acts} onSelectAct={act=>{ setDetail(act); }}/>
           )}
           {tab==="upload" && (
             <Upload acts={acts} onAdd={addActs} onClearAll={clearAll} hrProfile={hrProfile}/>
