@@ -12,7 +12,7 @@ import {
 // ─────────────────────────────────────────────────────────────────
 // §A  GPX PARSER ENGINE
 // ─────────────────────────────────────────────────────────────────
-function parseGPX(xmlText, fileName) {
+function parseGPX(xmlText, fileName, hrProfile = null) {
   const doc = new DOMParser().parseFromString(xmlText, "application/xml");
   if (doc.querySelector("parsererror")) throw new Error("Invalid GPX file");
 
@@ -102,18 +102,28 @@ function parseGPX(xmlText, fileName) {
   // HR stats
   const hrVals=segs.map(s=>s.hr).filter(Boolean);
   const avgHR=hrVals.length?Math.round(hrVals.reduce((a,b)=>a+b)/hrVals.length):null;
-  const maxHR=hrVals.length?Math.max(...hrVals):null;
+  const actMaxHR=hrVals.length?Math.max(...hrVals):null;
 
-  // HR zones — with time in MINUTES per zone (not just %)
-  const hrZones=maxHR?[0,0,0,0,0].map((_,i)=>{
-    const lo=[.5,.6,.7,.8,.9][i]*maxHR, hi=[.6,.7,.8,.9,1.01][i]*maxHR;
-    // Calculate actual seconds spent in each zone
-    let zoneSec=0;
-    segs.forEach(s=>{ if(s.hr&&s.hr>=lo&&s.hr<hi&&s.dt>0&&s.dt<120) zoneSec+=s.dt; });
-    const zoneMin=parseFloat((zoneSec/60).toFixed(1));
-    const pct=hrVals.length?Math.round(hrVals.filter(h=>h>=lo&&h<hi).length/hrVals.length*100):0;
-    return {zone:`Z${i+1}`,label:["Easy","Aerobic","Tempo","Threshold","Max"][i],pct,minutes:zoneMin,color:["#3b82f6","#22c55e","#eab308","#f97316","#ef4444"][i]};
-  }):null;
+  // Determine maxHR to use for zone calculation:
+  // Priority: user manual override → user age formula → activity detected max
+  const userMaxHR = getMaxHR(hrProfile, actMaxHR);
+
+  // Compact HR samples: store {hr, sec} pairs for every segment with HR data
+  // (max 300 samples — enough to recompute zones with any future maxHR)
+  const hrSampleStep = Math.max(1, Math.floor(segs.length / 300));
+  const hrSamples = segs
+    .filter((_,i) => i % hrSampleStep === 0)
+    .filter(s => s.hr && s.dt > 0 && s.dt < 120)
+    .map(s => ({ hr: s.hr, sec: s.dt }));
+
+  // Compute zones using user profile maxHR (or activity max as fallback)
+  const hrZones = hrSamples.length > 0
+    ? computeZones(hrSamples, userMaxHR)
+    : null;
+
+  // Also expose the maxHR that was actually used — shown in UI for transparency
+  const maxHR = actMaxHR;
+  const hrMaxUsed = userMaxHR;
 
   // Split analysis — negative/positive split + consistency score
   const splitInsight = kmSplits.length >= 2 ? (() => {
@@ -194,6 +204,8 @@ function parseGPX(xmlText, fileName) {
     avgPaceSecKm:avgPaceSec, avgSpeedKmh:totalDist/movingTime*3.6,
     elevGainM:Math.round(elevGain), elevLossM:Math.round(elevLoss),
     avgHR, maxHR, avgCad,
+    hrSamples,   // compact HR series — lets zones be recomputed with any maxHR later
+    hrMaxUsed,   // the maxHR actually used for zone calculation (from user profile or activity)
     trainingLoad, loadLabel, loadColor,
     pointCount:pts.length,
     kmSplits, splitInsight, elevProfile, speedChart, hrZones, bestEfforts:BE,
@@ -410,14 +422,275 @@ function buildAnalytics(acts) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// §C  STORAGE
 // ─────────────────────────────────────────────────────────────────
-const KEY="runlytics_v8";
-const GOALS_KEY="runlytics_goals_v1";
-function loadActs(){ try{ return JSON.parse(localStorage.getItem(KEY)||"[]"); }catch{ return []; } }
-function saveActs(a){ try{ localStorage.setItem(KEY,JSON.stringify(a)); }catch(e){ console.warn("Storage full",e); } }
-function loadGoals(){ try{ return JSON.parse(localStorage.getItem(GOALS_KEY)||'{"weekly":30,"monthly":120}'); }catch{ return {weekly:30,monthly:120}; } }
-function saveGoals(g){ localStorage.setItem(GOALS_KEY,JSON.stringify(g)); }
+// §C  STORAGE  —  Versioned, migration-safe, corruption-resistant
+// ─────────────────────────────────────────────────────────────────
+
+// ── Stable keys — NEVER change these after first deployment ──────
+const STORAGE_KEY = "runlytics_data_v1";   // main activities store
+const GOALS_KEY   = "runlytics_goals_v1";  // goals store (separate)
+const SCHEMA_VER  = "1.0";                 // bump only when adding migrations below
+
+// ── Legacy keys that may exist from older builds ─────────────────
+const LEGACY_KEYS = ["runlytics_v8", "runlytics_activities_v2", "runlytics_v7"];
+
+// ── Activity field defaults (used during migration) ──────────────
+const ACTIVITY_DEFAULTS = {
+  id:             null,
+  name:           "Unnamed Run",
+  type:           "Run",
+  runClass:       "Easy",
+  date:           new Date().toISOString(),
+  dateTs:         Date.now(),
+  startTimeLocal: null,
+  endTimeLocal:   null,
+  startDateLocal: null,
+  hasTimestamps:  false,
+  distanceM:      0,
+  distanceKm:     0,
+  movingTimeSec:  0,
+  totalTimeSec:   0,
+  avgPaceSecKm:   null,
+  avgSpeedKmh:    0,
+  elevGainM:      0,
+  elevLossM:      0,
+  avgHR:          null,
+  maxHR:          null,
+  avgCad:         null,
+  hrSamples:      [],    // compact HR series for zone recomputation
+  hrMaxUsed:      null,  // maxHR used when zones were calculated
+  trainingLoad:   0,
+  loadLabel:      "Easy",
+  loadColor:      "#22c55e",
+  pointCount:     0,
+  kmSplits:       [],
+  splitInsight:   null,
+  elevProfile:    [],
+  speedChart:     [],
+  hrZones:        null,
+  bestEfforts:    {},
+  route:          [],
+  bounds:         null,
+  parsedAt:       Date.now(),
+};
+
+// ── Migrate a single activity: fill missing fields with defaults ──
+function migrateActivity(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const migrated = { ...ACTIVITY_DEFAULTS, ...raw };
+  // Ensure id always exists
+  if (!migrated.id) migrated.id = `migrated_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+  // Ensure dateTs is a number
+  if (!migrated.dateTs || isNaN(migrated.dateTs)) {
+    migrated.dateTs = raw.date ? new Date(raw.date).getTime() : Date.now();
+  }
+  // distanceKm fallback from distanceM
+  if (!migrated.distanceKm && migrated.distanceM) {
+    migrated.distanceKm = parseFloat((migrated.distanceM / 1000).toFixed(2));
+  }
+  // Ensure arrays are arrays
+  ["kmSplits","elevProfile","speedChart","route"].forEach(k => {
+    if (!Array.isArray(migrated[k])) migrated[k] = [];
+  });
+  return migrated;
+}
+
+// ── Migrate a raw array of activities (legacy format) ────────────
+function migrateOldData(oldArray) {
+  if (!Array.isArray(oldArray)) return [];
+  console.warn("[Runlytics] Migrating legacy data:", oldArray.length, "activities");
+  return oldArray.map(migrateActivity).filter(Boolean);
+}
+
+// ── Load activities with full migration pipeline ──────────────────
+function loadActs() {
+  try {
+    // 1. Try current versioned key
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+
+      // Versioned format: { version, data: [...] }
+      if (parsed && parsed.version && Array.isArray(parsed.data)) {
+        // Future migrations go here:
+        // if (parsed.version === "1.0") return migrate_1_0_to_1_1(parsed.data)
+        return parsed.data.map(migrateActivity).filter(Boolean);
+      }
+
+      // Old format: bare array stored under the new key
+      if (Array.isArray(parsed)) {
+        const migrated = migrateOldData(parsed);
+        saveActs(migrated); // re-save in versioned format
+        return migrated;
+      }
+    }
+
+    // 2. Nothing at current key — check all legacy keys
+    for (const legacyKey of LEGACY_KEYS) {
+      const legacyRaw = localStorage.getItem(legacyKey);
+      if (!legacyRaw) continue;
+      try {
+        const legacyParsed = JSON.parse(legacyRaw);
+        const source = Array.isArray(legacyParsed) ? legacyParsed
+          : (legacyParsed?.data && Array.isArray(legacyParsed.data)) ? legacyParsed.data
+          : null;
+        if (source && source.length > 0) {
+          console.warn(`[Runlytics] Found legacy data at "${legacyKey}" (${source.length} activities) — migrating…`);
+          const migrated = migrateOldData(source);
+          saveActs(migrated); // save under new stable key
+          return migrated;
+        }
+      } catch { /* skip corrupted legacy key */ }
+    }
+
+    return []; // fresh start — no data anywhere
+  } catch (e) {
+    console.error("[Runlytics] Failed to load activities — data may be corrupted:", e);
+    console.warn("[Runlytics] Starting with empty activity list to prevent crash");
+    return [];
+  }
+}
+
+// ── Save activities — always writes versioned wrapper ─────────────
+function saveActs(activities) {
+  try {
+    if (!Array.isArray(activities)) {
+      console.error("[Runlytics] saveActs: expected array, got", typeof activities);
+      return;
+    }
+    const payload = { version: SCHEMA_VER, savedAt: Date.now(), data: activities };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch (e) {
+    if (e.name === "QuotaExceededError") {
+      console.error("[Runlytics] localStorage full — consider exporting and clearing old data");
+    } else {
+      console.error("[Runlytics] Failed to save activities:", e);
+    }
+  }
+}
+
+// ── Goals storage ─────────────────────────────────────────────────
+const GOALS_DEFAULTS = { weekly: 30, monthly: 120 };
+
+function loadGoals() {
+  try {
+    const raw = localStorage.getItem(GOALS_KEY);
+    if (!raw) return { ...GOALS_DEFAULTS };
+    const parsed = JSON.parse(raw);
+    // Merge with defaults so new goal fields added later don't break
+    return { ...GOALS_DEFAULTS, ...parsed };
+  } catch {
+    console.warn("[Runlytics] Goals data corrupted — using defaults");
+    return { ...GOALS_DEFAULTS };
+  }
+}
+
+function saveGoals(goals) {
+  try {
+    localStorage.setItem(GOALS_KEY, JSON.stringify({ ...GOALS_DEFAULTS, ...goals }));
+  } catch (e) {
+    console.error("[Runlytics] Failed to save goals:", e);
+  }
+}
+
+// ── HR Profile storage (separate key — never touches activity data) ──
+const HR_PROFILE_KEY = "runlytics_hr_profile_v1";
+const HR_PROFILE_DEFAULTS = {
+  age:        null,   // number, e.g. 30
+  restingHR:  null,   // number bpm, optional
+  maxHROverride: null,// number bpm — if set, overrides 220-age formula
+};
+
+function loadHRProfile() {
+  try {
+    const raw = localStorage.getItem(HR_PROFILE_KEY);
+    if (!raw) return { ...HR_PROFILE_DEFAULTS };
+    return { ...HR_PROFILE_DEFAULTS, ...JSON.parse(raw) };
+  } catch {
+    return { ...HR_PROFILE_DEFAULTS };
+  }
+}
+
+function saveHRProfile(profile) {
+  try {
+    localStorage.setItem(HR_PROFILE_KEY, JSON.stringify({ ...HR_PROFILE_DEFAULTS, ...profile }));
+  } catch (e) {
+    console.error("[Runlytics] Failed to save HR profile:", e);
+  }
+}
+
+// ── Derive maxHR from profile (used at parse-time and display-time) ──
+function getMaxHR(hrProfile, activityMaxHR) {
+  if (hrProfile?.maxHROverride) return hrProfile.maxHROverride;  // manual override wins
+  if (hrProfile?.age)           return 220 - hrProfile.age;       // age formula
+  return activityMaxHR || 190;                                     // fallback to GPS-detected max
+}
+
+// Zone boundaries: fixed percentages applied to maxHR
+const ZONE_DEFS = [
+  { zone:"Z1", label:"Easy",      lo:.50, hi:.60, color:"#3b82f6" },
+  { zone:"Z2", label:"Aerobic",   lo:.60, hi:.70, color:"#22c55e" },
+  { zone:"Z3", label:"Tempo",     lo:.70, hi:.80, color:"#eab308" },
+  { zone:"Z4", label:"Threshold", lo:.80, hi:.90, color:"#f97316" },
+  { zone:"Z5", label:"Max",       lo:.90, hi:1.01, color:"#ef4444" },
+];
+
+// ── Compute HR zones from compact samples + a maxHR value ────────────
+// hrSamples: [{hr, sec}]  (stored on each activity parsed after this version)
+// Falls back gracefully to stored hrZones for older activities.
+function computeZones(hrSamples, maxHR) {
+  if (!hrSamples?.length || !maxHR) return null;
+  const totalSec = hrSamples.reduce((s, x) => s + x.sec, 0);
+  if (!totalSec) return null;
+  return ZONE_DEFS.map(z => {
+    const lo = z.lo * maxHR, hi = z.hi * maxHR;
+    let zoneSec = 0;
+    hrSamples.forEach(x => { if (x.hr >= lo && x.hr < hi) zoneSec += x.sec; });
+    const pct = Math.round(zoneSec / totalSec * 100);
+    const minutes = parseFloat((zoneSec / 60).toFixed(1));
+    return { ...z, pct, minutes };
+  });
+}
+
+// ── Export all data as a downloadable JSON backup ─────────────────
+function exportBackup(activities, goals) {
+  const backup = {
+    app:       "Runlytics",
+    version:   SCHEMA_VER,
+    exportedAt: new Date().toISOString(),
+    goals,
+    activities,
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = `runlytics-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Import backup JSON — merges with existing, no duplicates ──────
+function importBackup(jsonText, existingActs) {
+  const parsed = JSON.parse(jsonText); // let caller catch errors
+
+  // Accept both bare array and our backup envelope
+  const incoming = Array.isArray(parsed)          ? parsed
+    : Array.isArray(parsed.activities)             ? parsed.activities
+    : Array.isArray(parsed.data)                   ? parsed.data
+    : null;
+
+  if (!incoming) throw new Error("Unrecognised backup format — expected an array of activities");
+
+  const migrated = migrateOldData(incoming);
+
+  // Merge: keep existing, add any activities whose id doesn't already exist
+  const existingIds = new Set(existingActs.map(a => a.id));
+  const newOnes     = migrated.filter(a => a.id && !existingIds.has(a.id));
+  const merged      = [...existingActs, ...newOnes].sort((a,b) => b.dateTs - a.dateTs);
+
+  return { merged, added: newOnes.length, goals: parsed.goals || null };
+}
 
 // ─────────────────────────────────────────────────────────────────
 // §D  HELPERS
@@ -613,10 +886,27 @@ const RouteMap=({route,kmSplits,height=220})=>{
 // ─────────────────────────────────────────────────────────────────
 // §H  ACTIVITY DETAIL
 // ─────────────────────────────────────────────────────────────────
-const Detail=({act,allActs,onClose,onDelete})=>{
+const Detail=({act,allActs,onClose,onDelete,hrProfile})=>{
   const [tab,setTab]=useState("overview");
   const color=rc(act.type);
   const classColor=CLASS_COLOR[act.runClass]||"#6b7280";
+
+  // Recompute HR zones live using user profile maxHR (if hrSamples stored)
+  // Falls back to stored hrZones for older activities without hrSamples
+  const userMaxHR  = getMaxHR(hrProfile, act.maxHR);
+  const liveZones  = act.hrSamples?.length
+    ? computeZones(act.hrSamples, userMaxHR)
+    : null;
+  const displayZones = liveZones || act.hrZones;  // live recomputed > stored
+
+  // Zone computation source label shown in UI
+  const zonesSource = liveZones
+    ? (hrProfile?.maxHROverride
+        ? `Custom max HR: ${userMaxHR} bpm`
+        : hrProfile?.age
+          ? `Age-based max HR: ${userMaxHR} bpm (220 − ${hrProfile.age})`
+          : `Activity max HR: ${userMaxHR} bpm`)
+    : "Stored (re-upload to apply profile)";
 
   // Is this a personal best pace?
   const allPaces=allActs.filter(a=>a.avgPaceSecKm>0&&a.distanceKm>=5).map(a=>a.avgPaceSecKm);
@@ -951,7 +1241,7 @@ const Detail=({act,allActs,onClose,onDelete})=>{
 // ─────────────────────────────────────────────────────────────────
 // §I  UPLOAD SCREEN
 // ─────────────────────────────────────────────────────────────────
-const Upload=({acts,onAdd,onClearAll})=>{
+const Upload=({acts,onAdd,onClearAll,hrProfile})=>{
   const [over,setOver]=useState(false);
   const [queue,setQueue]=useState([]); // [{file,status,parsed,error}]
   const [saving,setSaving]=useState(false);
@@ -965,7 +1255,7 @@ const Upload=({acts,onAdd,onClearAll})=>{
     const results=await Promise.all(items.map(async item=>{
       try{
         const text=await item.file.text();
-        const parsed=parseGPX(text,item.file.name);
+        const parsed=parseGPX(text,item.file.name, hrProfile);
         // Duplicate check
         const isDupe=acts.some(a=>Math.abs(a.dateTs-parsed.dateTs)<60000&&Math.abs(a.distanceKm-parsed.distanceKm)<0.1);
         return {...item,status:isDupe?"duplicate":parsed.hasTimestamps?"preview":"preview",parsed,error:isDupe?"Already uploaded":null};
@@ -1061,8 +1351,45 @@ const Upload=({acts,onAdd,onClearAll})=>{
       </div>
 
       {acts.length>0&&(
-        <div style={{marginTop:20,textAlign:"center"}}>
-          <button className="btn b-rd" style={{padding:"9px 18px",fontSize:".78rem"}} onClick={()=>confirm(`Delete all ${acts.length} activities?`)&&onClearAll()}>
+        <div className="c2" style={{padding:14,marginTop:16}}>
+          <div style={{fontSize:".76rem",fontWeight:600,marginBottom:10}}>💾 Backup & Restore</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+            <button className="btn b-gh" style={{padding:"10px",fontSize:".8rem"}}
+              onClick={()=>exportBackup(acts,goals)}>
+              ⬇️ Export Backup
+            </button>
+            <label className="btn b-gh" style={{padding:"10px",fontSize:".8rem",cursor:"pointer"}}>
+              ⬆️ Import Backup
+              <input type="file" accept=".json" style={{display:"none"}} onChange={async e=>{
+                const file=e.target.files?.[0]; if(!file)return;
+                try{
+                  const text=await file.text();
+                  const {merged,added,goals:importedGoals}=importBackup(text,acts);
+                  // Only pass truly new activities to onAdd (no duplicates)
+                  const brandNew=merged.filter(m=>!acts.some(a=>a.id===m.id));
+                  if(brandNew.length>0) onAdd(brandNew);
+                  if(importedGoals&&setGoals){
+                    const updated={...goals,...importedGoals};
+                    setGoals(updated);
+                    saveGoals(updated);
+                  }
+                  alert(`✓ Imported ${added} new activit${added===1?"y":"ies"}${importedGoals?" + goals":""}.\n${merged.length-added} duplicates skipped.`);
+                }catch(err){
+                  alert("Import failed: "+err.message);
+                }
+                e.target.value="";
+              }}/>
+            </label>
+          </div>
+          <div style={{fontSize:".68rem",color:"var(--tx3)",lineHeight:1.5}}>
+            Export saves all your runs as a JSON file you can keep as a backup or transfer to another device. Import merges without deleting existing data.
+          </div>
+        </div>
+      )}
+
+      {acts.length>0&&(
+        <div style={{marginTop:12,textAlign:"center"}}>
+          <button className="btn b-rd" style={{padding:"9px 18px",fontSize:".78rem"}} onClick={onClearAll}>
             🗑 Delete All Activities
           </button>
         </div>
@@ -1496,40 +1823,374 @@ const Empty=({onUpload})=>(
 );
 
 // ─────────────────────────────────────────────────────────────────
+// §Q  HR PROFILE EDITOR  (modal overlay)
+// ─────────────────────────────────────────────────────────────────
+const HRProfileEditor = ({ profile, onSave, onClose }) => {
+  const [age,       setAge]      = useState(profile.age       ?? "");
+  const [resting,   setResting]  = useState(profile.restingHR ?? "");
+  const [override,  setOverride] = useState(profile.maxHROverride ?? "");
+  const [useOverride, setUseOverride] = useState(!!profile.maxHROverride);
+
+  const ageNum      = parseInt(age)      || null;
+  const restingNum  = parseInt(resting)  || null;
+  const overrideNum = parseInt(override) || null;
+
+  // Live preview of maxHR that will be used
+  const previewMax = useOverride && overrideNum
+    ? overrideNum
+    : ageNum ? 220 - ageNum : null;
+
+  const previewZones = previewMax
+    ? ZONE_DEFS.map(z => ({
+        ...z,
+        lo_bpm: Math.round(z.lo * previewMax),
+        hi_bpm: Math.round(z.hi === 1.01 ? previewMax : z.hi * previewMax),
+      }))
+    : null;
+
+  const save = () => {
+    onSave({
+      age:           ageNum,
+      restingHR:     restingNum,
+      maxHROverride: useOverride ? overrideNum : null,
+    });
+    onClose();
+  };
+
+  const clear = () => { onSave({ ...HR_PROFILE_DEFAULTS }); onClose(); };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(6,8,14,.92)",zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div className="card" style={{width:"100%",maxWidth:430,borderRadius:"20px 20px 0 0",padding:"24px 20px 32px",maxHeight:"90vh",overflowY:"auto"}}>
+
+        {/* Header */}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:"1.05rem"}}>❤️ Heart Rate Profile</div>
+            <div style={{fontSize:".74rem",color:"var(--tx2)",marginTop:2}}>
+              Used to calculate personalised HR zones for every activity
+            </div>
+          </div>
+          <button className="btn b-gh" style={{padding:"6px 12px",fontSize:".8rem"}} onClick={onClose}>✕</button>
+        </div>
+
+        {/* Age input */}
+        <div style={{marginBottom:16}}>
+          <label style={{fontSize:".78rem",fontWeight:600,display:"block",marginBottom:6}}>
+            Age <span style={{color:"var(--or)"}}>*</span>
+            <span style={{fontWeight:400,color:"var(--tx2)",marginLeft:6}}>Used for 220 − age formula</span>
+          </label>
+          <input className="inp" type="number" min="10" max="100"
+            placeholder="e.g. 32"
+            value={age} onChange={e => setAge(e.target.value)}/>
+          {ageNum && !useOverride && (
+            <div style={{fontSize:".72rem",color:"var(--gn)",marginTop:5}}>
+              ✓ Calculated max HR: <strong>{220 - ageNum} bpm</strong>
+            </div>
+          )}
+        </div>
+
+        {/* Resting HR (optional) */}
+        <div style={{marginBottom:16}}>
+          <label style={{fontSize:".78rem",fontWeight:600,display:"block",marginBottom:6}}>
+            Resting Heart Rate
+            <span style={{fontWeight:400,color:"var(--tx2)",marginLeft:6}}>optional · bpm on waking</span>
+          </label>
+          <input className="inp" type="number" min="30" max="120"
+            placeholder="e.g. 55"
+            value={resting} onChange={e => setResting(e.target.value)}/>
+          {restingNum && previewMax && (
+            <div style={{fontSize:".72rem",color:"var(--tx2)",marginTop:5}}>
+              Heart Rate Reserve: {previewMax - restingNum} bpm
+              &nbsp;· Useful for Karvonen-method training in the future
+            </div>
+          )}
+        </div>
+
+        {/* Max HR override */}
+        <div style={{marginBottom:20}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+            <button
+              onClick={() => setUseOverride(v => !v)}
+              style={{
+                width:36, height:20, borderRadius:10, border:"none", cursor:"pointer",
+                background: useOverride ? "var(--or)" : "var(--bd)",
+                position:"relative", transition:"background .2s", flexShrink:0,
+              }}>
+              <div style={{
+                position:"absolute", top:2, left: useOverride ? 18 : 2,
+                width:16, height:16, borderRadius:"50%", background:"#fff",
+                transition:"left .2s",
+              }}/>
+            </button>
+            <label style={{fontSize:".78rem",fontWeight:600,cursor:"pointer"}} onClick={() => setUseOverride(v=>!v)}>
+              Use custom max HR
+              <span style={{fontWeight:400,color:"var(--tx2)",marginLeft:6}}>overrides the formula</span>
+            </label>
+          </div>
+          {useOverride && (
+            <input className="inp" type="number" min="140" max="230"
+              placeholder="e.g. 185 — from a max effort test or lab result"
+              value={override} onChange={e => setOverride(e.target.value)}/>
+          )}
+          {useOverride && overrideNum && (
+            <div style={{fontSize:".72rem",color:"var(--or)",marginTop:5}}>
+              ✓ Custom max HR: <strong>{overrideNum} bpm</strong> — overrides formula
+            </div>
+          )}
+        </div>
+
+        {/* Live zone preview */}
+        {previewZones ? (
+          <div style={{marginBottom:20}}>
+            <div style={{fontSize:".76rem",fontWeight:600,marginBottom:10}}>
+              Zone preview — max HR: <span style={{color:"var(--or)"}}>{previewMax} bpm</span>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {previewZones.map(z => (
+                <div key={z.zone} style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:24,flexShrink:0}}>
+                    <span className="badge" style={{background:`${z.color}18`,color:z.color,padding:"2px 6px"}}>{z.zone}</span>
+                  </div>
+                  <div style={{flex:1,fontSize:".78rem",color:"var(--tx2)"}}>{z.label}</div>
+                  <div className="num" style={{fontSize:".88rem",fontWeight:700,color:z.color,minWidth:90,textAlign:"right"}}>
+                    {z.lo_bpm} – {z.hi_bpm} bpm
+                  </div>
+                  <div style={{width:60}}>
+                    <div className="pb" style={{height:4}}>
+                      <div className="pf" style={{width:`${(z.hi - z.lo) / 0.5 * 100}%`, background:z.color}}/>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{marginBottom:20,padding:"12px 14px",background:"var(--s3)",borderRadius:12,fontSize:".78rem",color:"var(--tx2)"}}>
+            Enter your age above to preview your personalised HR zones.
+          </div>
+        )}
+
+        {/* Note about existing activities */}
+        <div style={{marginBottom:20,padding:"10px 13px",background:"var(--bl2)",border:"1px solid rgba(59,130,246,.2)",borderRadius:10,fontSize:".74rem",color:"var(--bl)"}}>
+          💡 <strong>Existing activities</strong> will show updated zones instantly if they contain HR data.
+          New uploads will use these zones automatically.
+        </div>
+
+        {/* Buttons */}
+        <div style={{display:"flex",gap:8}}>
+          <button className="btn b-gh" style={{padding:"12px 16px",fontSize:".82rem"}} onClick={clear}>
+            Clear Profile
+          </button>
+          <button className="btn b-or" style={{flex:1,padding:"12px",fontSize:".9rem"}} onClick={save}
+            disabled={!ageNum && !(useOverride && overrideNum)}>
+            Save Profile
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────
+// §R  SETTINGS SCREEN
+// ─────────────────────────────────────────────────────────────────
+const SettingsScreen = ({ acts, goals, hrProfile, onEditGoals, onEditHR, onClearAll }) => {
+  const totalKm  = acts.reduce((s,a) => s + a.distanceKm, 0);
+  const withHR   = acts.filter(a => a.avgHR).length;
+  const withRoute= acts.filter(a => a.route?.length > 2).length;
+
+  const userMaxHR = getMaxHR(hrProfile, null);
+  const hrConfigured = !!(hrProfile?.age || hrProfile?.maxHROverride);
+
+  return (
+    <div style={{paddingTop:16,paddingBottom:32}}>
+
+      {/* HR Profile card */}
+      <div className="card f0" style={{padding:18,marginBottom:14,border: hrConfigured ? "1px solid rgba(249,115,22,.25)" : "1px solid var(--bd)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:".96rem",marginBottom:3}}>❤️ Heart Rate Profile</div>
+            <div style={{fontSize:".74rem",color:"var(--tx2)"}}>Personalises zone calculations for every activity</div>
+          </div>
+          <button className="btn b-or" style={{padding:"7px 14px",fontSize:".8rem",flexShrink:0}} onClick={onEditHR}>
+            {hrConfigured ? "Edit" : "Set Up"}
+          </button>
+        </div>
+
+        {hrConfigured ? (
+          <>
+            {/* Current profile summary */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+              {[
+                { l:"Age",           v: hrProfile.age     ? `${hrProfile.age} yr`   : "—",     c:"var(--tx)"  },
+                { l:"Resting HR",    v: hrProfile.restingHR ? `${hrProfile.restingHR} bpm` : "—", c:"var(--tx)" },
+                { l:"Max HR used",   v: `${userMaxHR} bpm`,
+                  c: hrProfile.maxHROverride ? "var(--or)" : "var(--gn)",
+                  note: hrProfile.maxHROverride ? "manual" : "formula" },
+              ].map(s=>(
+                <div key={s.l} className="c3" style={{padding:"10px 8px",textAlign:"center"}}>
+                  <div className="num" style={{fontSize:"1.1rem",fontWeight:800,color:s.c}}>{s.v}</div>
+                  <div style={{fontSize:".62rem",color:"var(--tx2)",marginTop:3}}>{s.l}</div>
+                  {s.note&&<div style={{fontSize:".6rem",color:s.c,marginTop:2,opacity:.8}}>{s.note}</div>}
+                </div>
+              ))}
+            </div>
+
+            {/* Mini zone reference */}
+            <div style={{fontSize:".72rem",fontWeight:600,color:"var(--tx2)",marginBottom:8}}>Your zones (bpm)</div>
+            <div style={{display:"flex",gap:4}}>
+              {ZONE_DEFS.map(z => {
+                const lo = Math.round(z.lo * userMaxHR);
+                const hi = Math.round(z.hi === 1.01 ? userMaxHR : z.hi * userMaxHR);
+                return (
+                  <div key={z.zone} style={{flex:1,textAlign:"center",padding:"6px 2px",background:`${z.color}12`,borderRadius:8,border:`1px solid ${z.color}28`}}>
+                    <div style={{fontSize:".65rem",fontWeight:700,color:z.color,marginBottom:2}}>{z.zone}</div>
+                    <div style={{fontSize:".58rem",color:"var(--tx2)",lineHeight:1.3}}>{lo}–{hi}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <div style={{padding:"14px 0 2px"}}>
+            <div style={{fontSize:".82rem",color:"var(--tx2)",lineHeight:1.7,marginBottom:10}}>
+              Without a profile, zones are estimated from the highest HR recorded in each activity — which may be inaccurate.
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:5}}>
+              {["Enter your age to use the 220−age formula","Or set a custom max HR from a lab or field test","Zones recalculate instantly across all uploaded activities"].map((t,i)=>(
+                <div key={i} style={{fontSize:".76rem",color:"var(--tx2)",display:"flex",gap:7}}>
+                  <span style={{color:"var(--or)",flexShrink:0}}>→</span>{t}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Distance Goals card */}
+      <div className="card f1" style={{padding:18,marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:".96rem",marginBottom:3}}>🎯 Distance Goals</div>
+            <div style={{fontSize:".74rem",color:"var(--tx2)"}}>Weekly and monthly km targets</div>
+          </div>
+          <button className="btn b-gh" style={{padding:"7px 14px",fontSize:".8rem"}} onClick={onEditGoals}>Edit</button>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          {[{l:"Weekly goal",v:`${goals.weekly} km`},{l:"Monthly goal",v:`${goals.monthly} km`}].map(s=>(
+            <div key={s.l} className="c3" style={{padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:".78rem",color:"var(--tx2)"}}>{s.l}</span>
+              <span className="num" style={{fontSize:"1rem",fontWeight:800,color:"var(--or)"}}>{s.v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Library stats */}
+      <div className="card f2" style={{padding:18,marginBottom:14}}>
+        <div style={{fontWeight:700,fontSize:".96rem",marginBottom:14}}>📚 Activity Library</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+          {[
+            {l:"Total activities",     v:acts.length},
+            {l:"Total distance",       v:`${parseFloat(totalKm.toFixed(1))} km`},
+            {l:"With HR data",         v:withHR},
+            {l:"With GPS route",       v:withRoute},
+            {l:"Storage used",         v:`${Math.round(JSON.stringify(acts).length/1024)} KB`},
+            {l:"Schema version",       v:"v1.0"},
+          ].map(s=>(
+            <div key={s.l} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid var(--bd)"}}>
+              <span style={{fontSize:".78rem",color:"var(--tx2)"}}>{s.l}</span>
+              <span className="num" style={{fontSize:".88rem",fontWeight:700}}>{s.v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* About */}
+      <div className="card f3" style={{padding:18,marginBottom:14}}>
+        <div style={{fontWeight:700,fontSize:".96rem",marginBottom:12}}>ℹ️ About Runlytics</div>
+        {[
+          ["Version",      "v9.0"],
+          ["Data storage", "Browser localStorage (private)"],
+          ["Backend",      "None — 100% offline"],
+          ["HR zones",     "Z1 50–60% · Z2 60–70% · Z3 70–80% · Z4 80–90% · Z5 90–100%"],
+          ["Predictions",  "Riegel formula (T2 = T1 × (D2/D1)^1.06)"],
+          ["Elev filter",  "Gaussian smoothing + 3m noise threshold"],
+        ].map(([k,v],i,a)=>(
+          <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"8px 0",borderBottom:i<a.length-1?"1px solid var(--bd)":"none",gap:10}}>
+            <span style={{fontSize:".78rem",color:"var(--tx2)",flexShrink:0}}>{k}</span>
+            <span style={{fontSize:".76rem",textAlign:"right",lineHeight:1.5}}>{v}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Danger zone */}
+      <div className="card f4" style={{padding:18,border:"1px solid rgba(239,68,68,.15)"}}>
+        <div style={{fontWeight:700,fontSize:".96rem",color:"var(--rd)",marginBottom:12}}>⚠️ Data</div>
+        <div style={{fontSize:".78rem",color:"var(--tx2)",marginBottom:14,lineHeight:1.6}}>
+          All activities are stored locally in your browser. Clearing activities removes them permanently — export your data first if needed.
+        </div>
+        <button className="btn b-rd" style={{width:"100%",padding:"12px",fontSize:".86rem"}} onClick={onClearAll}>
+          🗑 Delete All Activities
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────
 // §P  APP ROOT
 // ─────────────────────────────────────────────────────────────────
-const NAVS=[{id:"home",ic:"📊",l:"Dashboard"},{id:"runs",ic:"🏃",l:"Activities"},{id:"upload",ic:"📁",l:"Upload"}];
+const NAVS=[
+  {id:"home",    ic:"📊", l:"Dashboard"},
+  {id:"runs",    ic:"🏃", l:"Activities"},
+  {id:"upload",  ic:"📁", l:"Upload"},
+  {id:"settings",ic:"⚙️", l:"Settings"},
+];
 
 export default function App(){
-  const [acts,setActs]=useState(()=>loadActs());
-  const [goals,setGoals]=useState(()=>loadGoals());
-  const [detail,setDetail]=useState(null);
-  const [tab,setTab]=useState("home");
-  const [showGoalEdit,setShowGoalEdit]=useState(false);
-  const scrollRef=useRef(null);
+  const [acts,       setActs]       = useState(()=>loadActs());
+  const [goals,      setGoals]      = useState(()=>loadGoals());
+  const [hrProfile,  setHRProfile]  = useState(()=>loadHRProfile());
+  const [detail,     setDetail]     = useState(null);
+  const [tab,        setTab]        = useState("home");
+  const [showGoalEdit, setShowGoalEdit] = useState(false);
+  const [showHREdit,   setShowHREdit]   = useState(false);
+  const scrollRef = useRef(null);
 
-  useEffect(()=>{ saveActs(acts); },[acts]);
-  useEffect(()=>{ scrollRef.current?.scrollTo({top:0}); },[tab,detail]);
+  useEffect(()=>{ saveActs(acts); }, [acts]);
+  useEffect(()=>{ scrollRef.current?.scrollTo({top:0}); }, [tab, detail]);
 
-  const analytics=useMemo(()=>buildAnalytics(acts),[acts]);
+  const analytics = useMemo(()=>buildAnalytics(acts), [acts]);
 
-  const addActs=useCallback(parsed=>{
-    setActs(prev=>{
-      const merged=[...parsed,...prev];
-      merged.sort((a,b)=>b.dateTs-a.dateTs);
+  const addActs = useCallback(parsed => {
+    setActs(prev => {
+      const merged = [...parsed, ...prev];
+      merged.sort((a,b) => b.dateTs - a.dateTs);
       return merged;
     });
     setTab("home");
-  },[]);
+  }, []);
 
-  const deleteAct=useCallback(id=>{
-    setActs(p=>p.filter(a=>a.id!==id));
+  const deleteAct = useCallback(id => {
+    setActs(p => p.filter(a => a.id !== id));
     setDetail(null);
-  },[]);
+  }, []);
 
-  const clearAll=()=>{ setActs([]); localStorage.removeItem(KEY); };
+  const clearAll = () => {
+    if (!confirm(`Delete all ${acts.length} activities? This cannot be undone.\n\nTip: Export a backup first!`)) return;
+    setActs([]);
+    saveActs([]);
+  };
 
-  const saveGoalsHandler=g=>{ setGoals(g); saveGoals(g); };
+  const saveGoalsHandler  = g => { setGoals(g);     saveGoals(g);     };
+  const saveHRHandler     = p => { setHRProfile(p); saveHRProfile(p); };
+
+  // Notify user when HR profile is set but activities predate hrSamples feature
+  const legacyHRCount = hrProfile?.age
+    ? acts.filter(a => a.avgHR && !a.hrSamples?.length).length
+    : 0;
 
   return (
     <>
@@ -1537,17 +2198,25 @@ export default function App(){
       <div style={{maxWidth:430,margin:"0 auto",minHeight:"100vh",background:"var(--bg)",display:"flex",flexDirection:"column"}}>
 
         {/* Activity detail overlay */}
-        {detail&&(
+        {detail && (
           <Detail
             act={detail}
             allActs={acts}
+            hrProfile={hrProfile}
             onClose={()=>setDetail(null)}
             onDelete={id=>{ deleteAct(id); setDetail(null); }}
           />
         )}
 
         {/* Goal editor overlay */}
-        {showGoalEdit&&<GoalEditor goals={goals} onSave={saveGoalsHandler} onClose={()=>setShowGoalEdit(false)}/>}
+        {showGoalEdit && (
+          <GoalEditor goals={goals} onSave={saveGoalsHandler} onClose={()=>setShowGoalEdit(false)}/>
+        )}
+
+        {/* HR profile editor overlay */}
+        {showHREdit && (
+          <HRProfileEditor profile={hrProfile} onSave={saveHRHandler} onClose={()=>setShowHREdit(false)}/>
+        )}
 
         {/* Top bar */}
         <div style={{padding:"14px 18px 10px",borderBottom:"1px solid var(--bd)",background:"rgba(6,8,14,.95)",backdropFilter:"blur(16px)",position:"sticky",top:0,zIndex:50}}>
@@ -1560,33 +2229,59 @@ export default function App(){
               </div>
             </div>
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
-              {acts.length>0&&<span className="badge" style={{background:"var(--or2)",color:"var(--or)"}}>{acts.length} {acts.length===1?"run":"runs"}</span>}
-              {analytics.streak>0&&<span className="badge" style={{background:"rgba(249,115,22,.15)",color:"var(--or)"}}>🔥 {analytics.streak}d</span>}
+              {acts.length>0 && <span className="badge" style={{background:"var(--or2)",color:"var(--or)"}}>{acts.length} {acts.length===1?"run":"runs"}</span>}
+              {analytics.streak>0 && <span className="badge" style={{background:"rgba(249,115,22,.15)",color:"var(--or)"}}>🔥 {analytics.streak}d</span>}
               <button className="btn b-or" style={{padding:"6px 13px",fontSize:".78rem"}} onClick={()=>setTab("upload")}>+ Upload</button>
             </div>
           </div>
           <div style={{display:"flex",background:"var(--s1)",border:"1px solid var(--bd)",borderRadius:11,padding:3,gap:3}}>
             {NAVS.map(n=>(
-              <button key={n.id} className={`tab ${tab===n.id?"on":""}`} style={{flex:1,padding:"7px 4px",fontSize:".76rem"}} onClick={()=>setTab(n.id)}>
+              <button key={n.id} className={`tab ${tab===n.id?"on":""}`}
+                style={{flex:1,padding:"7px 4px",fontSize:".72rem",position:"relative"}}
+                onClick={()=>setTab(n.id)}>
                 {n.ic} {n.l}
+                {/* Red dot when HR profile not configured */}
+                {n.id==="settings" && !hrProfile?.age && !hrProfile?.maxHROverride && (
+                  <span style={{position:"absolute",top:4,right:6,width:6,height:6,borderRadius:"50%",background:"var(--or)",display:"block"}}/>
+                )}
               </button>
             ))}
           </div>
         </div>
 
+        {/* Legacy HR data notice */}
+        {legacyHRCount > 0 && tab === "settings" && (
+          <div style={{margin:"12px 16px 0",padding:"10px 14px",background:"rgba(234,179,8,.07)",border:"1px solid rgba(234,179,8,.2)",borderRadius:12,fontSize:".75rem",color:"var(--yw)"}}>
+            ⚠️ {legacyHRCount} activit{legacyHRCount===1?"y":"ies"} with HR data predate the samples feature.
+            Re-upload those GPX files to apply your profile zones.
+          </div>
+        )}
+
         {/* Content */}
         <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"0 16px"}}>
-          {tab==="home"&&(
+          {tab==="home" && (
             acts.length===0
               ? <Empty onUpload={()=>setTab("upload")}/>
               : <Dashboard acts={acts} analytics={analytics} goals={goals} onEditGoals={()=>setShowGoalEdit(true)} onSelectAct={setDetail}/>
           )}
-          {tab==="runs"&&(
+          {tab==="runs" && (
             acts.length===0
               ? <Empty onUpload={()=>setTab("upload")}/>
               : <ActivityList acts={acts} allActs={acts} onSelect={setDetail}/>
           )}
-          {tab==="upload"&&<Upload acts={acts} onAdd={addActs} onClearAll={clearAll}/>}
+          {tab==="upload" && (
+            <Upload acts={acts} onAdd={addActs} onClearAll={clearAll} hrProfile={hrProfile}/>
+          )}
+          {tab==="settings" && (
+            <SettingsScreen
+              acts={acts}
+              goals={goals}
+              hrProfile={hrProfile}
+              onEditGoals={()=>setShowGoalEdit(true)}
+              onEditHR={()=>setShowHREdit(true)}
+              onClearAll={clearAll}
+            />
+          )}
         </div>
       </div>
     </>
