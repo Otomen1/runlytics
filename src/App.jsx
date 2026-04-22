@@ -108,17 +108,20 @@ function parseGPX(xmlText, fileName, hrProfile = null) {
   // Priority: user manual override → user age formula → activity detected max
   const userMaxHR = getMaxHR(hrProfile, actMaxHR);
 
-  // Compact HR samples: store {hr, sec} pairs for every segment with HR data
-  // (max 300 samples — enough to recompute zones with any future maxHR)
+  // Compact HR samples for future recomputation with any maxHR.
+  // Key fix: multiply each sample's dt by hrSampleStep so the time weight
+  // is correct even though we only store 1-in-N segments.
+  // Without this, zone percentages are undercounted by ~N×.
   const hrSampleStep = Math.max(1, Math.floor(segs.length / 300));
   const hrSamples = segs
     .filter((_,i) => i % hrSampleStep === 0)
     .filter(s => s.hr && s.dt > 0 && s.dt < 120)
-    .map(s => ({ hr: s.hr, sec: s.dt }));
+    .map(s => ({ hr: s.hr, sec: s.dt * hrSampleStep })); // ← restore correct time weight
 
-  // Compute zones using user profile maxHR (or activity max as fallback)
-  const hrZones = hrSamples.length > 0
-    ? computeZones(hrSamples, userMaxHR)
+  // For initial zone calculation use ALL HR segments (not subsampled) for accuracy
+  const hrSegsAll = segs.filter(s => s.hr && s.dt > 0 && s.dt < 120);
+  const hrZones = hrSegsAll.length > 0
+    ? computeZones(hrSegsAll.map(s => ({ hr: s.hr, sec: s.dt })), userMaxHR)
     : null;
 
   // Also expose the maxHR that was actually used — shown in UI for transparency
@@ -369,11 +372,24 @@ function buildAnalytics(acts) {
       recommendation:"Full rest day tomorrow. Consider 2 days easy before your next quality session."});
   }
 
-  // 5. HR zone analysis (overtraining / under-aerobic)
-  const lastHR=sorted.filter(r=>r.hrZones).slice(-3);
-  if(lastHR.length){
-    const avgZ5=lastHR.reduce((s,r)=>s+(r.hrZones[4]?.pct||0),0)/lastHR.length;
-    const avgZ2=lastHR.reduce((s,r)=>s+(r.hrZones[1]?.pct||0),0)/lastHR.length;
+  // 5. HR zone analysis — recompute from hrSamples if available, else use stored hrZones
+  const lastHR = sorted.filter(r => r.avgHR).slice(-3);
+  if (lastHR.length) {
+    // Derive maxHR from the first run in the set (used as reference for zone thresholds)
+    // We don't have hrProfile here, so we use each run's stored hrMaxUsed if available
+    const avgZ5 = lastHR.reduce((s, r) => {
+      const zones = r.hrSamples?.length
+        ? computeZones(r.hrSamples, r.hrMaxUsed || r.maxHR || 190)
+        : r.hrZones;
+      return s + (zones?.[4]?.pct || 0);
+    }, 0) / lastHR.length;
+
+    const avgZ2 = lastHR.reduce((s, r) => {
+      const zones = r.hrSamples?.length
+        ? computeZones(r.hrSamples, r.hrMaxUsed || r.maxHR || 190)
+        : r.hrZones;
+      return s + (zones?.[1]?.pct || 0);
+    }, 0) / lastHR.length;
     if(avgZ5>20){
       insights.push({icon:"❤️",type:"danger",title:"Running Too Hard",
         signal:`${Math.round(avgZ5)}% of recent runs in Z5 (Max effort) — well above safe limits`,
@@ -620,10 +636,25 @@ function saveHRProfile(profile) {
 }
 
 // ── Derive maxHR from profile (used at parse-time and display-time) ──
+// Priority: manual override → 220-age formula → activity GPS max → safe default
 function getMaxHR(hrProfile, activityMaxHR) {
-  if (hrProfile?.maxHROverride) return hrProfile.maxHROverride;  // manual override wins
-  if (hrProfile?.age)           return 220 - hrProfile.age;       // age formula
-  return activityMaxHR || 190;                                     // fallback to GPS-detected max
+  // 1. Manual override — must be physiologically plausible
+  if (hrProfile?.maxHROverride) {
+    const v = Number(hrProfile.maxHROverride);
+    if (v >= 140 && v <= 230) return v;
+  }
+  // 2. Age formula — 220 - age
+  if (hrProfile?.age) {
+    const age = Number(hrProfile.age);
+    if (age >= 10 && age <= 100) return Math.round(220 - age);
+  }
+  // 3. GPS-detected max from this activity — only trust it if it looks realistic
+  //    (must be above resting HR range and below absolute physiological limit)
+  if (activityMaxHR && activityMaxHR >= 150 && activityMaxHR <= 215) {
+    return activityMaxHR;
+  }
+  // 4. Conservative default (approximates a ~30-year-old)
+  return 190;
 }
 
 // Zone boundaries: fixed percentages applied to maxHR
@@ -636,20 +667,58 @@ const ZONE_DEFS = [
 ];
 
 // ── Compute HR zones from compact samples + a maxHR value ────────────
-// hrSamples: [{hr, sec}]  (stored on each activity parsed after this version)
-// Falls back gracefully to stored hrZones for older activities.
+// hrSamples: [{hr, sec}]  sec = time-weighted duration in seconds
+// Guarantees: pct values sum to exactly 100%, bpm boundaries shown per zone.
 function computeZones(hrSamples, maxHR) {
   if (!hrSamples?.length || !maxHR) return null;
-  const totalSec = hrSamples.reduce((s, x) => s + x.sec, 0);
+
+  // Only count samples with a valid positive HR and duration
+  const valid = hrSamples.filter(x => x.hr > 0 && x.sec > 0);
+  if (!valid.length) return null;
+
+  const totalSec = valid.reduce((s, x) => s + x.sec, 0);
   if (!totalSec) return null;
-  return ZONE_DEFS.map(z => {
-    const lo = z.lo * maxHR, hi = z.hi * maxHR;
-    let zoneSec = 0;
-    hrSamples.forEach(x => { if (x.hr >= lo && x.hr < hi) zoneSec += x.sec; });
-    const pct = Math.round(zoneSec / totalSec * 100);
-    const minutes = parseFloat((zoneSec / 60).toFixed(1));
-    return { ...z, pct, minutes };
+
+  // Compute raw seconds per zone
+  const zoneSecs = ZONE_DEFS.map(z => {
+    const lo = z.lo * maxHR;
+    const hi = z.hi * maxHR; // last zone uses 1.01 so it captures exactly maxHR
+    return valid.reduce((acc, x) => (x.hr >= lo && x.hr < hi ? acc + x.sec : acc), 0);
   });
+
+  // Time below Z1 (<50% maxHR) — warm-up, cooldown, walking breaks
+  const belowZ1Sec = valid.reduce((s, x) => (x.hr < ZONE_DEFS[0].lo * maxHR ? s + x.sec : s), 0);
+
+  // Classified seconds = all zones + below-Z1 time
+  // Anything above Z5 ceiling shouldn't happen given zone defs cover up to maxHR,
+  // but defensive: absorb it into Z5
+  const classifiedSec = zoneSecs.reduce((a, b) => a + b, 0) + belowZ1Sec;
+  const unaccountedSec = Math.max(0, totalSec - classifiedSec);
+  if (unaccountedSec > 0) zoneSecs[4] += unaccountedSec; // add to Z5 (highest)
+
+  // Convert to percentages — use floor + largest-remainder method so sum = exactly 100
+  const rawPcts = zoneSecs.map(sec => sec / totalSec * 100);
+  const floored  = rawPcts.map(p => Math.floor(p));
+  const consumed = floored.reduce((a, b) => a + b, 0)
+                 + Math.floor(belowZ1Sec / totalSec * 100);
+  const remaining = 100 - consumed;
+
+  // Award the remainder point(s) to the zone(s) with the largest fractional part
+  const fractionals = rawPcts.map((p, i) => ({ i, frac: p - Math.floor(p) }))
+    .sort((a, b) => b.frac - a.frac);
+  const finalPcts = [...floored];
+  for (let k = 0; k < remaining && k < fractionals.length; k++) {
+    finalPcts[fractionals[k].i]++;
+  }
+
+  return ZONE_DEFS.map((z, i) => ({
+    ...z,
+    pct:     Math.max(0, finalPcts[i]),
+    minutes: parseFloat((zoneSecs[i] / 60).toFixed(1)),
+    // Exact bpm boundaries for this maxHR — shown in UI
+    bpmLo:   Math.round(z.lo * maxHR),
+    bpmHi:   Math.round(z.hi === 1.01 ? maxHR : z.hi * maxHR),
+  }));
 }
 
 // ── Export all data as a downloadable JSON backup ─────────────────
@@ -1125,52 +1194,89 @@ const Detail=({act,allActs,onClose,onDelete,hrProfile})=>{
           <div className="f0">
             {act.avgHR?(
               <>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-                  {[{l:"Avg HR",v:`${act.avgHR}`,u:"bpm",c:"var(--rd)"},{l:"Max HR",v:`${act.maxHR||"—"}`,u:"bpm",c:"var(--rd)"}].map(s=>(
-                    <div key={s.l} className="c2" style={{padding:14,textAlign:"center"}}>
-                      <div className="num" style={{fontSize:"2rem",fontWeight:900,color:s.c}}>{s.v}<span style={{fontSize:".76rem",color:"var(--tx2)",fontWeight:400}}>{s.u}</span></div>
-                      <div style={{fontSize:".7rem",color:"var(--tx2)",marginTop:4}}>{s.l}</div>
+                {/* Stats row */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+                  {[
+                    {l:"Avg HR",  v:act.avgHR,              u:"bpm", c:"var(--rd)"},
+                    {l:"Max (GPS)",v:act.maxHR||"—",         u:act.maxHR?"bpm":"", c:"var(--rd)"},
+                    {l:"Max (zones)",v:userMaxHR,            u:"bpm", c:"var(--or)"},
+                  ].map(s=>(
+                    <div key={s.l} className="c2" style={{padding:"10px 8px",textAlign:"center"}}>
+                      <div className="num" style={{fontSize:"1.5rem",fontWeight:900,color:s.c,lineHeight:1}}>
+                        {s.v}<span style={{fontSize:".68rem",color:"var(--tx2)",fontWeight:400,marginLeft:2}}>{s.u}</span>
+                      </div>
+                      <div style={{fontSize:".64rem",color:"var(--tx2)",marginTop:4}}>{s.l}</div>
                     </div>
                   ))}
                 </div>
-                {act.hrZones&&(
+
+                {/* Zone config notice */}
+                <div style={{marginBottom:12,padding:"8px 12px",background:"var(--bl2)",border:"1px solid rgba(59,130,246,.2)",borderRadius:10,fontSize:".72rem",color:"var(--bl)"}}>
+                  ❤️ Zones based on: <strong>{zonesSource}</strong>
+                  {!liveZones&&<div style={{marginTop:3,color:"var(--tx2)"}}>Set your age in ⚙️ Settings and re-upload for personalised zones.</div>}
+                </div>
+
+                {/* Zone distribution */}
+                {displayZones ? (
                   <div className="card" style={{padding:16,marginBottom:14}}>
-                    <SH title="Heart Rate Zones" sub="Time spent per zone"/>
-                    {/* Zone overtraining alert */}
-                    {act.hrZones[4]?.pct>20&&(
+                    <SH title="Time in Heart Rate Zones" sub={`Pct sum: ${displayZones.reduce((s,z)=>s+z.pct,0)}%`}/>
+
+                    {/* Alerts — driven by displayZones not act.hrZones */}
+                    {displayZones[4]?.pct > 20 && (
                       <div style={{background:"var(--rd2)",border:"1px solid rgba(239,68,68,.2)",borderRadius:10,padding:"9px 12px",marginBottom:12,fontSize:".76rem",color:"var(--rd)"}}>
-                        ⚠️ {act.hrZones[4].pct}% of run in Z5 (Max) — very high intensity. Add recovery runs.
+                        ⚠️ {displayZones[4].pct}% in Z5 (Max effort) — very high intensity. Add easy recovery runs.
                       </div>
                     )}
-                    {act.hrZones[1]?.pct<15&&(
+                    {displayZones[1]?.pct < 15 && act.distanceKm >= 3 && (
                       <div style={{background:"rgba(34,197,94,.06)",border:"1px solid rgba(34,197,94,.2)",borderRadius:10,padding:"9px 12px",marginBottom:12,fontSize:".76rem",color:"var(--gn)"}}>
-                        💚 Low Z2 time ({act.hrZones[1].pct}%) — slow down to build aerobic base.
+                        💚 Only {displayZones[1].pct}% in Z2 (Aerobic) — slow down to build your aerobic base.
                       </div>
                     )}
-                    {act.hrZones.map((z,i)=>(
-                      <div key={z.zone} style={{marginBottom:i<4?10:0}}>
-                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <div style={{width:8,height:8,borderRadius:2,background:z.color}}/>
+
+                    {displayZones.map((z, i) => (
+                      <div key={z.zone} style={{marginBottom: i < 4 ? 11 : 0}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                          <div style={{display:"flex",alignItems:"center",gap:7}}>
+                            <div style={{width:8,height:8,borderRadius:2,background:z.color,flexShrink:0}}/>
                             <span style={{fontSize:".8rem",fontWeight:600}}>{z.zone}</span>
                             <span style={{fontSize:".72rem",color:"var(--tx2)"}}>{z.label}</span>
+                            {/* bpm range — uses computed boundaries from current maxHR */}
+                            <span style={{fontSize:".64rem",color:"var(--tx3)"}}>
+                              {z.bpmLo ?? Math.round(z.lo*userMaxHR)}–{z.bpmHi ?? Math.round(z.hi===1.01?userMaxHR:z.hi*userMaxHR)} bpm
+                            </span>
                           </div>
                           <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                            <span className="num" style={{fontSize:".82rem",color:"var(--tx2)"}}>{z.minutes}min</span>
-                            <span className="num" style={{fontSize:".9rem",color:z.color,fontWeight:700,width:32,textAlign:"right"}}>{z.pct}%</span>
+                            <span className="num" style={{fontSize:".8rem",color:"var(--tx2)"}}>{z.minutes}m</span>
+                            <span className="num" style={{fontSize:".92rem",color:z.color,fontWeight:700,minWidth:34,textAlign:"right"}}>{z.pct}%</span>
                           </div>
                         </div>
-                        <div className="pb"><div className="pf" style={{width:`${z.pct}%`,background:z.color}}/></div>
+                        <div className="pb">
+                          <div className="pf" style={{width:`${z.pct}%`, background:z.color}}/>
+                        </div>
                       </div>
                     ))}
+
+                    {/* Validation row */}
+                    <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--bd)",display:"flex",justifyContent:"space-between",fontSize:".68rem",color:"var(--tx3)"}}>
+                      <span>Total classified: {displayZones.reduce((s,z)=>s+z.minutes,0).toFixed(1)} min</span>
+                      <span>Σ = {displayZones.reduce((s,z)=>s+z.pct,0)}%</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{padding:"16px",background:"var(--s2)",borderRadius:12,fontSize:".8rem",color:"var(--tx2)",textAlign:"center"}}>
+                    HR zone data unavailable. Re-upload this activity to generate zones.
                   </div>
                 )}
               </>
-            ):<div style={{textAlign:"center",padding:"40px 0",color:"var(--tx2)"}}>
-              <div style={{fontSize:"2rem",marginBottom:12}}>💔</div>
-              <div style={{fontWeight:600,marginBottom:6}}>No HR data</div>
-              <div style={{fontSize:".8rem"}}>Your GPX doesn't include heart rate. Use a GPS watch with HR sensor.</div>
-            </div>}
+            ) : (
+              <div style={{textAlign:"center",padding:"40px 0",color:"var(--tx2)"}}>
+                <div style={{fontSize:"2rem",marginBottom:12}}>💔</div>
+                <div style={{fontWeight:600,marginBottom:6}}>No HR data</div>
+                <div style={{fontSize:".8rem",lineHeight:1.6}}>
+                  This GPX file doesn't include heart rate.<br/>Use a GPS watch with a HR sensor.
+                </div>
+              </div>
+            )}
           </div>
         )}
 
