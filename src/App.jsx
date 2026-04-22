@@ -965,21 +965,34 @@ const Detail=({act,allActs,onClose,onDelete,hrProfile})=>{
   const classColor=CLASS_COLOR[act.runClass]||"#6b7280";
 
   // Recompute HR zones live using user profile maxHR (if hrSamples stored)
-  // Falls back to stored hrZones for older activities without hrSamples
-  const userMaxHR  = getMaxHR(hrProfile, act.maxHR);
-  const liveZones  = act.hrSamples?.length
+  const userMaxHR = getMaxHR(hrProfile, act.maxHR);
+
+  // liveZones: recomputed from hrSamples with correct maxHR
+  const liveZones = act.hrSamples?.length
     ? computeZones(act.hrSamples, userMaxHR)
     : null;
-  const displayZones = liveZones || act.hrZones;  // live recomputed > stored
 
-  // Zone computation source label shown in UI
+  // For old activities (no hrSamples), check if the stored zones used a very
+  // different maxHR — if so, mark them as stale rather than show wrong data.
+  const storedMaxHR = act.hrMaxUsed || act.maxHR || null;
+  const maxHRMismatch = storedMaxHR && Math.abs(storedMaxHR - userMaxHR) > 5;
+
+  // Only show stored zones if they were computed with a similar maxHR to current.
+  // If mismatch: hide bars (they'd be wrong), show "re-upload" prompt instead.
+  const displayZones = liveZones
+    || (!maxHRMismatch && act.hrZones)
+    || null;
+
+  // Descriptive source label for the info banner
   const zonesSource = liveZones
     ? (hrProfile?.maxHROverride
         ? `Custom max HR: ${userMaxHR} bpm`
         : hrProfile?.age
-          ? `Age-based max HR: ${userMaxHR} bpm (220 − ${hrProfile.age})`
-          : `Activity max HR: ${userMaxHR} bpm`)
-    : "Stored (re-upload to apply profile)";
+          ? `Age formula: 220 − ${hrProfile.age} = ${userMaxHR} bpm`
+          : `Activity GPS max: ${userMaxHR} bpm`)
+    : maxHRMismatch
+      ? `⚠️ Stale — calculated with ${storedMaxHR} bpm, profile now uses ${userMaxHR} bpm`
+      : "Stored — re-upload to apply your HR profile";
 
   // Is this a personal best pace?
   const allPaces=allActs.filter(a=>a.avgPaceSecKm>0&&a.distanceKm>=5).map(a=>a.avgPaceSecKm);
@@ -1210,61 +1223,106 @@ const Detail=({act,allActs,onClose,onDelete,hrProfile})=>{
                   ))}
                 </div>
 
-                {/* Zone config notice */}
-                <div style={{marginBottom:12,padding:"8px 12px",background:"var(--bl2)",border:"1px solid rgba(59,130,246,.2)",borderRadius:10,fontSize:".72rem",color:"var(--bl)"}}>
-                  ❤️ Zones based on: <strong>{zonesSource}</strong>
-                  {!liveZones&&<div style={{marginTop:3,color:"var(--tx2)"}}>Set your age in ⚙️ Settings and re-upload for personalised zones.</div>}
+                {/* Zone config notice — colour-coded by quality */}
+                <div style={{marginBottom:12,padding:"9px 12px",
+                  background: liveZones ? "var(--bl2)" : maxHRMismatch ? "var(--or2)" : "var(--s3)",
+                  border: `1px solid ${liveZones ? "rgba(59,130,246,.2)" : maxHRMismatch ? "rgba(249,115,22,.3)" : "var(--bd)"}`,
+                  borderRadius:10,fontSize:".72rem",
+                  color: liveZones ? "var(--bl)" : maxHRMismatch ? "var(--or)" : "var(--tx2)"}}>
+                  ❤️ {liveZones ? "Zones based on:" : "Zone data:"} <strong style={{wordBreak:"break-all"}}>{zonesSource}</strong>
+                  {maxHRMismatch && (
+                    <div style={{marginTop:5,color:"var(--tx2)",lineHeight:1.6}}>
+                      The stored zone distribution was calculated using a different max HR.
+                      Re-upload this GPX file to see accurate zones based on your current profile.
+                    </div>
+                  )}
+                  {!liveZones && !maxHRMismatch && (
+                    <div style={{marginTop:3,color:"var(--tx2)"}}>
+                      Set your age in ⚙️ Settings and re-upload for personalised zones.
+                    </div>
+                  )}
                 </div>
 
                 {/* Zone distribution */}
                 {displayZones ? (
                   <div className="card" style={{padding:16,marginBottom:14}}>
-                    <SH title="Time in Heart Rate Zones" sub={`Pct sum: ${displayZones.reduce((s,z)=>s+z.pct,0)}%`}/>
+                    <SH title="Time in Heart Rate Zones" sub={`${displayZones.reduce((s,z)=>s+z.minutes,0).toFixed(1)} min total`}/>
 
-                    {/* Alerts — driven by displayZones not act.hrZones */}
-                    {displayZones[4]?.pct > 20 && (
+                    {/* Only show threshold alerts when zones are live-computed (not stale) */}
+                    {liveZones && displayZones[4]?.pct > 20 && (
                       <div style={{background:"var(--rd2)",border:"1px solid rgba(239,68,68,.2)",borderRadius:10,padding:"9px 12px",marginBottom:12,fontSize:".76rem",color:"var(--rd)"}}>
                         ⚠️ {displayZones[4].pct}% in Z5 (Max effort) — very high intensity. Add easy recovery runs.
                       </div>
                     )}
-                    {displayZones[1]?.pct < 15 && act.distanceKm >= 3 && (
+                    {liveZones && displayZones[1]?.pct < 15 && act.distanceKm >= 3 && (
                       <div style={{background:"rgba(34,197,94,.06)",border:"1px solid rgba(34,197,94,.2)",borderRadius:10,padding:"9px 12px",marginBottom:12,fontSize:".76rem",color:"var(--gn)"}}>
                         💚 Only {displayZones[1].pct}% in Z2 (Aerobic) — slow down to build your aerobic base.
                       </div>
                     )}
 
-                    {displayZones.map((z, i) => (
-                      <div key={z.zone} style={{marginBottom: i < 4 ? 11 : 0}}>
-                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
-                          <div style={{display:"flex",alignItems:"center",gap:7}}>
-                            <div style={{width:8,height:8,borderRadius:2,background:z.color,flexShrink:0}}/>
-                            <span style={{fontSize:".8rem",fontWeight:600}}>{z.zone}</span>
-                            <span style={{fontSize:".72rem",color:"var(--tx2)"}}>{z.label}</span>
-                            {/* bpm range — uses computed boundaries from current maxHR */}
-                            <span style={{fontSize:".64rem",color:"var(--tx3)"}}>
-                              {z.bpmLo ?? Math.round(z.lo*userMaxHR)}–{z.bpmHi ?? Math.round(z.hi===1.01?userMaxHR:z.hi*userMaxHR)} bpm
-                            </span>
-                          </div>
-                          <div style={{display:"flex",gap:8,alignItems:"center"}}>
-                            <span className="num" style={{fontSize:".8rem",color:"var(--tx2)"}}>{z.minutes}m</span>
-                            <span className="num" style={{fontSize:".92rem",color:z.color,fontWeight:700,minWidth:34,textAlign:"right"}}>{z.pct}%</span>
-                          </div>
-                        </div>
-                        <div className="pb">
-                          <div className="pf" style={{width:`${z.pct}%`, background:z.color}}/>
-                        </div>
-                      </div>
-                    ))}
+                    {displayZones.map((z, i) => {
+                      // Always derive bpm boundaries from ZONE_DEFS[i] + userMaxHR
+                      // (old stored zones don't have lo/hi fields → would give NaN)
+                      const def   = ZONE_DEFS[i];
+                      const bpmLo = z.bpmLo ?? Math.round(def.lo * userMaxHR);
+                      const bpmHi = z.bpmHi ?? Math.round(def.hi === 1.01 ? userMaxHR : def.hi * userMaxHR);
 
-                    {/* Validation row */}
+                      return (
+                        <div key={z.zone} style={{marginBottom: i < 4 ? 11 : 0}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                            <div style={{display:"flex",alignItems:"center",gap:7}}>
+                              <div style={{width:8,height:8,borderRadius:2,background:z.color,flexShrink:0}}/>
+                              <span style={{fontSize:".8rem",fontWeight:600}}>{z.zone}</span>
+                              <span style={{fontSize:".72rem",color:"var(--tx2)"}}>{z.label}</span>
+                              <span style={{fontSize:".64rem",color:"var(--tx3)"}}>
+                                {bpmLo}–{bpmHi} bpm
+                              </span>
+                            </div>
+                            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                              <span className="num" style={{fontSize:".8rem",color:"var(--tx2)"}}>{z.minutes}m</span>
+                              <span className="num" style={{fontSize:".92rem",color:z.color,fontWeight:700,minWidth:34,textAlign:"right"}}>{z.pct}%</span>
+                            </div>
+                          </div>
+                          <div className="pb">
+                            <div className="pf" style={{width:`${z.pct}%`, background:z.color,
+                              opacity: maxHRMismatch ? 0.45 : 1 /* dim stale bars */}}/>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Footer */}
                     <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--bd)",display:"flex",justifyContent:"space-between",fontSize:".68rem",color:"var(--tx3)"}}>
-                      <span>Total classified: {displayZones.reduce((s,z)=>s+z.minutes,0).toFixed(1)} min</span>
+                      <span>{liveZones ? "✓ Live-computed" : "⚠️ Stored data"} · max HR: {userMaxHR} bpm</span>
                       <span>Σ = {displayZones.reduce((s,z)=>s+z.pct,0)}%</span>
                     </div>
                   </div>
                 ) : (
-                  <div style={{padding:"16px",background:"var(--s2)",borderRadius:12,fontSize:".8rem",color:"var(--tx2)",textAlign:"center"}}>
-                    HR zone data unavailable. Re-upload this activity to generate zones.
+                  /* No displayZones — old activity with stale/wrong zones: show re-upload CTA */
+                  <div style={{padding:"20px 16px",background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:14,textAlign:"center"}}>
+                    <div style={{fontSize:"1.6rem",marginBottom:10}}>🔄</div>
+                    <div style={{fontWeight:700,fontSize:".9rem",marginBottom:6}}>Re-upload needed for accurate zones</div>
+                    <div style={{fontSize:".78rem",color:"var(--tx2)",lineHeight:1.6,marginBottom:14}}>
+                      This activity was recorded before the HR samples feature.
+                      To see zones calculated with your age ({hrProfile?.age ? `${hrProfile.age} yr → max HR ${userMaxHR} bpm` : "set in Settings"}),
+                      export the GPX from Strava/Garmin and upload it again.
+                    </div>
+                    {/* Show what the zone boundaries WOULD be with their profile */}
+                    <div style={{textAlign:"left"}}>
+                      <div style={{fontSize:".72rem",fontWeight:600,color:"var(--tx2)",marginBottom:8}}>
+                        Your zones at {userMaxHR} bpm max HR:
+                      </div>
+                      {ZONE_DEFS.map(z => (
+                        <div key={z.zone} style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
+                          <div style={{width:8,height:8,borderRadius:2,background:z.color,flexShrink:0}}/>
+                          <span style={{fontSize:".76rem",fontWeight:600,minWidth:24}}>{z.zone}</span>
+                          <span style={{fontSize:".74rem",color:"var(--tx2)",flex:1}}>{z.label}</span>
+                          <span style={{fontSize:".74rem",color:z.color,fontWeight:600}}>
+                            {Math.round(z.lo*userMaxHR)}–{Math.round(z.hi===1.01?userMaxHR:z.hi*userMaxHR)} bpm
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </>
