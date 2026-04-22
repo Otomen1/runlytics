@@ -176,17 +176,19 @@ function parseGPX(xmlText, fileName, hrProfile = null) {
   else if(avgPaceSec<420)runClass="Moderate";
 
   // ── Training Load Score (0–100) ──────────────────────────────────
-  // Formula: Duration(min) × (avgHR / estimatedMaxHR)
-  // If no HR data, estimate from pace effort (slower = less load)
-  const estimatedMaxHR = maxHR ? maxHR * (1/0.95) : 190; // assume avg HR is ~95% of max during run
+  // Formula: Duration(min) × (avgHR / mafHR) — uses MAF as effort reference
+  // If no HR: estimate from pace. If no profile: use GPS-detected max.
+  const mafRef = hrProfile?.maxHROverride
+    ? Number(hrProfile.maxHROverride)
+    : hrProfile?.age
+      ? Math.round(180 - Number(hrProfile.age))  // MAF formula
+      : maxHR && maxHR >= 130 ? maxHR : 145;     // fallback
   const durationMin = movingTime / 60;
   let trainingLoad = 0;
   if (avgHR && durationMin > 0) {
-    const hrRatio = avgHR / estimatedMaxHR;
-    // Raw load = duration × HR ratio, scaled to typical range
-    trainingLoad = Math.min(100, Math.round(durationMin * hrRatio * 1.2));
+    const hrRatio = avgHR / mafRef;
+    trainingLoad = Math.min(100, Math.round(durationMin * hrRatio * 1.1));
   } else if (durationMin > 0) {
-    // No HR: estimate from pace (faster relative pace = higher load)
     const paceEffort = avgPaceSec > 0 ? Math.max(0, Math.min(1, (600 - avgPaceSec) / 300)) : 0.5;
     trainingLoad = Math.min(100, Math.round(durationMin * 0.6 * (0.5 + paceEffort)));
   }
@@ -614,7 +616,7 @@ const HR_PROFILE_KEY = "runlytics_hr_profile_v1";
 const HR_PROFILE_DEFAULTS = {
   age:        null,   // number, e.g. 30
   restingHR:  null,   // number bpm, optional
-  maxHROverride: null,// number bpm — if set, overrides 220-age formula
+  maxHROverride: null,// number bpm — if set, overrides MAF (180-age) formula
 };
 
 function loadHRProfile() {
@@ -635,89 +637,87 @@ function saveHRProfile(profile) {
   }
 }
 
-// ── Derive maxHR from profile (used at parse-time and display-time) ──
-// Priority: manual override → 220-age formula → activity GPS max → safe default
+// ── Derive MAF HR from profile (used at parse-time and display-time) ──
+// MAF formula: 180 − age  (Phil Maffetone method)
+// Priority: manual override → MAF formula → GPS activity max → safe default
 function getMaxHR(hrProfile, activityMaxHR) {
-  // 1. Manual override — must be physiologically plausible
+  // 1. Manual override — physiologically plausible range
   if (hrProfile?.maxHROverride) {
     const v = Number(hrProfile.maxHROverride);
-    if (v >= 140 && v <= 230) return v;
+    if (v >= 100 && v <= 220) return v;
   }
-  // 2. Age formula — 220 - age
+  // 2. MAF formula: 180 - age
   if (hrProfile?.age) {
     const age = Number(hrProfile.age);
-    if (age >= 10 && age <= 100) return Math.round(220 - age);
+    if (age >= 10 && age <= 100) return Math.round(180 - age);
   }
-  // 3. GPS-detected max from this activity — only trust it if it looks realistic
-  //    (must be above resting HR range and below absolute physiological limit)
-  if (activityMaxHR && activityMaxHR >= 150 && activityMaxHR <= 215) {
+  // 3. GPS-detected max — only trust if physiologically reasonable
+  if (activityMaxHR && activityMaxHR >= 130 && activityMaxHR <= 215) {
     return activityMaxHR;
   }
-  // 4. Conservative default (approximates a ~30-year-old)
-  return 190;
+  // 4. Conservative default (approximates MAF for a ~35-year-old)
+  return 145;
 }
 
-// Zone boundaries: fixed percentages applied to maxHR
+// ── MAF-based HR Zone definitions ──────────────────────────────────
+// mafHR = 180 - age  (reference point, not a ceiling)
+// Zones are defined as absolute offsets from mafHR, NOT percentages.
+// This function returns ZONE_DEFS with bpm boundaries computed from mafHR.
+function getMafZoneDefs(mafHR) {
+  return [
+    { zone:"Z1", label:"Recovery",  lo:0,           hi:mafHR-10, color:"#3b82f6" },
+    { zone:"Z2", label:"Aerobic",   lo:mafHR-10,    hi:mafHR,    color:"#22c55e" },
+    { zone:"Z3", label:"Moderate",  lo:mafHR,       hi:mafHR+10, color:"#eab308" },
+    { zone:"Z4", label:"Hard",      lo:mafHR+10,    hi:mafHR+20, color:"#f97316" },
+    { zone:"Z5", label:"Max",       lo:mafHR+20,    hi:999,      color:"#ef4444" },
+  ];
+}
+
+// Legacy ZONE_DEFS kept for backward compat with old stored hrZones (pct-based)
 const ZONE_DEFS = [
-  { zone:"Z1", label:"Easy",      lo:.50, hi:.60, color:"#3b82f6" },
+  { zone:"Z1", label:"Recovery",  lo:.50, hi:.60, color:"#3b82f6" },
   { zone:"Z2", label:"Aerobic",   lo:.60, hi:.70, color:"#22c55e" },
-  { zone:"Z3", label:"Tempo",     lo:.70, hi:.80, color:"#eab308" },
-  { zone:"Z4", label:"Threshold", lo:.80, hi:.90, color:"#f97316" },
+  { zone:"Z3", label:"Moderate",  lo:.70, hi:.80, color:"#eab308" },
+  { zone:"Z4", label:"Hard",      lo:.80, hi:.90, color:"#f97316" },
   { zone:"Z5", label:"Max",       lo:.90, hi:1.01, color:"#ef4444" },
 ];
 
-// ── Compute HR zones from compact samples + a maxHR value ────────────
+// ── Compute HR zones from compact samples + a mafHR reference ────────
 // hrSamples: [{hr, sec}]  sec = time-weighted duration in seconds
-// Guarantees: pct values sum to exactly 100%, bpm boundaries shown per zone.
-function computeZones(hrSamples, maxHR) {
-  if (!hrSamples?.length || !maxHR) return null;
+// mafHR: 180 - age (or manual override).  Zones are absolute bpm offsets.
+// Guarantees: pct values sum to exactly 100%.
+function computeZones(hrSamples, mafHR) {
+  if (!hrSamples?.length || !mafHR) return null;
 
-  // Only count samples with a valid positive HR and duration
   const valid = hrSamples.filter(x => x.hr > 0 && x.sec > 0);
   if (!valid.length) return null;
 
   const totalSec = valid.reduce((s, x) => s + x.sec, 0);
   if (!totalSec) return null;
 
-  // Compute raw seconds per zone
-  const zoneSecs = ZONE_DEFS.map(z => {
-    const lo = z.lo * maxHR;
-    const hi = z.hi * maxHR; // last zone uses 1.01 so it captures exactly maxHR
-    return valid.reduce((acc, x) => (x.hr >= lo && x.hr < hi ? acc + x.sec : acc), 0);
+  const zoneDefs = getMafZoneDefs(mafHR);
+
+  // Seconds per zone using absolute bpm boundaries
+  const zoneSecs = zoneDefs.map(z => {
+    return valid.reduce((acc, x) => (x.hr >= z.lo && x.hr < z.hi ? acc + x.sec : acc), 0);
   });
 
-  // Time below Z1 (<50% maxHR) — warm-up, cooldown, walking breaks
-  const belowZ1Sec = valid.reduce((s, x) => (x.hr < ZONE_DEFS[0].lo * maxHR ? s + x.sec : s), 0);
+  // Largest-remainder rounding so pcts sum to exactly 100
+  const rawPcts  = zoneSecs.map(s => s / totalSec * 100);
+  const floored  = rawPcts.map(Math.floor);
+  const remainder = 100 - floored.reduce((a,b)=>a+b, 0);
+  rawPcts
+    .map((p, i) => ({ i, frac: p - Math.floor(p) }))
+    .sort((a,b) => b.frac - a.frac)
+    .slice(0, remainder)
+    .forEach(({ i }) => floored[i]++);
 
-  // Classified seconds = all zones + below-Z1 time
-  // Anything above Z5 ceiling shouldn't happen given zone defs cover up to maxHR,
-  // but defensive: absorb it into Z5
-  const classifiedSec = zoneSecs.reduce((a, b) => a + b, 0) + belowZ1Sec;
-  const unaccountedSec = Math.max(0, totalSec - classifiedSec);
-  if (unaccountedSec > 0) zoneSecs[4] += unaccountedSec; // add to Z5 (highest)
-
-  // Convert to percentages — use floor + largest-remainder method so sum = exactly 100
-  const rawPcts = zoneSecs.map(sec => sec / totalSec * 100);
-  const floored  = rawPcts.map(p => Math.floor(p));
-  const consumed = floored.reduce((a, b) => a + b, 0)
-                 + Math.floor(belowZ1Sec / totalSec * 100);
-  const remaining = 100 - consumed;
-
-  // Award the remainder point(s) to the zone(s) with the largest fractional part
-  const fractionals = rawPcts.map((p, i) => ({ i, frac: p - Math.floor(p) }))
-    .sort((a, b) => b.frac - a.frac);
-  const finalPcts = [...floored];
-  for (let k = 0; k < remaining && k < fractionals.length; k++) {
-    finalPcts[fractionals[k].i]++;
-  }
-
-  return ZONE_DEFS.map((z, i) => ({
+  return zoneDefs.map((z, i) => ({
     ...z,
-    pct:     Math.max(0, finalPcts[i]),
+    pct:     Math.max(0, floored[i]),
     minutes: parseFloat((zoneSecs[i] / 60).toFixed(1)),
-    // Exact bpm boundaries for this maxHR — shown in UI
-    bpmLo:   Math.round(z.lo * maxHR),
-    bpmHi:   Math.round(z.hi === 1.01 ? maxHR : z.hi * maxHR),
+    bpmLo:   Math.round(z.lo),
+    bpmHi:   z.hi === 999 ? null : Math.round(z.hi),
   }));
 }
 
@@ -988,7 +988,7 @@ const Detail=({act,allActs,onClose,onDelete,hrProfile})=>{
     ? (hrProfile?.maxHROverride
         ? `Custom max HR: ${userMaxHR} bpm`
         : hrProfile?.age
-          ? `Age formula: 220 − ${hrProfile.age} = ${userMaxHR} bpm`
+          ? `MAF formula: 180 − ${hrProfile.age} = ${userMaxHR} bpm`
           : `Activity GPS max: ${userMaxHR} bpm`)
     : maxHRMismatch
       ? `⚠️ Stale — calculated with ${storedMaxHR} bpm, profile now uses ${userMaxHR} bpm`
@@ -1261,11 +1261,12 @@ const Detail=({act,allActs,onClose,onDelete,hrProfile})=>{
                     )}
 
                     {displayZones.map((z, i) => {
-                      // Always derive bpm boundaries from ZONE_DEFS[i] + userMaxHR
-                      // (old stored zones don't have lo/hi fields → would give NaN)
-                      const def   = ZONE_DEFS[i];
-                      const bpmLo = z.bpmLo ?? Math.round(def.lo * userMaxHR);
-                      const bpmHi = z.bpmHi ?? Math.round(def.hi === 1.01 ? userMaxHR : def.hi * userMaxHR);
+                      // bpmLo/bpmHi are set by computeZones (MAF-absolute).
+                      // Fall back to getMafZoneDefs for old stored zones.
+                      const mafDef = getMafZoneDefs(userMaxHR)[i];
+                      const bpmLo  = z.bpmLo ?? Math.round(mafDef.lo);
+                      const bpmHi  = z.bpmHi ?? (mafDef.hi === 999 ? null : Math.round(mafDef.hi));
+                      const bpmLabel = bpmHi ? `${bpmLo}–${bpmHi} bpm` : `> ${bpmLo} bpm`;
 
                       return (
                         <div key={z.zone} style={{marginBottom: i < 4 ? 11 : 0}}>
@@ -1274,9 +1275,7 @@ const Detail=({act,allActs,onClose,onDelete,hrProfile})=>{
                               <div style={{width:8,height:8,borderRadius:2,background:z.color,flexShrink:0}}/>
                               <span style={{fontSize:".8rem",fontWeight:600}}>{z.zone}</span>
                               <span style={{fontSize:".72rem",color:"var(--tx2)"}}>{z.label}</span>
-                              <span style={{fontSize:".64rem",color:"var(--tx3)"}}>
-                                {bpmLo}–{bpmHi} bpm
-                              </span>
+                              <span style={{fontSize:".64rem",color:"var(--tx3)"}}>{bpmLabel}</span>
                             </div>
                             <div style={{display:"flex",gap:8,alignItems:"center"}}>
                               <span className="num" style={{fontSize:".8rem",color:"var(--tx2)"}}>{z.minutes}m</span>
@@ -1285,7 +1284,7 @@ const Detail=({act,allActs,onClose,onDelete,hrProfile})=>{
                           </div>
                           <div className="pb">
                             <div className="pf" style={{width:`${z.pct}%`, background:z.color,
-                              opacity: maxHRMismatch ? 0.45 : 1 /* dim stale bars */}}/>
+                              opacity: maxHRMismatch ? 0.45 : 1}}/>
                           </div>
                         </div>
                       );
@@ -1293,7 +1292,7 @@ const Detail=({act,allActs,onClose,onDelete,hrProfile})=>{
 
                     {/* Footer */}
                     <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid var(--bd)",display:"flex",justifyContent:"space-between",fontSize:".68rem",color:"var(--tx3)"}}>
-                      <span>{liveZones ? "✓ Live-computed" : "⚠️ Stored data"} · max HR: {userMaxHR} bpm</span>
+                      <span>{liveZones ? "✓ Live-computed" : "⚠️ Stored data"} · MAF: {userMaxHR} bpm</span>
                       <span>Σ = {displayZones.reduce((s,z)=>s+z.pct,0)}%</span>
                     </div>
                   </div>
@@ -1303,22 +1302,21 @@ const Detail=({act,allActs,onClose,onDelete,hrProfile})=>{
                     <div style={{fontSize:"1.6rem",marginBottom:10}}>🔄</div>
                     <div style={{fontWeight:700,fontSize:".9rem",marginBottom:6}}>Re-upload needed for accurate zones</div>
                     <div style={{fontSize:".78rem",color:"var(--tx2)",lineHeight:1.6,marginBottom:14}}>
-                      This activity was recorded before the HR samples feature.
-                      To see zones calculated with your age ({hrProfile?.age ? `${hrProfile.age} yr → max HR ${userMaxHR} bpm` : "set in Settings"}),
+                      This activity predates HR sample storage.
+                      To see MAF zones ({hrProfile?.age ? `180 − ${hrProfile.age} = ${userMaxHR} bpm` : "set your age in Settings"}),
                       export the GPX from Strava/Garmin and upload it again.
                     </div>
-                    {/* Show what the zone boundaries WOULD be with their profile */}
                     <div style={{textAlign:"left"}}>
                       <div style={{fontSize:".72rem",fontWeight:600,color:"var(--tx2)",marginBottom:8}}>
-                        Your zones at {userMaxHR} bpm max HR:
+                        Your MAF zones at {userMaxHR} bpm:
                       </div>
-                      {ZONE_DEFS.map(z => (
+                      {getMafZoneDefs(userMaxHR).map(z => (
                         <div key={z.zone} style={{display:"flex",alignItems:"center",gap:8,marginBottom:5}}>
                           <div style={{width:8,height:8,borderRadius:2,background:z.color,flexShrink:0}}/>
                           <span style={{fontSize:".76rem",fontWeight:600,minWidth:24}}>{z.zone}</span>
                           <span style={{fontSize:".74rem",color:"var(--tx2)",flex:1}}>{z.label}</span>
                           <span style={{fontSize:".74rem",color:z.color,fontWeight:600}}>
-                            {Math.round(z.lo*userMaxHR)}–{Math.round(z.hi===1.01?userMaxHR:z.hi*userMaxHR)} bpm
+                            {z.hi===999 ? `> ${Math.round(z.lo)} bpm` : `${Math.round(z.lo)}–${Math.round(z.hi)} bpm`}
                           </span>
                         </div>
                       ))}
@@ -2144,18 +2142,12 @@ const HRProfileEditor = ({ profile, onSave, onClose }) => {
   const restingNum  = parseInt(resting)  || null;
   const overrideNum = parseInt(override) || null;
 
-  // Live preview of maxHR that will be used
+  // Live preview of mafHR that will be used
   const previewMax = useOverride && overrideNum
     ? overrideNum
-    : ageNum ? 220 - ageNum : null;
+    : ageNum ? 180 - ageNum : null;   // MAF: 180 - age
 
-  const previewZones = previewMax
-    ? ZONE_DEFS.map(z => ({
-        ...z,
-        lo_bpm: Math.round(z.lo * previewMax),
-        hi_bpm: Math.round(z.hi === 1.01 ? previewMax : z.hi * previewMax),
-      }))
-    : null;
+  const previewZones = previewMax ? getMafZoneDefs(previewMax) : null;
 
   const save = () => {
     onSave({
@@ -2187,14 +2179,14 @@ const HRProfileEditor = ({ profile, onSave, onClose }) => {
         <div style={{marginBottom:16}}>
           <label style={{fontSize:".78rem",fontWeight:600,display:"block",marginBottom:6}}>
             Age <span style={{color:"var(--or)"}}>*</span>
-            <span style={{fontWeight:400,color:"var(--tx2)",marginLeft:6}}>Used for 220 − age formula</span>
+            <span style={{fontWeight:400,color:"var(--tx2)",marginLeft:6}}>Used for MAF formula: 180 − age</span>
           </label>
           <input className="inp" type="number" min="10" max="100"
             placeholder="e.g. 32"
             value={age} onChange={e => setAge(e.target.value)}/>
           {ageNum && !useOverride && (
             <div style={{fontSize:".72rem",color:"var(--gn)",marginTop:5}}>
-              ✓ Calculated max HR: <strong>{220 - ageNum} bpm</strong>
+              ✓ MAF heart rate: <strong>{180 - ageNum} bpm</strong> (180 − {ageNum})
             </div>
           )}
         </div>
@@ -2253,7 +2245,7 @@ const HRProfileEditor = ({ profile, onSave, onClose }) => {
         {previewZones ? (
           <div style={{marginBottom:20}}>
             <div style={{fontSize:".76rem",fontWeight:600,marginBottom:10}}>
-              Zone preview — max HR: <span style={{color:"var(--or)"}}>{previewMax} bpm</span>
+              Zone preview — MAF HR: <span style={{color:"var(--or)"}}>{previewMax} bpm</span>
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
               {previewZones.map(z => (
@@ -2262,13 +2254,8 @@ const HRProfileEditor = ({ profile, onSave, onClose }) => {
                     <span className="badge" style={{background:`${z.color}18`,color:z.color,padding:"2px 6px"}}>{z.zone}</span>
                   </div>
                   <div style={{flex:1,fontSize:".78rem",color:"var(--tx2)"}}>{z.label}</div>
-                  <div className="num" style={{fontSize:".88rem",fontWeight:700,color:z.color,minWidth:90,textAlign:"right"}}>
-                    {z.lo_bpm} – {z.hi_bpm} bpm
-                  </div>
-                  <div style={{width:60}}>
-                    <div className="pb" style={{height:4}}>
-                      <div className="pf" style={{width:`${(z.hi - z.lo) / 0.5 * 100}%`, background:z.color}}/>
-                    </div>
+                  <div className="num" style={{fontSize:".88rem",fontWeight:700,color:z.color,minWidth:110,textAlign:"right"}}>
+                    {z.hi === 999 ? `> ${Math.round(z.lo)} bpm` : `${Math.round(z.lo)}–${Math.round(z.hi)} bpm`}
                   </div>
                 </div>
               ))}
@@ -2346,19 +2333,19 @@ const SettingsScreen = ({ acts, goals, hrProfile, onEditGoals, onEditHR, onClear
               ))}
             </div>
 
-            {/* Mini zone reference */}
-            <div style={{fontSize:".72rem",fontWeight:600,color:"var(--tx2)",marginBottom:8}}>Your zones (bpm)</div>
+            {/* Mini zone reference — MAF-based absolute bpm */}
+            <div style={{fontSize:".72rem",fontWeight:600,color:"var(--tx2)",marginBottom:8}}>
+              Your zones (MAF: {userMaxHR} bpm)
+            </div>
             <div style={{display:"flex",gap:4}}>
-              {ZONE_DEFS.map(z => {
-                const lo = Math.round(z.lo * userMaxHR);
-                const hi = Math.round(z.hi === 1.01 ? userMaxHR : z.hi * userMaxHR);
-                return (
-                  <div key={z.zone} style={{flex:1,textAlign:"center",padding:"6px 2px",background:`${z.color}12`,borderRadius:8,border:`1px solid ${z.color}28`}}>
-                    <div style={{fontSize:".65rem",fontWeight:700,color:z.color,marginBottom:2}}>{z.zone}</div>
-                    <div style={{fontSize:".58rem",color:"var(--tx2)",lineHeight:1.3}}>{lo}–{hi}</div>
+              {getMafZoneDefs(userMaxHR).map(z => (
+                <div key={z.zone} style={{flex:1,textAlign:"center",padding:"6px 2px",background:`${z.color}12`,borderRadius:8,border:`1px solid ${z.color}28`}}>
+                  <div style={{fontSize:".65rem",fontWeight:700,color:z.color,marginBottom:2}}>{z.zone}</div>
+                  <div style={{fontSize:".56rem",color:"var(--tx2)",lineHeight:1.3}}>
+                    {z.hi===999 ? `>${Math.round(z.lo)}` : `${Math.round(z.lo)}–${Math.round(z.hi)}`}
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           </>
         ) : (
@@ -2367,7 +2354,7 @@ const SettingsScreen = ({ acts, goals, hrProfile, onEditGoals, onEditHR, onClear
               Without a profile, zones are estimated from the highest HR recorded in each activity — which may be inaccurate.
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:5}}>
-              {["Enter your age to use the 220−age formula","Or set a custom max HR from a lab or field test","Zones recalculate instantly across all uploaded activities"].map((t,i)=>(
+              {["Enter your age to use the MAF formula: 180 − age","Or set a custom max HR from a lab or field test","Zones recalculate instantly across all uploaded activities"].map((t,i)=>(
                 <div key={i} style={{fontSize:".76rem",color:"var(--tx2)",display:"flex",gap:7}}>
                   <span style={{color:"var(--or)",flexShrink:0}}>→</span>{t}
                 </div>
@@ -2420,10 +2407,11 @@ const SettingsScreen = ({ acts, goals, hrProfile, onEditGoals, onEditHR, onClear
       <div className="card f3" style={{padding:18,marginBottom:14}}>
         <div style={{fontWeight:700,fontSize:".96rem",marginBottom:12}}>ℹ️ About Runlytics</div>
         {[
-          ["Version",      "v9.0"],
+          ["Version",      "v9.1"],
           ["Data storage", "Browser localStorage (private)"],
           ["Backend",      "None — 100% offline"],
-          ["HR zones",     "Z1 50–60% · Z2 60–70% · Z3 70–80% · Z4 80–90% · Z5 90–100%"],
+          ["HR formula",   "MAF method: 180 − age"],
+          ["HR zones",     "Z1 Recovery · Z2 Aerobic (MAF) · Z3 Moderate · Z4 Hard · Z5 Max"],
           ["Predictions",  "Riegel formula (T2 = T1 × (D2/D1)^1.06)"],
           ["Elev filter",  "Gaussian smoothing + 3m noise threshold"],
         ].map(([k,v],i,a)=>(
@@ -2449,377 +2437,495 @@ const SettingsScreen = ({ acts, goals, hrProfile, onEditGoals, onEditHR, onClear
 };
 
 // ─────────────────────────────────────────────────────────────────
-// §S  MONTHLY REPORT
+// §S  MONTHLY REPORT  (read-only — never touches stored data)
 // ─────────────────────────────────────────────────────────────────
 
-// ── Build monthly analytics from stored activities (read-only) ────
-function buildMonthlyReport(acts, monthKey) {
-  const all  = acts.filter(a => a.distanceKm > 0);
-  const monthOf = ts => { const d=new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
-
-  // All available months sorted descending
-  const allMonths = [...new Set(all.map(a => monthOf(a.dateTs||new Date(a.date).getTime())))].sort().reverse();
-
-  // Current selection
-  const key  = monthKey || allMonths[0] || monthOf(Date.now());
-  const prevKey = (() => {
-    const [y,m] = key.split("-").map(Number);
-    const d = new Date(y, m-2, 1); // one month back
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-  })();
-
-  const runsFor = k => all.filter(a => monthOf(a.dateTs||new Date(a.date).getTime()) === k);
-  const cur  = runsFor(key);
-  const prev = runsFor(prevKey);
-
-  const stats = runs => {
-    if (!runs.length) return null;
-    const km      = runs.reduce((s,r)=>s+r.distanceKm,0);
-    const timeSec = runs.reduce((s,r)=>s+r.movingTimeSec,0);
-    const withPace= runs.filter(r=>r.avgPaceSecKm>0);
-    const avgPace = withPace.length ? withPace.reduce((s,r)=>s+r.avgPaceSecKm,0)/withPace.length : 0;
-    const withHR  = runs.filter(r=>r.avgHR);
-    const avgHR   = withHR.length ? Math.round(withHR.reduce((s,r)=>s+r.avgHR,0)/withHR.length) : null;
-    const elevGain= runs.reduce((s,r)=>s+(r.elevGainM||0),0);
-    const longest = runs.reduce((b,r)=>r.distanceKm>b.distanceKm?r:b);
-    const fastest = withPace.length ? withPace.reduce((b,r)=>r.avgPaceSecKm<b.avgPaceSecKm?r:b) : null;
-
-    // Weekly breakdown within this month
-    const weekOf  = ts => { const d=new Date(ts); d.setHours(0,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)); return d.getTime(); };
-    const wMap    = {};
-    runs.forEach(r=>{ const w=weekOf(r.dateTs||new Date(r.date).getTime()); if(!wMap[w])wMap[w]={km:0,runs:0}; wMap[w].km+=r.distanceKm; wMap[w].runs++; });
-    const weeks   = Object.entries(wMap).sort((a,b)=>a[0]-b[0]).map(([wTs,v])=>{
-      const d=new Date(+wTs); return { label:`${d.getDate()}/${d.getMonth()+1}`, km:parseFloat(v.km.toFixed(1)), runs:v.runs };
-    });
-
-    // Pace trend (sorted by date)
-    const paceTrend = withPace.sort((a,b)=>(a.dateTs||0)-(b.dateTs||0)).map(r=>({
-      date:fmtDateS(r.date), pace:parseFloat((r.avgPaceSecKm/60).toFixed(2))
-    }));
-
-    // Consistency: how many distinct weeks had at least 1 run
-    const totalWeeks = Math.ceil(runs.length > 0
-      ? (new Date(key.split("-")[0],key.split("-")[1],0).getTime() - new Date(key+"-01").getTime()) / (7*86400000) + 1
-      : 4);
-    const activeWeeks = Object.keys(wMap).length;
-    const consistency = Math.round(activeWeeks / Math.min(totalWeeks, 4) * 100);
-
-    return { km, timeSec, avgPace, avgHR, elevGain, longest, fastest, count:runs.length, weeks, paceTrend, activeWeeks, consistency };
-  };
-
-  const curStats  = stats(cur);
-  const prevStats = stats(prev);
-
-  // Delta helpers
-  const delta = (cur, prev) => (prev && cur) ? parseFloat(((cur-prev)/prev*100).toFixed(1)) : null;
-
-  const deltas = curStats && prevStats ? {
-    km:    delta(curStats.km,    prevStats.km),
-    pace:  delta(prevStats.avgPace, curStats.avgPace), // inverted: lower pace = better
-    hr:    delta(curStats.avgHR, prevStats.avgHR),
-    count: delta(curStats.count, prevStats.count),
-  } : null;
-
-  // Coach insights for this month
-  const insights = [];
-  if (curStats) {
-    // Mileage change
-    if (deltas?.km !== null) {
-      if (deltas.km > 30)
-        insights.push({ icon:"⚠️", type:"warning", text:`Mileage up ${deltas.km}% vs last month — watch for fatigue.` });
-      else if (deltas.km > 0)
-        insights.push({ icon:"📈", type:"positive", text:`Distance up ${deltas.km}% — solid progression.` });
-      else if (deltas.km < -20)
-        insights.push({ icon:"📉", type:"info", text:`Distance down ${Math.abs(deltas.km)}% — recovery month or life got busy?` });
-    }
-    // Pace trend
-    if (deltas?.pace !== null) {
-      if (deltas.pace > 3)
-        insights.push({ icon:"⚡", type:"positive", text:`Avg pace improved ${deltas.pace}% — fitness is building.` });
-      else if (deltas.pace < -3)
-        insights.push({ icon:"📉", type:"warning", text:`Avg pace slowed ${Math.abs(deltas.pace)}% — could signal fatigue or low mileage.` });
-    }
-    // HR at same pace
-    if (deltas?.hr !== null && deltas?.pace !== null) {
-      if (deltas.hr > 5 && deltas.pace < 2)
-        insights.push({ icon:"❤️", type:"warning", text:`HR rising at same pace — early fatigue signal. Prioritise recovery.` });
-      else if (deltas.hr < -3 && deltas.pace < 3)
-        insights.push({ icon:"💚", type:"positive", text:`HR lower at similar pace — aerobic fitness improving.` });
-    }
-    // Consistency
-    if (curStats.consistency < 50)
-      insights.push({ icon:"💤", type:"warning", text:`Low consistency (${curStats.activeWeeks} active week${curStats.activeWeeks!==1?"s":""}) — aim for 3+ runs/week.` });
-    else if (curStats.consistency >= 75)
-      insights.push({ icon:"🔥", type:"positive", text:`${curStats.activeWeeks} active weeks — excellent consistency this month!` });
-    // Volume-only (no prev)
-    if (!prevStats) {
-      if (curStats.km > 0) insights.push({ icon:"👟", type:"info", text:"First month on record. Keep stacking those runs!" });
-    }
-  }
-
-  return { allMonths, key, prevKey, curStats, prevStats, deltas, curRuns:cur, insights };
-}
-
-// ── Month picker dropdown ─────────────────────────────────────────
-const MonthPicker = ({ allMonths, selected, onChange }) => {
-  const fmt = k => { const [y,m]=k.split("-"); return new Date(+y,+m-1,1).toLocaleDateString("en-GB",{month:"long",year:"numeric"}); };
-  const idx = allMonths.indexOf(selected);
-  return (
-    <div style={{display:"flex",alignItems:"center",gap:8}}>
-      <button className="btn b-gh" style={{padding:"6px 10px",fontSize:".82rem"}}
-        disabled={idx >= allMonths.length-1}
-        onClick={()=>onChange(allMonths[idx+1])}>‹</button>
-      <select value={selected} onChange={e=>onChange(e.target.value)}
-        style={{flex:1,background:"var(--s2)",border:"1px solid var(--bd)",color:"var(--tx)",
-          borderRadius:9,padding:"7px 10px",fontSize:".84rem",fontFamily:"inherit",outline:"none",textAlign:"center"}}>
-        {allMonths.map(k=><option key={k} value={k}>{fmt(k)}</option>)}
-      </select>
-      <button className="btn b-gh" style={{padding:"6px 10px",fontSize:".82rem"}}
-        disabled={idx <= 0}
-        onClick={()=>onChange(allMonths[idx-1])}>›</button>
-    </div>
-  );
+// ── Date helpers ──────────────────────────────────────────────────
+const monthKey  = date => {                     // Date → "YYYY-MM"
+  const d = date instanceof Date ? date : new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+};
+const monthLabel= k => {                        // "YYYY-MM" → "April 2026"
+  if (!k) return "";
+  const [y,m] = k.split("-").map(Number);
+  return new Date(y, m-1, 1).toLocaleDateString("en-GB",{month:"long",year:"numeric"});
+};
+const monthShort= k => {                        // "YYYY-MM" → "Apr 26"
+  if (!k) return "";
+  const [y,m] = k.split("-").map(Number);
+  return new Date(y, m-1, 1).toLocaleDateString("en-GB",{month:"short",year:"2-digit"});
+};
+const prevMonthKey = k => {                     // "YYYY-MM" → previous "YYYY-MM"
+  if (!k) return "";
+  const [y,m] = k.split("-").map(Number);
+  const d = new Date(y, m-2, 1);               // m-2 because months are 0-indexed
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+};
+const isMonthComplete = k => {                  // true only after the 1st of next month
+  if (!k) return false;
+  const [y,m] = k.split("-").map(Number);
+  const firstOfNext = new Date(y, m, 1);        // month m = first of next (0-indexed)
+  return new Date() >= firstOfNext;
+};
+const firstOfNextMonth = k => {
+  if (!k) return "";
+  const [y,m] = k.split("-").map(Number);
+  return new Date(y, m, 1).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});
 };
 
+// ── Build monthly stats (pure function, no mutation) ──────────────
+function computeMonthStats(runs) {
+  if (!runs || !runs.length) return null;
+  try {
+    const km       = runs.reduce((s,r) => s + (r.distanceKm || 0), 0);
+    const timeSec  = runs.reduce((s,r) => s + (r.movingTimeSec || 0), 0);
+    const paceRuns = runs.filter(r => r.avgPaceSecKm > 0);
+    const avgPace  = paceRuns.length
+      ? paceRuns.reduce((s,r) => s + r.avgPaceSecKm, 0) / paceRuns.length : 0;
+    const hrRuns   = runs.filter(r => r.avgHR > 0);
+    const avgHR    = hrRuns.length
+      ? Math.round(hrRuns.reduce((s,r) => s + r.avgHR, 0) / hrRuns.length) : null;
+    const elevGain = runs.reduce((s,r) => s + (r.elevGainM || 0), 0);
+
+    // Longest and fastest — use reduce with safe initial value
+    const longest  = runs.reduce((b,r) => r.distanceKm > b.distanceKm ? r : b, runs[0]);
+    const fastest  = paceRuns.length
+      ? paceRuns.reduce((b,r) => r.avgPaceSecKm < b.avgPaceSecKm ? r : b, paceRuns[0])
+      : null;
+
+    // Weekly buckets — NO mutation, use new objects
+    const weekBuckets = {};
+    runs.forEach(r => {
+      const ts = r.dateTs || new Date(r.date).getTime();
+      const d  = new Date(ts);
+      d.setHours(0,0,0,0);
+      d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // Monday
+      const wk = d.getTime();
+      if (!weekBuckets[wk]) weekBuckets[wk] = { label:`${d.getDate()}/${d.getMonth()+1}`, km:0, count:0 };
+      weekBuckets[wk].km    += r.distanceKm || 0;
+      weekBuckets[wk].count += 1;
+    });
+    const weeks = Object.values(weekBuckets)
+      .map(w => ({ ...w, km: parseFloat(w.km.toFixed(1)) }))
+      .sort((a,b) => a.label.localeCompare(b.label));
+
+    // Pace trend — copy array before sort to avoid mutation
+    const paceTrend = paceRuns
+      .slice()                                  // ← safe copy, no mutation
+      .sort((a,b) => (a.dateTs||0) - (b.dateTs||0))
+      .map(r => ({
+        date: fmtDateS(r.date),
+        pace: parseFloat((r.avgPaceSecKm / 60).toFixed(2)),
+      }));
+
+    const activeWeeks = Object.keys(weekBuckets).length;
+
+    return { km, timeSec, avgPace, avgHR, elevGain, longest, fastest,
+             count:runs.length, weeks, paceTrend, activeWeeks };
+  } catch (e) {
+    console.error("[MonthlyReport] computeMonthStats error:", e);
+    return null;
+  }
+}
+
 // ── Delta badge ───────────────────────────────────────────────────
-const DeltaBadge = ({ val, invert=false, unit="%" }) => {
-  if (val === null || val === undefined) return null;
-  const good = invert ? val < 0 : val > 0;
+const DeltaBadge = ({ val, invert=false }) => {
+  if (val === null || val === undefined || isNaN(val)) return null;
+  const good  = invert ? val < 0 : val > 0;
   const color = val === 0 ? "var(--tx3)" : good ? "var(--gn)" : "var(--rd)";
   const bg    = val === 0 ? "var(--s3)"  : good ? "var(--gn2)" : "var(--rd2)";
-  const arrow = val > 0 ? "↑" : val < 0 ? "↓" : "→";
   return (
-    <span style={{background:bg,color,borderRadius:20,padding:"2px 8px",fontSize:".65rem",fontWeight:700,display:"inline-flex",alignItems:"center",gap:2}}>
-      {arrow} {Math.abs(val)}{unit}
+    <span style={{background:bg,color,borderRadius:20,padding:"2px 8px",
+      fontSize:".63rem",fontWeight:700,display:"inline-flex",alignItems:"center",gap:2,flexShrink:0}}>
+      {val > 0 ? "↑" : val < 0 ? "↓" : "→"} {Math.abs(val)}%
     </span>
   );
 };
 
-// ── Export helper ─────────────────────────────────────────────────
-function exportMonthReport(report, monthKey) {
-  const fmt = k => { const [y,m]=k.split("-"); return new Date(+y,+m-1,1).toLocaleDateString("en-GB",{month:"long",year:"numeric"}); };
-  const { curStats:s, curRuns, insights } = report;
-  const lines = [
-    `RUNLYTICS — Monthly Report`,
-    `Month: ${fmt(monthKey)}`,
-    `Generated: ${new Date().toLocaleString()}`,
-    ``,
-    `── SUMMARY ──────────────────────────────`,
-    `Total runs:      ${s?.count ?? 0}`,
-    `Total distance:  ${s ? fmtKm(s.km) : "0"} km`,
-    `Total time:      ${s ? fmtDur(s.timeSec) : "—"}`,
-    `Avg pace:        ${s ? fmtPace(s.avgPace) : "—"} /km`,
-    `Avg HR:          ${s?.avgHR ? `${s.avgHR} bpm` : "—"}`,
-    `Elevation gain:  ${s ? Math.round(s.elevGain) : 0} m`,
-    `Longest run:     ${s ? fmtKm(s.longest.distanceKm) : "—"} km (${s?.longest.name || ""})`,
-    `Fastest pace:    ${s ? fmtPace(s.fastest?.avgPaceSecKm) : "—"} /km`,
-    `Active weeks:    ${s?.activeWeeks ?? 0}`,
-    ``,
-    `── COACH INSIGHTS ───────────────────────`,
-    ...insights.map(i => `${i.icon} ${i.text}`),
-    ``,
-    `── RUNS ─────────────────────────────────`,
-    ...curRuns.map(r => `  • ${fmtDateS(r.date)} — ${fmtKm(r.distanceKm)} km @ ${fmtPace(r.avgPaceSecKm)}/km — ${r.name}`),
-  ];
-  const blob = new Blob([lines.join("\n")], { type:"text/plain" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href=url; a.download=`runlytics-${monthKey}.txt`; a.click();
-  URL.revokeObjectURL(url);
+// ── Month picker ──────────────────────────────────────────────────
+const MonthPicker = ({ months, selected, onChange }) => {
+  const idx = months.indexOf(selected);
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <button className="btn b-gh" style={{padding:"7px 12px",fontSize:".86rem",flexShrink:0}}
+        disabled={idx >= months.length - 1} onClick={() => onChange(months[idx + 1])}>‹</button>
+      <select value={selected} onChange={e => onChange(e.target.value)}
+        style={{flex:1,background:"var(--s2)",border:"1px solid var(--bd)",color:"var(--tx)",
+          borderRadius:10,padding:"9px 10px",fontSize:".84rem",fontFamily:"inherit",
+          outline:"none",textAlign:"center",cursor:"pointer"}}>
+        {months.map(k => <option key={k} value={k}>{monthLabel(k)}</option>)}
+      </select>
+      <button className="btn b-gh" style={{padding:"7px 12px",fontSize:".86rem",flexShrink:0}}
+        disabled={idx <= 0} onClick={() => onChange(months[idx - 1])}>›</button>
+    </div>
+  );
+};
+
+// ── Export report ─────────────────────────────────────────────────
+function exportMonthReport(k, s, curRuns, insights) {
+  try {
+    const lines = [
+      `RUNLYTICS — Monthly Report`,
+      `Month:     ${monthLabel(k)}`,
+      `Generated: ${new Date().toLocaleString()}`,
+      ``,
+      `── SUMMARY ──────────────────────────`,
+      `Runs:          ${s.count}`,
+      `Distance:      ${fmtKm(s.km)} km`,
+      `Time:          ${fmtDur(s.timeSec)}`,
+      `Avg Pace:      ${fmtPace(s.avgPace)} /km`,
+      `Avg HR:        ${s.avgHR ? `${s.avgHR} bpm` : "—"}`,
+      `Elev Gain:     ${Math.round(s.elevGain)} m`,
+      `Longest Run:   ${fmtKm(s.longest.distanceKm)} km — ${s.longest.name}`,
+      `Fastest Pace:  ${fmtPace(s.fastest?.avgPaceSecKm)} /km`,
+      `Active Weeks:  ${s.activeWeeks}`,
+      ``,
+      `── COACH INSIGHTS ───────────────────`,
+      ...insights.map(i => `${i.icon} ${i.text}`),
+      ``,
+      `── RUN LOG ──────────────────────────`,
+      ...curRuns.slice().sort((a,b)=>(a.dateTs||0)-(b.dateTs||0))
+        .map(r => `  ${fmtDateS(r.date).padEnd(8)} ${fmtKm(r.distanceKm).padStart(5)} km  ${fmtPace(r.avgPaceSecKm)}/km  ${r.name}`),
+    ];
+    const blob = new Blob([lines.join("\n")], {type:"text/plain"});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = `runlytics-${k}.txt`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch(e) { console.error("[Export] failed:", e); }
 }
 
 // ── Monthly Report Screen ─────────────────────────────────────────
 const MonthlyReport = ({ acts, onSelectAct }) => {
-  const allMonthKeys = useMemo(() => {
-    const monthOf = ts => { const d=new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
-    return [...new Set(acts.filter(a=>a.distanceKm>0).map(a=>monthOf(a.dateTs||new Date(a.date).getTime())))].sort().reverse();
+
+  // Only show COMPLETED months (must be past the 1st of next month)
+  const completedMonths = useMemo(() => {
+    const all = acts
+      .filter(a => a.distanceKm > 0)
+      .map(a => monthKey(new Date(a.dateTs || a.date)));
+    const unique = [...new Set(all)].sort().reverse();
+    return unique.filter(isMonthComplete); // ← key gate
   }, [acts]);
 
-  const [selectedMonth, setSelectedMonth] = useState(allMonthKeys[0] || "");
-  const report = useMemo(()=>buildMonthlyReport(acts, selectedMonth),[acts, selectedMonth]);
-  const { curStats:s, prevStats:p, deltas, curRuns, insights } = report;
+  // Currently-in-progress month (for the "come back later" message)
+  const currentMonth = useMemo(() => monthKey(new Date()), []);
+  const hasCurrentMonthRuns = useMemo(() =>
+    acts.some(a => monthKey(new Date(a.dateTs || a.date)) === currentMonth && a.distanceKm > 0)
+  , [acts, currentMonth]);
 
-  const fmtMonthLabel = k => { if(!k)return ""; const [y,m]=k.split("-"); return new Date(+y,+m-1,1).toLocaleDateString("en-GB",{month:"long",year:"numeric"}); };
-  const fmtMonthShort = k => { if(!k)return ""; const [y,m]=k.split("-"); return new Date(+y,+m-1,1).toLocaleDateString("en-GB",{month:"short",year:"2-digit"}); };
+  const [selected, setSelected] = useState("");
 
-  if (!acts.length || !allMonthKeys.length) return (
-    <div style={{paddingTop:40,textAlign:"center",color:"var(--tx2)"}}>
+  // Keep selected in sync with available months
+  useEffect(() => {
+    if (completedMonths.length && (!selected || !completedMonths.includes(selected))) {
+      setSelected(completedMonths[0]);
+    }
+  }, [completedMonths, selected]);
+
+  // Compute stats for selected + previous month
+  const { curStats, prevStats, deltas, curRuns, insights } = useMemo(() => {
+    if (!selected) return { curStats:null, prevStats:null, deltas:null, curRuns:[], insights:[] };
+    try {
+      const getRunsFor = k => acts.filter(a =>
+        a.distanceKm > 0 && monthKey(new Date(a.dateTs || a.date)) === k
+      );
+      const cur  = getRunsFor(selected);
+      const prev = getRunsFor(prevMonthKey(selected));
+
+      const curStats  = computeMonthStats(cur);
+      const prevStats = computeMonthStats(prev);
+
+      // Safe delta: returns null if either value is missing/zero
+      const pctDelta = (a, b) => {
+        if (!a || !b || b === 0) return null;
+        return parseFloat(((a - b) / b * 100).toFixed(1));
+      };
+
+      const deltas = curStats && prevStats ? {
+        km:    pctDelta(curStats.km,       prevStats.km),
+        count: pctDelta(curStats.count,    prevStats.count),
+        pace:  pctDelta(prevStats.avgPace, curStats.avgPace), // inverted: lower = better
+        hr:    pctDelta(curStats.avgHR,    prevStats.avgHR),
+      } : null;
+
+      // Monthly coach insights
+      const insights = [];
+      if (curStats) {
+        if (deltas?.km > 30)
+          insights.push({icon:"⚠️",type:"warning",text:`Mileage up ${deltas.km}% vs last month — monitor fatigue closely.`});
+        else if (deltas?.km > 5)
+          insights.push({icon:"📈",type:"positive",text:`Distance up ${deltas.km}% — solid progression.`});
+        else if (deltas?.km < -20)
+          insights.push({icon:"📉",type:"info",text:`Distance down ${Math.abs(deltas.km)}% — recovery month?`});
+
+        if (deltas?.pace > 3)
+          insights.push({icon:"⚡",type:"positive",text:`Avg pace improved ${deltas.pace}% — fitness is building.`});
+        else if (deltas?.pace < -3)
+          insights.push({icon:"📉",type:"warning",text:`Pace slowed ${Math.abs(deltas.pace)}% — fatigue or low volume?`});
+
+        if (deltas?.hr && deltas.hr > 5 && (deltas?.pace || 0) < 2)
+          insights.push({icon:"❤️",type:"warning",text:`HR higher at same pace — early fatigue signal. Prioritise recovery.`});
+        else if (deltas?.hr && deltas.hr < -3 && (deltas?.pace || 0) < 3)
+          insights.push({icon:"💚",type:"positive",text:`HR lower at similar pace — aerobic fitness improving.`});
+
+        if (curStats.activeWeeks <= 1)
+          insights.push({icon:"💤",type:"warning",text:`Only ${curStats.activeWeeks} active week — aim for 3+ runs/week.`});
+        else if (curStats.activeWeeks >= 4)
+          insights.push({icon:"🔥",type:"positive",text:`${curStats.activeWeeks} active weeks — excellent consistency!`});
+
+        if (!prevStats)
+          insights.push({icon:"👟",type:"info",text:"First recorded month. Keep building!"});
+      }
+
+      return { curStats, prevStats, deltas, curRuns:cur, insights };
+    } catch(e) {
+      console.error("[MonthlyReport] compute error:", e);
+      return { curStats:null, prevStats:null, deltas:null, curRuns:[], insights:[] };
+    }
+  }, [acts, selected]);
+
+  // ── Empty states ────────────────────────────────────────────────
+  if (!acts.length) return (
+    <div style={{paddingTop:48,textAlign:"center",color:"var(--tx2)"}}>
       <div style={{fontSize:"2.5rem",marginBottom:12}}>📅</div>
-      <div style={{fontWeight:600,marginBottom:6}}>No data yet</div>
+      <div style={{fontWeight:600,marginBottom:6}}>No runs uploaded yet</div>
       <div style={{fontSize:".82rem"}}>Upload GPX files to generate monthly reports.</div>
     </div>
   );
+
+  if (!completedMonths.length) return (
+    <div style={{paddingTop:48,textAlign:"center",color:"var(--tx2)",padding:"48px 24px"}}>
+      <div style={{fontSize:"2.5rem",marginBottom:12}}>📅</div>
+      <div style={{fontWeight:700,fontSize:"1rem",marginBottom:8,color:"var(--tx)"}}>
+        No completed months yet
+      </div>
+      <div style={{fontSize:".82rem",color:"var(--tx2)",lineHeight:1.7,marginBottom:16}}>
+        Monthly reports are generated on the <strong style={{color:"var(--or)"}}>1st of each month</strong>,
+        once the previous month is complete.
+      </div>
+      {hasCurrentMonthRuns && (
+        <div style={{background:"var(--or3)",border:"1px solid var(--or2)",borderRadius:14,padding:"14px 16px",textAlign:"left",maxWidth:300,margin:"0 auto"}}>
+          <div style={{fontWeight:600,color:"var(--or)",marginBottom:6,fontSize:".86rem"}}>
+            📊 {monthLabel(currentMonth)} in progress
+          </div>
+          <div style={{fontSize:".78rem",color:"var(--tx2)",lineHeight:1.6}}>
+            Your {monthLabel(currentMonth)} report will be available from{" "}
+            <strong style={{color:"var(--tx)"}}>{firstOfNextMonth(currentMonth)}</strong>.
+            Keep running!
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const s = curStats;
+  const p = prevStats;
 
   return (
     <div style={{paddingTop:16,paddingBottom:32}}>
 
       {/* Month picker */}
       <div className="f0" style={{marginBottom:16}}>
-        <MonthPicker allMonths={allMonthKeys} selected={selectedMonth} onChange={setSelectedMonth}/>
+        <MonthPicker months={completedMonths} selected={selected} onChange={setSelected}/>
       </div>
+
+      {/* Current month in-progress notice */}
+      {hasCurrentMonthRuns && (
+        <div style={{marginBottom:14,padding:"9px 13px",background:"var(--or3)",border:"1px solid var(--or2)",
+          borderRadius:11,fontSize:".74rem",color:"var(--or)"}}>
+          📊 <strong>{monthLabel(currentMonth)}</strong> is in progress — report unlocks on {firstOfNextMonth(currentMonth)}
+        </div>
+      )}
 
       {!s ? (
         <div className="c2 f0" style={{padding:24,textAlign:"center",color:"var(--tx2)"}}>
           <div style={{fontSize:"1.6rem",marginBottom:10}}>🏖️</div>
-          <div style={{fontWeight:600,marginBottom:4}}>No runs in {fmtMonthLabel(selectedMonth)}</div>
-          <div style={{fontSize:".8rem"}}>Rest month — or try switching to a different month.</div>
+          <div style={{fontWeight:600,marginBottom:4}}>No runs in {monthLabel(selected)}</div>
+          <div style={{fontSize:".8rem"}}>Rest month — try a different month above.</div>
         </div>
-      ) : (
-        <>
-          {/* Summary cards */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+      ) : (<>
+
+        {/* 6 summary stat cards */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+          {[
+            {ic:"📍",l:"Distance",    v:fmtKm(s.km),              u:"km",   d:deltas?.km,    inv:false, c:"var(--or)"},
+            {ic:"🏃",l:"Runs",        v:s.count,                   u:"",     d:deltas?.count, inv:false, c:"var(--bl)"},
+            {ic:"⏱️",l:"Total Time",  v:fmtDur(s.timeSec),        u:"",     d:null,          inv:false, c:"var(--gn)"},
+            {ic:"⚡",l:"Avg Pace",    v:fmtPace(s.avgPace),       u:"/km",  d:deltas?.pace,  inv:true,  c:"var(--pu)"},
+            {ic:"❤️",l:"Avg HR",      v:s.avgHR||"—",             u:s.avgHR?"bpm":"", d:null, inv:false, c:"var(--rd)"},
+            {ic:"⛰️",l:"Elev Gain",   v:Math.round(s.elevGain),   u:"m",   d:null,          inv:false, c:"var(--cy)"},
+          ].map((x,i)=>(
+            <div key={x.l} className={`card f${Math.min(i,4)} hov`} style={{padding:"13px 14px"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                <div style={{width:32,height:32,borderRadius:9,background:`${x.c}18`,display:"flex",
+                  alignItems:"center",justifyContent:"center",fontSize:".92rem"}}>{x.ic}</div>
+                <DeltaBadge val={x.d} invert={x.inv}/>
+              </div>
+              <div className="num" style={{fontSize:"1.4rem",fontWeight:900,color:x.c,lineHeight:1}}>
+                {x.v}<span style={{fontSize:".66rem",fontWeight:400,color:"var(--tx2)",marginLeft:2}}>{x.u}</span>
+              </div>
+              <div style={{fontSize:".68rem",color:"var(--tx2)",marginTop:3}}>{x.l}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Highlights */}
+        <div className="card f1" style={{padding:16,marginBottom:14}}>
+          <SH title="Month Highlights"/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div style={{background:"var(--or3)",border:"1px solid var(--or2)",borderRadius:12,
+              padding:13,cursor:"pointer"}} onClick={()=>onSelectAct(s.longest)}>
+              <div style={{fontSize:".62rem",color:"var(--or)",fontWeight:700,marginBottom:5}}>🏆 LONGEST</div>
+              <div className="num" style={{fontSize:"1.35rem",fontWeight:900,color:"var(--or)"}}>
+                {fmtKm(s.longest.distanceKm)}<span style={{fontSize:".68rem",color:"var(--tx2)",fontWeight:400}}> km</span>
+              </div>
+              <div style={{fontSize:".7rem",color:"var(--tx2)",marginTop:3,overflow:"hidden",
+                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.longest.name}</div>
+              <div style={{fontSize:".62rem",color:"var(--tx3)",marginTop:2}}>{fmtDateS(s.longest.date)}</div>
+            </div>
+            {s.fastest && (
+              <div style={{background:"var(--bl2)",border:"1px solid rgba(59,130,246,.18)",borderRadius:12,
+                padding:13,cursor:"pointer"}} onClick={()=>onSelectAct(s.fastest)}>
+                <div style={{fontSize:".62rem",color:"var(--bl)",fontWeight:700,marginBottom:5}}>⚡ FASTEST</div>
+                <div className="num" style={{fontSize:"1.35rem",fontWeight:900,color:"var(--bl)"}}>
+                  {fmtPace(s.fastest.avgPaceSecKm)}<span style={{fontSize:".68rem",color:"var(--tx2)",fontWeight:400}}>/km</span>
+                </div>
+                <div style={{fontSize:".7rem",color:"var(--tx2)",marginTop:3,overflow:"hidden",
+                  textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.fastest.name}</div>
+                <div style={{fontSize:".62rem",color:"var(--tx3)",marginTop:2}}>{fmtDateS(s.fastest.date)}</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Weekly mileage bar chart */}
+        {s.weeks.length > 0 && (
+          <div className="card f2" style={{padding:16,marginBottom:14}}>
+            <SH title="Weekly Mileage" sub={monthLabel(selected)}/>
+            <ResponsiveContainer width="100%" height={120}>
+              <BarChart data={s.weeks} barSize={28}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--bd)" vertical={false}/>
+                <XAxis dataKey="label" tick={{fill:"var(--tx2)",fontSize:9}} axisLine={false} tickLine={false}/>
+                <YAxis tick={{fill:"var(--tx2)",fontSize:10}} axisLine={false} tickLine={false}/>
+                <Tooltip content={({active,payload,label})=>{
+                  if(!active||!payload?.length)return null;
+                  const w = s.weeks.find(x=>x.label===label);
+                  return <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:10,padding:"8px 12px"}}>
+                    <div style={{fontSize:".66rem",color:"var(--tx2)",marginBottom:2}}>Week of {label}</div>
+                    <div className="num" style={{color:"var(--or)",fontSize:"1rem"}}>{payload[0].value} km</div>
+                    <div style={{fontSize:".66rem",color:"var(--tx2)",marginTop:2}}>{w?.count} run{w?.count!==1?"s":""}</div>
+                  </div>;
+                }}/>
+                <Bar dataKey="km" fill="var(--or)" radius={[5,5,0,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Pace trend line */}
+        {s.paceTrend.length > 1 && (
+          <div className="card f2" style={{padding:16,marginBottom:14}}>
+            <SH title="Pace Trend" sub="Each run this month"/>
+            <ResponsiveContainer width="100%" height={110}>
+              <AreaChart data={s.paceTrend}>
+                <defs>
+                  <linearGradient id="mptg" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f97316" stopOpacity={.15}/>
+                    <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--bd)" vertical={false}/>
+                <XAxis dataKey="date" tick={{fill:"var(--tx2)",fontSize:9}} axisLine={false} tickLine={false}/>
+                <YAxis domain={["auto","auto"]} reversed tick={{fill:"var(--tx2)",fontSize:9}}
+                  axisLine={false} tickLine={false}
+                  tickFormatter={v=>`${Math.floor(v)}:${Math.round((v%1)*60).toString().padStart(2,"0")}`}/>
+                <Tooltip content={({active,payload,label})=>{
+                  if(!active||!payload?.length) return null;
+                  const pv = payload[0].value;
+                  return <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:10,padding:"8px 12px"}}>
+                    <div style={{fontSize:".66rem",color:"var(--tx2)"}}>{label}</div>
+                    <div className="num" style={{color:"var(--or)",fontSize:".96rem"}}>
+                      {Math.floor(pv)}:{Math.round((pv%1)*60).toString().padStart(2,"0")} /km
+                    </div>
+                  </div>;
+                }}/>
+                <Area type="monotone" dataKey="pace" stroke="var(--or)" strokeWidth={2}
+                  fill="url(#mptg)" dot={{r:3,fill:"var(--or)",strokeWidth:0}}/>
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* vs Last Month comparison */}
+        {p && (
+          <div className="card f3" style={{padding:16,marginBottom:14}}>
+            <SH title="vs Last Month" sub={`${monthShort(prevMonthKey(selected))} → ${monthShort(selected)}`}/>
+            {/* Column header */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:8,
+              padding:"0 0 7px",borderBottom:"1px solid var(--bd)",marginBottom:4}}>
+              {["Metric","Last","This",""].map(h=>(
+                <div key={h} style={{fontSize:".62rem",color:"var(--tx3)",fontWeight:700,
+                  textTransform:"uppercase",textAlign:h==="Last"||h==="This"?"center":"left"}}>{h}</div>
+              ))}
+            </div>
             {[
-              { ic:"📍", l:"Distance",    v:fmtKm(s.km),          u:"km",   delta:deltas?.km,    inv:false, c:"var(--or)" },
-              { ic:"🏃", l:"Runs",        v:s.count,               u:"",     delta:deltas?.count, inv:false, c:"var(--bl)" },
-              { ic:"⏱️", l:"Total Time",  v:fmtDur(s.timeSec),    u:"",     delta:null,           inv:false, c:"var(--gn)" },
-              { ic:"⚡", l:"Avg Pace",    v:fmtPace(s.avgPace),   u:"/km",  delta:deltas?.pace,  inv:true,  c:"var(--pu)" },
-              { ic:"❤️", l:"Avg HR",      v:s.avgHR||"—",         u:s.avgHR?"bpm":"", delta:null, inv:false, c:"var(--rd)" },
-              { ic:"⛰️", l:"Elev Gain",   v:Math.round(s.elevGain), u:"m",  delta:null,           inv:false, c:"var(--cy)" },
-            ].map((x,i)=>(
-              <div key={x.l} className={`card f${Math.min(i,4)} hov`} style={{padding:"13px 14px"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
-                  <div style={{width:30,height:30,borderRadius:8,background:`${x.c}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:".9rem"}}>{x.ic}</div>
-                  <DeltaBadge val={x.delta} invert={x.inv}/>
-                </div>
-                <div className="num" style={{fontSize:"1.4rem",fontWeight:900,color:x.c,lineHeight:1}}>
-                  {x.v}<span style={{fontSize:".68rem",fontWeight:400,color:"var(--tx2)",marginLeft:2}}>{x.u}</span>
-                </div>
-                <div style={{fontSize:".68rem",color:"var(--tx2)",marginTop:3}}>{x.l}</div>
+              {l:"Distance",   cur:`${fmtKm(s.km)} km`,          prev:`${fmtKm(p.km)} km`,         d:deltas?.km,    inv:false},
+              {l:"Runs",       cur:`${s.count}`,                  prev:`${p.count}`,                d:deltas?.count, inv:false},
+              {l:"Avg Pace",   cur:`${fmtPace(s.avgPace)}/km`,   prev:`${fmtPace(p.avgPace)}/km`,  d:deltas?.pace,  inv:true },
+              {l:"Avg HR",     cur:s.avgHR?`${s.avgHR}bpm`:"—",  prev:p.avgHR?`${p.avgHR}bpm`:"—",d:deltas?.hr,    inv:false},
+              {l:"Elev Gain",  cur:`${Math.round(s.elevGain)}m`, prev:`${Math.round(p.elevGain)}m`,d:null,          inv:false},
+              {l:"Active Wks", cur:`${s.activeWeeks}`,           prev:`${p.activeWeeks}`,          d:null,          inv:false},
+            ].map((row,i,arr)=>(
+              <div key={row.l} style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:8,
+                alignItems:"center",padding:"8px 0",borderBottom:i<arr.length-1?"1px solid var(--bd)":"none"}}>
+                <span style={{fontSize:".76rem",color:"var(--tx2)"}}>{row.l}</span>
+                <span style={{fontSize:".74rem",color:"var(--tx3)",textAlign:"center"}}>{row.prev}</span>
+                <span style={{fontSize:".78rem",fontWeight:600,textAlign:"center"}}>{row.cur}</span>
+                <DeltaBadge val={row.d} invert={row.inv}/>
               </div>
             ))}
           </div>
+        )}
 
-          {/* Highlights: longest + fastest */}
-          <div className="card f2" style={{padding:16,marginBottom:14}}>
-            <SH title="Month Highlights"/>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              <div style={{background:"var(--or3)",border:"1px solid var(--or2)",borderRadius:12,padding:13,cursor:"pointer"}}
-                onClick={()=>onSelectAct(s.longest)}>
-                <div style={{fontSize:".64rem",color:"var(--or)",fontWeight:700,marginBottom:5}}>🏆 LONGEST RUN</div>
-                <div className="num" style={{fontSize:"1.4rem",fontWeight:900,color:"var(--or)"}}>{fmtKm(s.longest.distanceKm)}<span style={{fontSize:".7rem",color:"var(--tx2)",fontWeight:400}}> km</span></div>
-                <div style={{fontSize:".7rem",color:"var(--tx2)",marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.longest.name}</div>
-                <div style={{fontSize:".64rem",color:"var(--tx3)",marginTop:2}}>{fmtDateS(s.longest.date)}</div>
-              </div>
-              {s.fastest && (
-                <div style={{background:"var(--bl2)",border:"1px solid rgba(59,130,246,.18)",borderRadius:12,padding:13,cursor:"pointer"}}
-                  onClick={()=>onSelectAct(s.fastest)}>
-                  <div style={{fontSize:".64rem",color:"var(--bl)",fontWeight:700,marginBottom:5}}>⚡ FASTEST PACE</div>
-                  <div className="num" style={{fontSize:"1.4rem",fontWeight:900,color:"var(--bl)"}}>{fmtPace(s.fastest.avgPaceSecKm)}<span style={{fontSize:".7rem",color:"var(--tx2)",fontWeight:400}}> /km</span></div>
-                  <div style={{fontSize:".7rem",color:"var(--tx2)",marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.fastest.name}</div>
-                  <div style={{fontSize:".64rem",color:"var(--tx3)",marginTop:2}}>{fmtDateS(s.fastest.date)}</div>
+        {/* Coach insights */}
+        {insights.length > 0 && (
+          <div className="f3" style={{marginBottom:14}}>
+            <div style={{fontSize:".72rem",fontWeight:700,textTransform:"uppercase",
+              letterSpacing:".08em",color:"var(--tx2)",marginBottom:8}}>🧠 Monthly Insights</div>
+            <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {insights.map((ins,i)=>(
+                <div key={i} style={{display:"flex",gap:10,padding:"11px 13px",borderRadius:12,
+                  border:"1px solid",
+                  background:ins.type==="positive"?"rgba(34,197,94,.06)":ins.type==="warning"?"rgba(234,179,8,.06)":"rgba(59,130,246,.06)",
+                  borderColor:ins.type==="positive"?"rgba(34,197,94,.2)":ins.type==="warning"?"rgba(234,179,8,.2)":"rgba(59,130,246,.2)"}}>
+                  <span style={{fontSize:"1rem",flexShrink:0,lineHeight:1.3}}>{ins.icon}</span>
+                  <span style={{fontSize:".79rem",color:"var(--tx2)",lineHeight:1.6}}>{ins.text}</span>
                 </div>
-              )}
+              ))}
             </div>
           </div>
+        )}
 
-          {/* Weekly mileage chart */}
-          {s.weeks.length > 0 && (
-            <div className="card f2" style={{padding:16,marginBottom:14}}>
-              <SH title="Weekly Mileage" sub={fmtMonthLabel(selectedMonth)}/>
-              <ResponsiveContainer width="100%" height={120}>
-                <BarChart data={s.weeks} barSize={28}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--bd)" vertical={false}/>
-                  <XAxis dataKey="label" tick={{fill:"var(--tx2)",fontSize:9}} axisLine={false} tickLine={false}/>
-                  <YAxis tick={{fill:"var(--tx2)",fontSize:10}} axisLine={false} tickLine={false}/>
-                  <Tooltip content={({active,payload,label})=>{
-                    if(!active||!payload?.length)return null;
-                    const w=s.weeks.find(x=>x.label===label);
-                    return <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:10,padding:"8px 12px"}}>
-                      <div style={{fontSize:".66rem",color:"var(--tx2)",marginBottom:2}}>Week of {label}</div>
-                      <div className="num" style={{color:"var(--or)",fontSize:"1rem"}}>{payload[0].value} km</div>
-                      <div style={{fontSize:".66rem",color:"var(--tx2)",marginTop:2}}>{w?.runs} run{w?.runs!==1?"s":""}</div>
-                    </div>;
-                  }}/>
-                  <Bar dataKey="km" fill="var(--or)" radius={[5,5,0,0]}/>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-
-          {/* Pace trend */}
-          {s.paceTrend.length > 1 && (
-            <div className="card f3" style={{padding:16,marginBottom:14}}>
-              <SH title="Pace Trend" sub="Each run this month"/>
-              <ResponsiveContainer width="100%" height={110}>
-                <AreaChart data={s.paceTrend}>
-                  <defs>
-                    <linearGradient id="mpt" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f97316" stopOpacity={.15}/>
-                      <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--bd)" vertical={false}/>
-                  <XAxis dataKey="date" tick={{fill:"var(--tx2)",fontSize:9}} axisLine={false} tickLine={false}/>
-                  <YAxis domain={["auto","auto"]} reversed tick={{fill:"var(--tx2)",fontSize:9}} axisLine={false} tickLine={false}
-                    tickFormatter={v=>`${Math.floor(v)}:${Math.round((v%1)*60).toString().padStart(2,"0")}`}/>
-                  <Tooltip content={({active,payload,label})=>{
-                    if(!active||!payload?.length)return null;
-                    const p=payload[0].value;
-                    return <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:10,padding:"8px 12px"}}>
-                      <div style={{fontSize:".66rem",color:"var(--tx2)"}}>{label}</div>
-                      <div className="num" style={{color:"var(--or)",fontSize:".96rem"}}>{Math.floor(p)}:{Math.round((p%1)*60).toString().padStart(2,"0")} /km</div>
-                    </div>;
-                  }}/>
-                  <Area type="monotone" dataKey="pace" stroke="var(--or)" strokeWidth={2} fill="url(#mpt)" dot={{r:3,fill:"var(--or)",strokeWidth:0}}/>
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-
-          {/* Comparison vs last month */}
-          {p && (
-            <div className="card f3" style={{padding:16,marginBottom:14}}>
-              <SH title="vs Last Month" sub={`${fmtMonthShort(report.prevKey)} → ${fmtMonthShort(selectedMonth)}`}/>
-              <div style={{display:"flex",flexDirection:"column",gap:0}}>
-                {[
-                  { l:"Distance",  cur:`${fmtKm(s.km)} km`,        prev:`${fmtKm(p.km)} km`,       delta:deltas?.km,    inv:false },
-                  { l:"Runs",      cur:`${s.count}`,                prev:`${p.count}`,              delta:deltas?.count, inv:false },
-                  { l:"Avg Pace",  cur:`${fmtPace(s.avgPace)}/km`, prev:`${fmtPace(p.avgPace)}/km`,delta:deltas?.pace,  inv:true  },
-                  { l:"Avg HR",    cur:s.avgHR?`${s.avgHR} bpm`:"—", prev:p.avgHR?`${p.avgHR} bpm`:"—", delta:deltas?.hr, inv:false },
-                  { l:"Elev Gain", cur:`${Math.round(s.elevGain)}m`, prev:`${Math.round(p.elevGain)}m`, delta:null, inv:false },
-                  { l:"Consistency",cur:`${s.activeWeeks} wk`,     prev:`${p.activeWeeks} wk`,     delta:null,          inv:false },
-                ].map((row, i, arr) => (
-                  <div key={row.l} style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr auto",gap:8,alignItems:"center",padding:"9px 0",borderBottom:i<arr.length-1?"1px solid var(--bd)":"none"}}>
-                    <span style={{fontSize:".76rem",color:"var(--tx2)"}}>{row.l}</span>
-                    <span style={{fontSize:".76rem",color:"var(--tx3)",textAlign:"center"}}>{row.prev}</span>
-                    <span style={{fontSize:".8rem",fontWeight:600,textAlign:"center"}}>{row.cur}</span>
-                    <DeltaBadge val={row.delta} invert={row.inv}/>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Coach Insights */}
-          {insights.length > 0 && (
-            <div className="f3" style={{marginBottom:14}}>
-              <div style={{fontSize:".72rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--tx2)",marginBottom:8}}>🧠 Monthly Insights</div>
-              <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                {insights.map((ins,i)=>(
-                  <div key={i} style={{
-                    display:"flex",gap:10,padding:"11px 13px",borderRadius:12,border:"1px solid",
-                    background:ins.type==="positive"?"rgba(34,197,94,.06)":ins.type==="warning"?"rgba(234,179,8,.06)":"rgba(59,130,246,.06)",
-                    borderColor:ins.type==="positive"?"rgba(34,197,94,.2)":ins.type==="warning"?"rgba(234,179,8,.2)":"rgba(59,130,246,.2)",
-                  }}>
-                    <span style={{fontSize:"1rem",flexShrink:0,lineHeight:1.3}}>{ins.icon}</span>
-                    <span style={{fontSize:".79rem",color:"var(--tx2)",lineHeight:1.55}}>{ins.text}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Run list for this month */}
-          <div className="f4" style={{marginBottom:14}}>
-            <SH title={`All Runs · ${fmtMonthLabel(selectedMonth)}`} sub={`${curRuns.length} total`}/>
-            {curRuns.sort((a,b)=>b.dateTs-a.dateTs).map((r,i)=>(
-              <div key={r.id} className={`c2 hov f${Math.min(i,4)}`} style={{padding:"11px 14px",marginBottom:8,cursor:"pointer"}} onClick={()=>onSelectAct(r)}>
+        {/* Run list — safe copy before sort */}
+        <div className="f4" style={{marginBottom:14}}>
+          <SH title={`All Runs · ${monthLabel(selected)}`} sub={`${curRuns.length} total`}/>
+          {curRuns
+            .slice()                            // ← safe copy, no mutation
+            .sort((a,b) => (b.dateTs||0) - (a.dateTs||0))
+            .map((r,i)=>(
+              <div key={r.id} className={`c2 hov f${Math.min(i,4)}`}
+                style={{padding:"11px 14px",marginBottom:8,cursor:"pointer"}}
+                onClick={()=>onSelectAct(r)}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:7}}>
                   <div style={{flex:1,minWidth:0,paddingRight:8}}>
-                    <div style={{fontWeight:600,fontSize:".88rem",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginBottom:2}}>{r.name}</div>
-                    <div style={{fontSize:".7rem",color:"var(--tx2)"}}>{fmtDateS(r.date)}{r.startTimeLocal?` · ${r.startTimeLocal}`:""}</div>
+                    <div style={{fontWeight:600,fontSize:".88rem",whiteSpace:"nowrap",overflow:"hidden",
+                      textOverflow:"ellipsis",marginBottom:2}}>{r.name}</div>
+                    <div style={{fontSize:".7rem",color:"var(--tx2)"}}>
+                      {fmtDateS(r.date)}{r.startTimeLocal?` · ${r.startTimeLocal}`:""}
+                    </div>
                   </div>
-                  <span style={{background:`${rc(r.type)}15`,color:rc(r.type),padding:"2px 9px",borderRadius:20,fontSize:".66rem",fontWeight:700,flexShrink:0}}>{r.type}</span>
+                  <span style={{background:`${rc(r.type)}15`,color:rc(r.type),padding:"2px 9px",
+                    borderRadius:20,fontSize:".66rem",fontWeight:700,flexShrink:0}}>{r.type}</span>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
                   {[{l:"km",v:fmtKm(r.distanceKm)},{l:"time",v:fmtDur(r.movingTimeSec)},{l:"pace",v:`${fmtPace(r.avgPaceSecKm)}/km`}].map(x=>(
@@ -2831,15 +2937,102 @@ const MonthlyReport = ({ acts, onSelectAct }) => {
                 </div>
               </div>
             ))}
-          </div>
+        </div>
 
-          {/* Export button */}
-          <button className="btn b-gh" style={{width:"100%",padding:"12px",fontSize:".84rem",gap:8}}
-            onClick={()=>exportMonthReport(report, selectedMonth)}>
-            📄 Export Monthly Report (.txt)
-          </button>
-        </>
-      )}
+        {/* Export */}
+        <button className="btn b-gh" style={{width:"100%",padding:"12px",fontSize:".84rem"}}
+          onClick={()=>exportMonthReport(selected, s, curRuns, insights)}>
+          📄 Export Report (.txt)
+        </button>
+
+      </>)}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────
+// §T  WELCOME SPLASH
+// ─────────────────────────────────────────────────────────────────
+const SPLASH_KEY = "runlytics_splashed_v1";
+
+const WelcomeSplash = ({ acts, onDone }) => {
+  const [phase, setPhase] = useState("in"); // in | out
+  const isReturn = !!localStorage.getItem(SPLASH_KEY);
+  const hasRuns  = acts.length > 0;
+
+  useEffect(() => {
+    localStorage.setItem(SPLASH_KEY, "1");
+    const t = setTimeout(() => setPhase("out"), 1800);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    if (phase === "out") {
+      const t = setTimeout(onDone, 380);
+      return () => clearTimeout(t);
+    }
+  }, [phase, onDone]);
+
+  const greeting = isReturn
+    ? (hasRuns ? "Welcome back 👋" : "Ready to log a run?")
+    : "Welcome to Runlytics ⚡";
+  const sub = isReturn
+    ? (hasRuns ? `${acts.length} ${acts.length===1?"run":"runs"} in your library` : "Upload your first GPX to get started")
+    : "Your personal running coach";
+
+  return (
+    <div style={{
+      position:"fixed", inset:0, zIndex:999,
+      background:"var(--bg)",
+      display:"flex", flexDirection:"column",
+      alignItems:"center", justifyContent:"center",
+      padding:32,
+      opacity: phase==="in" ? 1 : 0,
+      transition:"opacity .36s ease",
+      pointerEvents: phase==="out" ? "none" : "auto",
+    }}>
+      {/* Ambient glow */}
+      <div style={{position:"absolute",top:"30%",left:"50%",transform:"translate(-50%,-50%)",
+        width:280,height:280,borderRadius:"50%",
+        background:"radial-gradient(circle,rgba(249,115,22,.1) 0%,transparent 70%)",
+        pointerEvents:"none"}}/>
+
+      {/* Logo */}
+      <div style={{
+        width:64, height:64, borderRadius:18, marginBottom:20,
+        background:"linear-gradient(135deg,#f97316,#c2410c)",
+        display:"flex", alignItems:"center", justifyContent:"center",
+        fontSize:"2rem", boxShadow:"0 12px 40px rgba(249,115,22,.35)",
+        animation:"gw 2s infinite",
+      }}>⚡</div>
+
+      <div className="num" style={{
+        fontSize:"2.2rem", fontWeight:900, letterSpacing:".04em",
+        marginBottom:10, color:"var(--tx)",
+      }}>RUNLYTICS</div>
+
+      <div style={{
+        fontSize:"1rem", fontWeight:600, color:"var(--tx)",
+        marginBottom:8, textAlign:"center",
+      }}>{greeting}</div>
+
+      <div style={{
+        fontSize:".84rem", color:"var(--tx2)",
+        textAlign:"center", lineHeight:1.6,
+      }}>{sub}</div>
+
+      {/* Loading dots */}
+      <div style={{
+        display:"flex", gap:6, marginTop:32,
+      }}>
+        {[0,1,2].map(i => (
+          <div key={i} style={{
+            width:7, height:7, borderRadius:"50%",
+            background:"var(--or)",
+            animation:`pulse 1.2s ${i*0.2}s ease infinite`,
+          }}/>
+        ))}
+      </div>
     </div>
   );
 };
@@ -2863,6 +3056,7 @@ export default function App(){
   const [tab,        setTab]        = useState("home");
   const [showGoalEdit, setShowGoalEdit] = useState(false);
   const [showHREdit,   setShowHREdit]   = useState(false);
+  const [showSplash,   setShowSplash]   = useState(true);
   const scrollRef = useRef(null);
 
   useEffect(()=>{ saveActs(acts); }, [acts]);
@@ -2902,6 +3096,11 @@ export default function App(){
     <>
       <Styles/>
       <div style={{maxWidth:430,margin:"0 auto",minHeight:"100vh",background:"var(--bg)",display:"flex",flexDirection:"column"}}>
+
+        {/* Welcome splash — shows briefly on every app open */}
+        {showSplash && (
+          <WelcomeSplash acts={acts} onDone={() => setShowSplash(false)}/>
+        )}
 
         {/* Activity detail overlay */}
         {detail && (
