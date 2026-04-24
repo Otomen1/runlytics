@@ -1,7 +1,4 @@
 // ═══════════════════════════════════════════════════════════════════
-//  RUNLYTICS v10  ·  GPX Running Coach  ·  4-Tab Platform
-//  Home · Stats · HR Insights · Tasks
-// ═══════════════════════════════════════════════════════════════════
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   AreaChart, Area, BarChart, Bar, ComposedChart,
@@ -9,9 +6,6 @@ import {
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
 
-// ─────────────────────────────────────────────────────────────────
-// §A  STORAGE KEYS & DEFAULTS
-// ─────────────────────────────────────────────────────────────────
 const STORAGE_KEY    = "runlytics_data_v1";
 const GOALS_KEY      = "runlytics_goals_v1";
 const HR_PROFILE_KEY = "runlytics_hr_profile_v1";
@@ -85,9 +79,6 @@ function loadProfile() {
 }
 function saveProfile(p) { try { localStorage.setItem(PROFILE_KEY,JSON.stringify(p)); } catch {} }
 
-// ─────────────────────────────────────────────────────────────────
-// §B  MAF HR SYSTEM
-// ─────────────────────────────────────────────────────────────────
 function getMafHR(hrProfile, activityMaxHR) {
   if (hrProfile?.maxHROverride) { const v=Number(hrProfile.maxHROverride); if(v>=100&&v<=220) return v; }
   if (hrProfile?.age) { const a=Number(hrProfile.age); if(a>=10&&a<=100) return Math.round(180-a); }
@@ -120,7 +111,6 @@ function computeZones(hrSamples, mafHR) {
   return defs.map((z,i)=>({...z,pct:Math.max(0,fl[i]),minutes:parseFloat((secs[i]/60).toFixed(1)),bpmLo:Math.round(z.lo),bpmHi:z.hi===999?null:Math.round(z.hi)}));
 }
 
-// MAF coaching logic — the intelligence layer
 function getMafCoachingInsight(acts, hrProfile) {
   const mafHR = getMafHR(hrProfile, null);
   const runsWithHR = acts.filter(a=>a.avgHR&&a.distanceKm>0).slice(-5);
@@ -137,7 +127,6 @@ function getMafCoachingInsight(acts, hrProfile) {
   return { type:"info", title:"Mixed intensity", detail:`Some runs above MAF (${mafHR} bpm). Aim for 80% of runs to be below MAF for optimal aerobic development.`, action:"See HR breakdown →", mafHR, avgHR };
 }
 
-// Today's coaching recommendation — short, actionable, data-driven
 function getTodayRecommendation(acts, hrProfile) {
   const mafHR = getMafHR(hrProfile, null);
   const sorted = [...acts].sort((a,b) => b.dateTs - a.dateTs);
@@ -159,7 +148,6 @@ function getTodayRecommendation(acts, hrProfile) {
   return { icon:"✅", title:"Stay consistent", sub:"Your training is on track. Keep the aerobic pace.", type:"neutral" };
 }
 
-// Post-run feedback — instant insight after upload
 function getRunFeedback(run, mafHR) {
   if (!run) return null;
   const { avgHR, trainingLoad, splitInsight, distanceKm } = run;
@@ -179,9 +167,6 @@ function getRunFeedback(run, mafHR) {
   return feedbacks.length ? feedbacks : [{ type:"positive", icon:"✅", title:"Run saved", detail:`${distanceKm?.toFixed(1)} km logged successfully.` }];
 }
 
-// ─────────────────────────────────────────────────────────────────
-// §C  GPX PARSER  (unchanged working engine)
-// ─────────────────────────────────────────────────────────────────
 function parseGPX(xmlText, fileName, hrProfile=null) {
   const doc = new DOMParser().parseFromString(xmlText,"application/xml");
   if (doc.querySelector("parsererror")) throw new Error("Invalid GPX file");
@@ -281,9 +266,6 @@ function parseGPX(xmlText, fileName, hrProfile=null) {
   };
 }
 
-// ─────────────────────────────────────────────────────────────────
-// §D  ANALYTICS ENGINE
-// ─────────────────────────────────────────────────────────────────
 function buildAnalytics(acts, hrProfile) {
   const runs=acts.filter(a=>a.type==="Run"||a.type==="Walk"||a.type==="Hike");
   if (!runs.length) return {insights:[],weekly:[],monthly:[],streak:0,prediction:null,consistency:0};
@@ -308,9 +290,36 @@ function buildAnalytics(acts, hrProfile) {
   return {weekly,monthly,streak,prediction,consistency,runDays};
 }
 
-// ─────────────────────────────────────────────────────────────────
-// §E  TASKS SYSTEM
-// ─────────────────────────────────────────────────────────────────
+const BADGES_KEY = "runlytics_badges_v1";
+const BD = (id,cat,icon,color,name,desc,check) => ({id,cat,icon,color,name,desc,check});
+const BADGE_DEFS = [
+  BD("first_run","milestone","👟","#f97316","First Steps","Complete your first run.",a=>a.length>=1),
+  BD("streak_3","streak","🔥","#f97316","3-Day Streak","Run 3 days in a row.",(_,an)=>an.streak>=3),
+  BD("streak_7","streak","🔥","#ef4444","Week Warrior","Run 7 days in a row.",(_,an)=>an.streak>=7),
+  BD("streak_14","streak","🔥","#ef4444","Fortnight Flyer","Run 14 days in a row.",(_,an)=>an.streak>=14),
+  BD("streak_30","streak","👑","#eab308","Iron Legs","Run 30 days in a row.",(_,an)=>an.streak>=30),
+  BD("dist_10","distance","📍","#22c55e","First 10km","Log 10 km total.",a=>a.reduce((s,r)=>s+r.distanceKm,0)>=10),
+  BD("dist_50","distance","🗺️","#22c55e","50km Club","Log 50 km total.",a=>a.reduce((s,r)=>s+r.distanceKm,0)>=50),
+  BD("dist_100","distance","💯","#3b82f6","Century Runner","Log 100 km total.",a=>a.reduce((s,r)=>s+r.distanceKm,0)>=100),
+  BD("dist_500","distance","🌍","#a855f7","Globe Trotter","Log 500 km total.",a=>a.reduce((s,r)=>s+r.distanceKm,0)>=500),
+  BD("run_5k","run","⭐","#06b6d4","5K Finisher","Complete a 5km+ run.",a=>a.some(r=>r.distanceKm>=5)),
+  BD("run_10k","run","🏅","#06b6d4","10K Finisher","Complete a 10km+ run.",a=>a.some(r=>r.distanceKm>=10)),
+  BD("run_half","run","🥈","#3b82f6","Half Marathoner","Complete a 21km+ run.",a=>a.some(r=>r.distanceKm>=21.1)),
+  BD("run_marathon","run","🏆","#eab308","Marathoner","Complete a 42km+ run.",a=>a.some(r=>r.distanceKm>=42.2)),
+  BD("aerobic_5","aerobic","💚","#22c55e","Aerobic Builder","5 runs at or below MAF HR.",(a,_,m)=>!!m&&a.filter(r=>r.avgHR&&r.avgHR<=m).length>=5),
+  BD("aerobic_20","aerobic","💚","#22c55e","MAF Master","20 runs at or below MAF HR.",(a,_,m)=>!!m&&a.filter(r=>r.avgHR&&r.avgHR<=m).length>=20),
+  BD("consistent_4","consistency","📅","#3b82f6","Consistent","Run in 4+ different weeks.",a=>new Set(a.map(r=>{const d=new Date(r.dateTs);d.setDate(d.getDate()-((d.getDay()+6)%7));return d.toDateString();})).size>=4),
+  BD("runs_50","consistency","🎽","#3b82f6","50 Runs Club","Log 50 runs.",a=>a.length>=50),
+  BD("early_bird","misc","🌅","#f97316","Early Bird","Run before 7 AM.",a=>a.some(r=>r.startTimeLocal&&parseInt(r.startTimeLocal)<7)),
+  BD("speed_demon","misc","⚡","#ef4444","Speed Demon","Avg pace under 5:00/km.",a=>a.some(r=>r.avgPaceSecKm>0&&r.avgPaceSecKm<300)),
+];
+const BADGE_CAT_ORDER=["milestone","streak","distance","run","aerobic","consistency","misc"];
+const BADGE_CAT_LABEL={milestone:"Milestones",streak:"Streaks",distance:"Distance",run:"Long Runs",aerobic:"Aerobic",consistency:"Consistency",misc:"Special"};
+function computeEarnedBadges(acts,an,mafHR){const s=new Set();for(const b of BADGE_DEFS){try{if(b.check(acts,an,mafHR))s.add(b.id);}catch(e){}}return s;}
+function loadSeenBadges(){try{return new Set(JSON.parse(localStorage.getItem(BADGES_KEY)||"[]"));}catch(e){return new Set();}}
+function saveSeenBadges(ids){try{localStorage.setItem(BADGES_KEY,JSON.stringify([...ids]));}catch(e){}}
+}
+
 const DEFAULT_TASKS = [
   {id:"t1",title:"Stay below MAF HR",desc:"Keep avg HR under your MAF threshold",icon:"❤️",category:"hr"},
   {id:"t2",title:"Complete an easy run",desc:"Any run where you stay in Z1–Z2 the whole time",icon:"🏃",category:"run"},
@@ -325,7 +334,6 @@ function loadTasks() {
     const raw = localStorage.getItem(TASKS_KEY);
     if (!raw) return initTasks();
     const parsed = JSON.parse(raw);
-    // Merge default tasks with saved state
     return DEFAULT_TASKS.map(dt => {
       const saved = parsed.find(t=>t.id===dt.id);
       return {...dt, streak:saved?.streak||0, completions:saved?.completions||{}, enabled:saved?.enabled??true};
@@ -350,9 +358,6 @@ function getStreak(completions) {
   return s;
 }
 
-// ─────────────────────────────────────────────────────────────────
-// §F  FORMAT HELPERS
-// ─────────────────────────────────────────────────────────────────
 const fmtPace = s => { if(!s||s<=0)return"—"; return `${Math.floor(s/60)}:${Math.round(s%60).toString().padStart(2,"0")}`; };
 const fmtDur  = s => { if(!s)return"—"; const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=Math.floor(s%60); return h?`${h}:${m.toString().padStart(2,"0")}:${ss.toString().padStart(2,"0")}`:`${m}:${ss.toString().padStart(2,"0")}`; };
 const fmtKm   = n => n!=null?parseFloat(n.toFixed(1)).toString():"—";
@@ -363,10 +368,6 @@ const ACT_CLR = {Run:"#f97316",Ride:"#3b82f6",Walk:"#22c55e",Swim:"#06b6d4",Hike
 const ACT_ICN = {Run:"🏃",Ride:"🚴",Walk:"🚶",Swim:"🏊",Hike:"🥾"};
 const rc = t=>ACT_CLR[t]||"#6b7280";
 
-
-// ─────────────────────────────────────────────────────────────────
-// §G  DESIGN SYSTEM & STYLES
-// ─────────────────────────────────────────────────────────────────
 const Styles = () => (
   <style>{`
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap');
@@ -394,7 +395,9 @@ const Styles = () => (
     @keyframes glow{0%,100%{box-shadow:0 0 0 0 rgba(249,115,22,.3)}60%{box-shadow:0 0 0 10px rgba(249,115,22,0)}}
     @keyframes spin{to{transform:rotate(360deg)}}
     @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
-    @keyframes barGrow{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+    @keyframes badgePop{0%{transform:scale(.4) rotate(-10deg);opacity:0}65%{transform:scale(1.18) rotate(2deg)}100%{transform:scale(1) rotate(0);opacity:1}}
+    @keyframes sparkle{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}
+    @keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
     @keyframes ringFill{from{stroke-dashoffset:var(--full)}to{stroke-dashoffset:var(--offset)}}
     .a0{animation:fadeUp .28s ease both}
     .a1{animation:fadeUp .28s .06s ease both}
@@ -452,14 +455,10 @@ const Styles = () => (
   `}</style>
 );
 
-// ─────────────────────────────────────────────────────────────────
-// §H  PRIMITIVE COMPONENTS
-// ─────────────────────────────────────────────────────────────────
 const Spinner = ({size=18,color="var(--or)"}) => (
   <div style={{width:size,height:size,borderRadius:"50%",border:`2px solid var(--bd2)`,borderTopColor:color,animation:"spin 1s linear infinite",flexShrink:0}}/>
 );
 
-// Stat value display with large number + unit
 const StatVal = ({value, unit="", color="var(--tx)", size="2rem", sub=null}) => (
   <div>
     <span className="mono" style={{fontSize:size,fontWeight:700,color,lineHeight:1,letterSpacing:"-.01em"}}>
@@ -470,7 +469,6 @@ const StatVal = ({value, unit="", color="var(--tx)", size="2rem", sub=null}) => 
   </div>
 );
 
-// Section header with optional right element
 const SectionHead = ({title, right=null, sub=null}) => (
   <div style={{display:"flex",justifyContent:"space-between",alignItems:right?"center":"flex-start",marginBottom:sub?4:14}}>
     <div>
@@ -481,12 +479,10 @@ const SectionHead = ({title, right=null, sub=null}) => (
   </div>
 );
 
-// Dot indicator
 const Dot = ({color, size=8}) => (
   <div style={{width:size,height:size,borderRadius:"50%",background:color,flexShrink:0}}/>
 );
 
-// Zone badge
 const ZoneBadge = ({zone, color, size="sm"}) => (
   <span style={{
     display:"inline-flex",alignItems:"center",gap:3,
@@ -496,9 +492,6 @@ const ZoneBadge = ({zone, color, size="sm"}) => (
   }}>{zone}</span>
 );
 
-// ─────────────────────────────────────────────────────────────────
-// §I  RING COMPONENT  (goal progress ring)
-// ─────────────────────────────────────────────────────────────────
 const Ring = ({pct=0, size=72, color="var(--or)", track="var(--bd)", strokeWidth=7, children}) => {
   const r = (size - strokeWidth) / 2;
   const circ = 2 * Math.PI * r;
@@ -518,13 +511,9 @@ const Ring = ({pct=0, size=72, color="var(--or)", track="var(--bd)", strokeWidth
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// §J  COACH INSIGHT CARD
-// ─────────────────────────────────────────────────────────────────
 const insightStyles = {good:"ins-good",positive:"ins-good",warning:"ins-warn",danger:"ins-danger",info:"ins-info",neutral:"ins-neutral"};
 const insightColors = {good:"var(--gn)",positive:"var(--gn)",warning:"var(--yw)",danger:"var(--rd)",info:"var(--bl)",neutral:"var(--tx2)"};
 
-// Compact accordion coach card — title only by default, tap to expand detail
 const CoachCard = ({insight, defaultOpen=false}) => {
   const [open, setOpen] = useState(defaultOpen);
   if (!insight) return null;
@@ -538,7 +527,6 @@ const CoachCard = ({insight, defaultOpen=false}) => {
       borderRadius:14, overflow:"hidden",
       cursor:hasDetail?"pointer":"default",
     }} onClick={()=>hasDetail&&setOpen(o=>!o)}>
-      {/* Always-visible row */}
       <div style={{padding:"13px 15px",display:"flex",alignItems:"center",gap:12}}>
         <span style={{fontSize:"1.25rem",flexShrink:0,lineHeight:1}}>{insight.icon||"🧠"}</span>
         <div style={{flex:1,minWidth:0}}>
@@ -551,7 +539,6 @@ const CoachCard = ({insight, defaultOpen=false}) => {
           <div style={{color:`${col}`,fontSize:".75rem",transition:"transform .2s",transform:open?"rotate(180deg)":"none",flexShrink:0}}>▾</div>
         )}
       </div>
-      {/* Expanded detail */}
       {open && hasDetail && (
         <div style={{padding:"0 15px 14px 52px",animation:"fadeIn .15s ease"}}>
           {detail && <div style={{fontSize:".8rem",color:"var(--tx2)",lineHeight:1.65,marginBottom:insight.action?10:0}}>{detail}</div>}
@@ -562,9 +549,6 @@ const CoachCard = ({insight, defaultOpen=false}) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// §K  ACTIVITY DETAIL OVERLAY
-// ─────────────────────────────────────────────────────────────────
 const Detail = ({act, allActs, hrProfile, onClose, onDelete}) => {
   const [tab, setTab] = useState("overview");
   const color = ACT_CLR[act.type] || "#6b7280";
@@ -575,7 +559,6 @@ const Detail = ({act, allActs, hrProfile, onClose, onDelete}) => {
 
   return (
     <div style={{position:"fixed",inset:0,zIndex:200,background:"var(--bg)",display:"flex",flexDirection:"column",overflowY:"auto"}}>
-      {/* Header */}
       <div className="glass" style={{position:"sticky",top:0,zIndex:10,padding:"14px 18px 0",borderBottom:"1px solid var(--bd)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
           <div style={{flex:1,minWidth:0,paddingRight:12}}>
@@ -590,7 +573,6 @@ const Detail = ({act, allActs, hrProfile, onClose, onDelete}) => {
             <button className="btn b-ghost" style={{padding:"7px 14px",fontSize:".82rem"}} onClick={onClose}>✕</button>
           </div>
         </div>
-        {/* Sub-tabs */}
         <div style={{display:"flex",gap:0,overflowX:"auto"}}>
           {TABS.map(t=>(
             <button key={t} onClick={()=>setTab(t)}
@@ -604,10 +586,8 @@ const Detail = ({act, allActs, hrProfile, onClose, onDelete}) => {
       </div>
 
       <div style={{flex:1,padding:"18px 18px 32px"}}>
-        {/* OVERVIEW */}
         {tab==="overview"&&(
           <div>
-            {/* Primary stats */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
               {[
                 {l:"Distance",v:fmtKm(act.distanceKm),u:"km",c:color},
@@ -620,7 +600,6 @@ const Detail = ({act, allActs, hrProfile, onClose, onDelete}) => {
                 </div>
               ))}
             </div>
-            {/* Secondary stats */}
             <div className="card" style={{padding:16,marginBottom:14}}>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:0}}>
                 {[
@@ -635,7 +614,6 @@ const Detail = ({act, allActs, hrProfile, onClose, onDelete}) => {
                 ))}
               </div>
             </div>
-            {/* Pace chart if available */}
             {act.speedChart?.length > 2 && (
               <div className="card" style={{padding:16,marginBottom:14}}>
                 <SectionHead title="Pace per km"/>
@@ -652,8 +630,6 @@ const Detail = ({act, allActs, hrProfile, onClose, onDelete}) => {
             )}
           </div>
         )}
-
-        {/* HEART RATE */}
         {tab==="heartrate"&&(
           <div>
             {act.avgHR ? (
@@ -709,8 +685,6 @@ const Detail = ({act, allActs, hrProfile, onClose, onDelete}) => {
             )}
           </div>
         )}
-
-        {/* MAP */}
         {tab==="map"&&(
           <div className="card" style={{padding:16}}>
             {act.route?.length>2 ? (
@@ -723,8 +697,6 @@ const Detail = ({act, allActs, hrProfile, onClose, onDelete}) => {
             )}
           </div>
         )}
-
-        {/* SPLITS */}
         {tab==="splits"&&(
           <div className="card" style={{padding:16}}>
             <SectionHead title="km Splits" sub={`${act.kmSplits?.length||0} complete km`}/>
@@ -760,9 +732,6 @@ const Detail = ({act, allActs, hrProfile, onClose, onDelete}) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// §L  ROUTE MAP
-// ─────────────────────────────────────────────────────────────────
 const RouteMap = ({route,height=220}) => {
   if (!route||route.length<2) return null;
   const W=380,H=height,pad=20;
@@ -792,9 +761,6 @@ const RouteMap = ({route,height=220}) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// §M  UPLOAD PANEL
-// ─────────────────────────────────────────────────────────────────
 const Upload = ({acts, hrProfile, onAdd, onClearAll}) => {
   const [queue, setQueue] = useState([]);
   const [drag, setDrag] = useState(false);
@@ -829,8 +795,6 @@ const Upload = ({acts, hrProfile, onAdd, onClearAll}) => {
         <div style={{fontWeight:700,fontSize:"1.1rem",marginBottom:4}}>Upload Runs</div>
         <div style={{fontSize:".82rem",color:"var(--tx2)"}}>Import GPX files from Garmin, Strava, or any GPS watch</div>
       </div>
-
-      {/* Drop zone */}
       <div className={`dz a0 ${drag?"ov":""}`}
         style={{padding:"36px 24px",textAlign:"center",marginBottom:16,cursor:"pointer"}}
         onDragOver={e=>{e.preventDefault();setDrag(true);}}
@@ -843,8 +807,6 @@ const Upload = ({acts, hrProfile, onAdd, onClearAll}) => {
         <div style={{fontSize:".8rem",color:"var(--tx2)",marginBottom:14}}>or tap to browse</div>
         <button className="btn b-or" style={{padding:"10px 24px",fontSize:".86rem"}}>Choose files</button>
       </div>
-
-      {/* Queue */}
       {queue.length>0&&(
         <div className="card a1" style={{padding:16,marginBottom:14}}>
           {queue.map((item,idx)=>(
@@ -867,8 +829,6 @@ const Upload = ({acts, hrProfile, onAdd, onClearAll}) => {
           )}
         </div>
       )}
-
-      {/* Library */}
       {acts.length>0&&(
         <div className="a2">
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -891,30 +851,52 @@ const Upload = ({acts, hrProfile, onAdd, onClearAll}) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// §N1  POST-RUN FEEDBACK MODAL
-// ─────────────────────────────────────────────────────────────────
-const RunFeedbackModal = ({run, mafHR, onClose}) => {
+const RunFeedbackModal = ({run, mafHR, newBadges=[], onClose}) => {
   const feedbacks = useMemo(()=>getRunFeedback(run, mafHR),[run, mafHR]);
   if (!run || !feedbacks) return null;
+  const badgeDefs = newBadges.map(id=>BADGE_DEFS.find(b=>b.id===id)).filter(Boolean);
+
   return (
-    <div style={{position:"fixed",inset:0,zIndex:250,background:"rgba(0,0,0,.7)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div className="glass" style={{width:"100%",maxWidth:430,borderRadius:"20px 20px 0 0",padding:"24px 20px 40px",border:"1px solid var(--bd)"}}>
-        {/* Handle */}
+    <div style={{position:"fixed",inset:0,zIndex:250,background:"rgba(0,0,0,.75)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="glass" style={{width:"100%",maxWidth:430,borderRadius:"20px 20px 0 0",padding:"24px 20px 40px",border:"1px solid var(--bd)",animation:"slideUp .28s ease"}}>
         <div style={{width:36,height:4,borderRadius:2,background:"var(--bd2)",margin:"0 auto 20px"}}/>
-        <div style={{fontWeight:700,fontSize:"1.05rem",marginBottom:4}}>Run Feedback</div>
-        <div style={{fontSize:".76rem",color:"var(--tx2)",marginBottom:18}}>
+        {badgeDefs.length > 0 && (
+          <div style={{marginBottom:20}}>
+            <div style={{textAlign:"center",marginBottom:16}}>
+              <div style={{fontSize:"1rem",fontWeight:700,marginBottom:3}}>
+                🎉 Badge{badgeDefs.length>1?"s":""} Unlocked!
+              </div>
+              <div style={{fontSize:".76rem",color:"var(--tx2)"}}>Keep going — your progress is paying off</div>
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:10,justifyContent:"center",marginBottom:10}}>
+              {badgeDefs.map((b,i)=>(
+                <div key={b.id} style={{
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:6,
+                  padding:"12px 14px",borderRadius:16,minWidth:90,flex:"0 0 auto",
+                  background:`${b.color}15`,border:`1.5px solid ${b.color}40`,
+                  animation:`badgePop .45s ${i*0.1}s cubic-bezier(.34,1.56,.64,1) both`,
+                }}>
+                  <span style={{fontSize:"2rem",filter:`drop-shadow(0 0 6px ${b.color}80)`}}>{b.icon}</span>
+                  <div style={{fontWeight:700,fontSize:".72rem",color:b.color,textAlign:"center",lineHeight:1.3}}>{b.name}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{fontWeight:700,fontSize:"1rem",marginBottom:3}}>Run Feedback</div>
+        <div style={{fontSize:".74rem",color:"var(--tx2)",marginBottom:14}}>
           {run.name} · {fmtKm(run.distanceKm)} km · {fmtDate(run.date)}
         </div>
-        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
+        <div style={{display:"flex",flexDirection:"column",gap:9,marginBottom:20}}>
           {feedbacks.map((fb,i) => {
             const col = insightColors[fb.type] || "var(--tx2)";
             return (
-              <div key={i} style={{display:"flex",gap:12,padding:"12px 14px",borderRadius:13,background:`${col}10`,border:`1px solid ${col}25`}}>
-                <span style={{fontSize:"1.2rem",flexShrink:0,lineHeight:1.2}}>{fb.icon}</span>
+              <div key={i} style={{display:"flex",gap:12,padding:"11px 13px",borderRadius:12,background:`${col}10`,border:`1px solid ${col}22`}}>
+                <span style={{fontSize:"1.15rem",flexShrink:0,lineHeight:1.2}}>{fb.icon}</span>
                 <div>
-                  <div style={{fontWeight:700,fontSize:".88rem",color:"var(--tx)",marginBottom:3}}>{fb.title}</div>
-                  <div style={{fontSize:".78rem",color:"var(--tx2)",lineHeight:1.5}}>{fb.detail}</div>
+                  <div style={{fontWeight:700,fontSize:".86rem",color:"var(--tx)",marginBottom:2}}>{fb.title}</div>
+                  <div style={{fontSize:".76rem",color:"var(--tx2)",lineHeight:1.5}}>{fb.detail}</div>
                 </div>
               </div>
             );
@@ -926,9 +908,6 @@ const RunFeedbackModal = ({run, mafHR, onClose}) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// §N2  ALL RUNS VIEW (full history)
-// ─────────────────────────────────────────────────────────────────
 const AllRunsView = ({acts, hrProfile, onSelect, onClose}) => {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -945,16 +924,13 @@ const AllRunsView = ({acts, hrProfile, onSelect, onClose}) => {
 
   return (
     <div style={{position:"fixed",inset:0,zIndex:220,background:"var(--bg)",display:"flex",flexDirection:"column"}}>
-      {/* Header */}
       <div className="glass" style={{padding:"14px 18px 0",borderBottom:"1px solid var(--bd)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontWeight:700,fontSize:"1.05rem"}}>All Runs</div>
           <button className="btn b-ghost" style={{padding:"6px 14px",fontSize:".82rem"}} onClick={onClose}>✕ Close</button>
         </div>
-        {/* Search */}
         <input className="inp" value={search} onChange={e=>setSearch(e.target.value)}
           placeholder="Search runs…" style={{marginBottom:12}}/>
-        {/* Type filters */}
         <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:12}}>
           {types.map(t=>(
             <button key={t} className={`pill ${filter===t?"on":""}`} onClick={()=>setFilter(t)}
@@ -964,7 +940,6 @@ const AllRunsView = ({acts, hrProfile, onSelect, onClose}) => {
           ))}
         </div>
       </div>
-      {/* List */}
       <div style={{flex:1,overflowY:"auto",padding:"12px 18px 32px"}}>
         {filtered.length===0 ? (
           <div style={{textAlign:"center",padding:"40px 0",color:"var(--tx2)"}}>
@@ -998,16 +973,12 @@ const AllRunsView = ({acts, hrProfile, onSelect, onClose}) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// §N3  MONTHLY REPORT
-// ─────────────────────────────────────────────────────────────────
 const monthKeyOf = ts => { const d=new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
 const monthLabelOf = k => { if(!k)return""; const[y,m]=k.split("-").map(Number); return new Date(y,m-1,1).toLocaleDateString("en-GB",{month:"long",year:"numeric"}); };
 
 const MonthlyReport = ({acts, hrProfile, onClose}) => {
   const mafHR = getMafHR(hrProfile, null);
 
-  // Available completed months (before current month)
   const currentMK = monthKeyOf(Date.now());
   const monthGroups = useMemo(() => {
     const map = {};
@@ -1034,9 +1005,7 @@ const MonthlyReport = ({acts, hrProfile, onClose}) => {
     const elevGain = monthRuns.reduce((s,r)=>s+(r.elevGainM||0),0);
     const longest = monthRuns.reduce((b,r)=>r.distanceKm>b.distanceKm?r:b, monthRuns[0]);
     const fastest = paceRuns.length ? paceRuns.reduce((b,r)=>r.avgPaceSecKm<b.avgPaceSecKm?r:b, paceRuns[0]) : null;
-    // Weekly active count
     const weekSet = new Set(monthRuns.map(r=>{ const d=new Date(r.dateTs||r.date); d.setHours(0,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)); return d.getTime(); }));
-    // Coach summary
     const aboveMaf = hrRuns.filter(r=>r.avgHR>mafHR).length;
     const hrRatio = hrRuns.length ? aboveMaf/hrRuns.length : 0;
     let coachSummary = "";
@@ -1080,97 +1049,15 @@ const MonthlyReport = ({acts, hrProfile, onClose}) => {
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   };
 
-  const exportPdf = () => {
-    if (!stats) return;
-    const label = monthLabelOf(selected);
-    const mafLabel = mafHR ? `MAF ${mafHR} bpm` : "—";
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Runlytics — ${label}</title>
-<style>
-  *{margin:0;padding:0;box-sizing:border-box;}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#06080f;color:#d8e6f7;padding:32px 28px;max-width:540px;margin:0 auto;}
-  h1{font-size:1.5rem;font-weight:800;color:#f97316;margin-bottom:4px;}
-  .sub{font-size:.8rem;color:#6178a0;margin-bottom:28px;}
-  .section{margin-bottom:22px;}
-  .label{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#2e3d55;margin-bottom:10px;}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-  .card{background:#0b0f1a;border:1px solid #1a2336;border-radius:12px;padding:14px 13px;}
-  .val{font-family:'Courier New',monospace;font-size:1.35rem;font-weight:700;color:#f97316;line-height:1;}
-  .unit{font-size:.62rem;color:#6178a0;font-weight:400;margin-left:3px;}
-  .clabel{font-size:.62rem;color:#6178a0;margin-top:5px;}
-  .coach{background:#101622;border:1px solid #22c55e40;border-radius:12px;padding:14px 15px;color:#d8e6f7;font-size:.85rem;line-height:1.65;}
-  table{width:100%;border-collapse:collapse;font-size:.76rem;}
-  td{padding:7px 0;border-bottom:1px solid #1a2336;color:#d8e6f7;}
-  td:first-child{color:#6178a0;width:90px;}
-  td:last-child{font-family:'Courier New',monospace;text-align:right;color:#f97316;font-weight:600;}
-  .maf{font-size:.72rem;color:#6178a0;margin-top:6px;}
-  @media print{body{background:#fff;color:#111;}h1{color:#f97316;}.card{background:#f5f5f5;border:1px solid #ddd;}.coach{background:#f0fdf4;border-color:#22c55e80;}}
-</style></head><body>
-<h1>Monthly Report</h1>
-<div class="sub">${label} &nbsp;·&nbsp; Generated ${new Date().toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</div>
-
-<div class="section">
-  <div class="label">Summary</div>
-  <div class="grid">
-    <div class="card"><div class="val">${fmtKm(stats.km)}<span class="unit">km</span></div><div class="clabel">Distance</div></div>
-    <div class="card"><div class="val">${stats.count}<span class="unit">runs</span></div><div class="clabel">Total Runs</div></div>
-    <div class="card"><div class="val">${fmtDur(stats.timeSec)}</div><div class="clabel">Total Time</div></div>
-    <div class="card"><div class="val">${fmtPace(stats.avgPace)}<span class="unit">/km</span></div><div class="clabel">Avg Pace</div></div>
-    <div class="card"><div class="val">${stats.avgHR||"—"}<span class="unit">${stats.avgHR?"bpm":""}</span></div><div class="clabel">Avg HR</div></div>
-    <div class="card"><div class="val">${Math.round(stats.elevGain)}<span class="unit">m</span></div><div class="clabel">Elev Gain</div></div>
-  </div>
-  <div class="maf">MAF reference: ${mafLabel} &nbsp;·&nbsp; Active weeks: ${stats.activeWeeks}</div>
-</div>
-
-<div class="section">
-  <div class="label">Highlights</div>
-  <div class="grid">
-    <div class="card"><div style="font-size:.6rem;color:#f97316;font-weight:700;margin-bottom:5px">🏆 LONGEST</div><div class="val">${fmtKm(stats.longest.distanceKm)}<span class="unit">km</span></div><div class="clabel" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${stats.longest.name}</div></div>
-    ${stats.fastest ? `<div class="card"><div style="font-size:.6rem;color:#3b82f6;font-weight:700;margin-bottom:5px">⚡ FASTEST</div><div class="val" style="color:#3b82f6">${fmtPace(stats.fastest.avgPaceSecKm)}<span class="unit">/km</span></div><div class="clabel" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${stats.fastest.name}</div></div>` : ""}
-  </div>
-</div>
-
-<div class="section">
-  <div class="label">Coach Summary</div>
-  <div class="coach">${stats.coachSummary}</div>
-</div>
-
-<div class="section">
-  <div class="label">Run Log (${monthRuns.length} runs)</div>
-  <table>
-    ${monthRuns.slice().sort((a,b)=>(a.dateTs||0)-(b.dateTs||0)).map(r=>`
-    <tr>
-      <td>${fmtDateS(r.date)}</td>
-      <td>${r.name.length>28?r.name.slice(0,28)+"…":r.name}</td>
-      <td>${fmtKm(r.distanceKm)} km &nbsp; ${fmtPace(r.avgPaceSecKm)}/km${r.avgHR?` &nbsp; ♥${r.avgHR}`:""}</td>
-    </tr>`).join("")}
-  </table>
-</div>
-
-<div style="margin-top:32px;font-size:.65rem;color:#2e3d55;text-align:center">Generated by RUNLYTICS &nbsp;·&nbsp; Your personal running coach</div>
-</body></html>`;
-    const blob = new Blob([html], {type:"text/html"});
-    const url = URL.createObjectURL(blob);
-    const win = window.open(url, "_blank");
-    if (win) {
-      win.onload = () => { win.print(); setTimeout(()=>URL.revokeObjectURL(url), 3000); };
-    } else {
-      // fallback: direct download
-      const a = document.createElement("a");
-      a.href=url; a.download=`runlytics-${selected}.html`; a.click();
-      setTimeout(()=>URL.revokeObjectURL(url),1000);
-    }
-  };
+  const exportPdf = null; // removed to reduce file size;
 
   return (
     <div style={{position:"fixed",inset:0,zIndex:220,background:"var(--bg)",display:"flex",flexDirection:"column",overflowY:"auto"}}>
-      {/* Header */}
       <div className="glass" style={{position:"sticky",top:0,zIndex:10,padding:"14px 18px 12px",borderBottom:"1px solid var(--bd)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <div style={{fontWeight:700,fontSize:"1.05rem"}}>Monthly Report</div>
           <button className="btn b-ghost" style={{padding:"6px 14px",fontSize:".82rem"}} onClick={onClose}>✕ Close</button>
         </div>
-        {/* Month selector */}
         {monthGroups.length > 0 ? (
           <select value={selected} onChange={e=>setSelected(e.target.value)}
             style={{width:"100%",padding:"9px 12px",borderRadius:10,fontSize:".86rem",fontFamily:"inherit"}}>
@@ -1189,8 +1076,6 @@ const MonthlyReport = ({acts, hrProfile, onClose}) => {
         ) : !stats ? (
           <div style={{textAlign:"center",padding:"40px 0",color:"var(--tx2)"}}>No runs in {monthLabelOf(selected)}</div>
         ) : (<>
-
-          {/* Summary cards */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
             {[
               {l:"Distance",  v:fmtKm(stats.km),        u:"km",   c:"var(--or)"},
@@ -1206,8 +1091,6 @@ const MonthlyReport = ({acts, hrProfile, onClose}) => {
               </div>
             ))}
           </div>
-
-          {/* Highlights */}
           <div className="card" style={{padding:16,marginBottom:14}}>
             <SectionHead title="Highlights"/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
@@ -1225,14 +1108,10 @@ const MonthlyReport = ({acts, hrProfile, onClose}) => {
               )}
             </div>
           </div>
-
-          {/* Coach summary */}
           <div style={{marginBottom:14}}>
             <SectionHead title="Coach Summary"/>
             <CoachCard insight={{type:"info",icon:"🧠",title:monthLabelOf(selected),detail:stats.coachSummary}} defaultOpen={true}/>
           </div>
-
-          {/* Run list */}
           <div className="card" style={{padding:16,marginBottom:16}}>
             <SectionHead title="All Runs" sub={`${stats.count} total`}/>
             {monthRuns.slice().sort((a,b)=>b.dateTs-a.dateTs).map((r,i,arr)=>(
@@ -1249,24 +1128,15 @@ const MonthlyReport = ({acts, hrProfile, onClose}) => {
             ))}
           </div>
 
-          {/* Export */}
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            <button className="btn b-or" style={{padding:"12px",fontSize:".82rem"}} onClick={exportPdf}>
-              🖨 Print / PDF
-            </button>
-            <button className="btn b-ghost" style={{padding:"12px",fontSize:".82rem"}} onClick={exportTxt}>
-              📄 Download .txt
-            </button>
-          </div>
+          <button className="btn b-ghost" style={{width:"100%",padding:"12px",fontSize:".86rem"}} onClick={exportTxt}>
+            📄 Download Monthly Report (.txt)
+          </button>
         </>)}
       </div>
     </div>
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// §N  HOME TAB
-// ─────────────────────────────────────────────────────────────────
 const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct, onUpload, onEditGoals, onViewAll, onViewMonthly}) => {
   const lastRun = acts.length ? acts.reduce((b,a)=>a.dateTs>b.dateTs?a:b) : null;
   const mafHR = getMafHR(hrProfile, null);
@@ -1283,21 +1153,32 @@ const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct
 
   return (
     <div style={{padding:"4px 0 32px"}}>
-      {/* Greeting */}
       <div className="a0" style={{marginBottom:20,paddingTop:4}}>
         <div style={{fontSize:".72rem",color:"var(--tx3)",fontWeight:500,marginBottom:4}}>{greet()}</div>
-        <div style={{fontSize:"1.55rem",fontWeight:700,lineHeight:1.2}}>
-          {profile.name === "Runner" ? "Welcome back 👋" : `Welcome back, ${profile.name} 👋`}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div style={{fontSize:"1.55rem",fontWeight:700,lineHeight:1.2}}>
+            {profile.name === "Runner" ? "Welcome back 👋" : `Welcome back, ${profile.name} 👋`}
+          </div>
+          {analytics.streak >= 2 && (
+            <div style={{
+              display:"flex",flexDirection:"column",alignItems:"center",
+              padding:"8px 12px",borderRadius:14,flexShrink:0,
+              background:"rgba(249,115,22,.1)",border:"1.5px solid rgba(249,115,22,.25)",
+              animation:"sparkle 2.5s ease-in-out infinite",
+            }}>
+              <span style={{fontSize:"1.4rem",lineHeight:1}}>🔥</span>
+              <span className="mono" style={{fontSize:"1.1rem",fontWeight:800,color:"var(--or)",lineHeight:1,marginTop:2}}>{analytics.streak}</span>
+              <span style={{fontSize:".52rem",color:"var(--or)",fontWeight:600,textTransform:"uppercase",letterSpacing:".06em"}}>day{analytics.streak!==1?"s":""}</span>
+            </div>
+          )}
         </div>
-        {analytics.streak > 0 && (
+        {analytics.streak === 1 && (
           <div style={{display:"inline-flex",alignItems:"center",gap:6,marginTop:8,padding:"4px 12px",borderRadius:20,background:"rgba(249,115,22,.1)",border:"1px solid rgba(249,115,22,.2)"}}>
             <span>🔥</span>
-            <span style={{fontSize:".76rem",fontWeight:600,color:"var(--or)"}}>{analytics.streak} day streak</span>
+            <span style={{fontSize:".76rem",fontWeight:600,color:"var(--or)"}}>1 day streak — keep it going!</span>
           </div>
         )}
       </div>
-
-      {/* TODAY'S RECOMMENDATION — always at top */}
       <div className="a1" style={{marginBottom:14}}>
         <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:7}}>Today's Recommendation</div>
         <div style={{
@@ -1312,8 +1193,6 @@ const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct
           </div>
         </div>
       </div>
-
-      {/* Last run hero card */}
       {lastRun ? (
         <div className="card a2 tap" style={{padding:20,marginBottom:14,cursor:"pointer",background:`linear-gradient(135deg,var(--s1),var(--s2))`}} onClick={()=>onSelectAct(lastRun)}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
@@ -1350,14 +1229,10 @@ const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct
           <button className="btn b-or" style={{padding:"11px 24px",fontSize:".86rem"}} onClick={onUpload}>Upload GPX</button>
         </div>
       )}
-
-      {/* Coach Insight — compact, accordion */}
       <div className="a3" style={{marginBottom:14}}>
         <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:7}}>Coach Insight</div>
         <CoachCard insight={insight}/>
       </div>
-
-      {/* Weekly goal ring */}
       <div className="card a4" style={{padding:18,marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:16}}>
           <Ring pct={weekPct} size={72} color={weekPct>=1?"var(--gn)":"var(--or)"}>
@@ -1377,8 +1252,6 @@ const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct
           <button className="tap" style={{background:"none",border:"none",color:"var(--tx3)",fontSize:".8rem",padding:4}} onClick={onEditGoals}>Edit</button>
         </div>
       </div>
-
-      {/* Tasks preview */}
       {todayTasks.length > 0 && (
         <div className="card a5" style={{padding:18}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -1404,8 +1277,6 @@ const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct
           </div>
         </div>
       )}
-
-      {/* Monthly Report quick access */}
       {acts.length > 0 && (
         <div className="a5" style={{marginTop:14}}>
           <button className="btn b-ghost" style={{width:"100%",padding:"12px",fontSize:".82rem",gap:8,borderRadius:14}}
@@ -1418,9 +1289,6 @@ const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// §O  STATS TAB
-// ─────────────────────────────────────────────────────────────────
 const StatsTab = ({acts, analytics, hrProfile, onViewAll, onViewMonthly}) => {
   const [range, setRange] = useState(8);
   const runs = acts.filter(a=>a.type==="Run"||a.type==="Walk");
@@ -1428,14 +1296,12 @@ const StatsTab = ({acts, analytics, hrProfile, onViewAll, onViewMonthly}) => {
   const totalTime = runs.reduce((s,a)=>s+a.movingTimeSec,0);
   const weeklyData = analytics.weekly.slice(-range);
 
-  // Personal records
   const prs = runs.length ? {
     longest: runs.reduce((b,r)=>r.distanceKm>b.distanceKm?r:b),
     fastest: runs.filter(r=>r.avgPaceSecKm>0).reduce((b,r)=>r.avgPaceSecKm<b.avgPaceSecKm?r:b, runs.find(r=>r.avgPaceSecKm>0)||runs[0]),
     bestLoad: runs.reduce((b,r)=>r.trainingLoad>b.trainingLoad?r:b),
   } : null;
 
-  // Pace trend
   const paceTrend = runs.filter(r=>r.avgPaceSecKm>0).slice(-16).map(r=>({
     date:fmtDateS(r.date),
     pace:parseFloat((r.avgPaceSecKm/60).toFixed(2)),
@@ -1443,7 +1309,6 @@ const StatsTab = ({acts, analytics, hrProfile, onViewAll, onViewMonthly}) => {
 
   return (
     <div style={{padding:"4px 0 32px"}}>
-      {/* Summary strip */}
       <div className="a0" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:20}}>
         {[
           {l:"Total km",v:parseFloat(totalKm.toFixed(0)).toLocaleString(),c:"var(--or)"},
@@ -1456,8 +1321,6 @@ const StatsTab = ({acts, analytics, hrProfile, onViewAll, onViewMonthly}) => {
           </div>
         ))}
       </div>
-
-      {/* Weekly mileage chart */}
       {weeklyData.length > 1 && (
         <div className="card a1" style={{padding:18,marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -1485,8 +1348,6 @@ const StatsTab = ({acts, analytics, hrProfile, onViewAll, onViewMonthly}) => {
           </ResponsiveContainer>
         </div>
       )}
-
-      {/* Pace trend */}
       {paceTrend.length > 2 && (
         <div className="card a2" style={{padding:18,marginBottom:14}}>
           <SectionHead title="Pace Trend" sub="Most recent runs"/>
@@ -1507,8 +1368,6 @@ const StatsTab = ({acts, analytics, hrProfile, onViewAll, onViewMonthly}) => {
           </ResponsiveContainer>
         </div>
       )}
-
-      {/* Personal records */}
       {prs && (
         <div className="card a3" style={{padding:18,marginBottom:14}}>
           <SectionHead title="Personal Records"/>
@@ -1526,8 +1385,6 @@ const StatsTab = ({acts, analytics, hrProfile, onViewAll, onViewMonthly}) => {
           </div>
         </div>
       )}
-
-      {/* Race predictions */}
       {analytics.prediction && (
         <div className="card a4" style={{padding:18,marginBottom:14}}>
           <SectionHead title="Race Predictions" sub="Based on recent fitness"/>
@@ -1541,8 +1398,6 @@ const StatsTab = ({acts, analytics, hrProfile, onViewAll, onViewMonthly}) => {
           </div>
         </div>
       )}
-
-      {/* Monthly breakdown */}
       {analytics.monthly?.length > 0 && (
         <div className="card a5" style={{padding:18}}>
           <SectionHead title="Monthly Breakdown"/>
@@ -1570,8 +1425,6 @@ const StatsTab = ({acts, analytics, hrProfile, onViewAll, onViewMonthly}) => {
           <div style={{fontSize:".82rem"}}>Upload runs to see your stats</div>
         </div>
       )}
-
-      {/* Quick actions */}
       {runs.length > 0 && (
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:8}}>
           <button className="btn b-ghost" style={{padding:"12px",fontSize:".8rem",borderRadius:14}} onClick={onViewAll}>
@@ -1586,16 +1439,12 @@ const StatsTab = ({acts, analytics, hrProfile, onViewAll, onViewMonthly}) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// §P  HR INSIGHTS TAB
-// ─────────────────────────────────────────────────────────────────
 const HRInsightsTab = ({acts, hrProfile, onEditHR}) => {
   const mafHR = getMafHR(hrProfile, null);
   const mafZones = getMafZones(mafHR);
   const runsWithHR = acts.filter(a=>a.avgHR&&a.distanceKm>0);
   const last5 = runsWithHR.slice(0,5);
 
-  // Aggregate zone distribution over last 5 runs
   const aggZones = useMemo(()=>{
     if (!last5.length) return null;
     const allSecs = [0,0,0,0,0];
@@ -1608,12 +1457,10 @@ const HRInsightsTab = ({acts, hrProfile, onEditHR}) => {
     return mafZones.map((z,i)=>({...z,pct:Math.round(allSecs[i]/totalSec*100),minutes:parseFloat((allSecs[i]/60).toFixed(1))}));
   },[last5, mafHR]);
 
-  // HR trend data
   const hrTrend = runsWithHR.slice().reverse().slice(-16).map(r=>({
     date:fmtDateS(r.date),hr:r.avgHR,maf:mafHR
   }));
 
-  // Training quality verdict
   const verdict = useMemo(()=>{
     if (!last5.length) return {text:"No HR data",color:"var(--tx3)",icon:"❓"};
     const aboveMaf = last5.filter(r=>r.avgHR>mafHR).length;
@@ -1628,7 +1475,6 @@ const HRInsightsTab = ({acts, hrProfile, onEditHR}) => {
 
   return (
     <div style={{padding:"4px 0 32px"}}>
-      {/* MAF Hero */}
       <div className="card a0" style={{padding:22,marginBottom:14,background:"linear-gradient(135deg,var(--s1),var(--s2))"}}>
         <div style={{display:"flex",alignItems:"center",gap:16}}>
           <div style={{width:70,height:70,borderRadius:20,background:"rgba(249,115,22,.12)",border:"1px solid rgba(249,115,22,.2)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
@@ -1650,8 +1496,6 @@ const HRInsightsTab = ({acts, hrProfile, onEditHR}) => {
           </button>
         )}
       </div>
-
-      {/* Training quality verdict */}
       {last5.length > 0 && (
         <div className="card a1" style={{padding:18,marginBottom:14,background:verdict.bg||"var(--s1)"}}>
           <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:10}}>Training Quality · Last {last5.length} Runs</div>
@@ -1666,8 +1510,6 @@ const HRInsightsTab = ({acts, hrProfile, onEditHR}) => {
           </div>
         </div>
       )}
-
-      {/* Zone distribution (aggregated) */}
       {aggZones && (
         <div className="card a2" style={{padding:18,marginBottom:14}}>
           <SectionHead title="Zone Distribution" sub={`Averaged over last ${last5.length} runs`}/>
@@ -1687,7 +1529,6 @@ const HRInsightsTab = ({acts, hrProfile, onEditHR}) => {
               <div className="pb"><div className="pf" style={{width:`${z.pct}%`,background:z.color}}/></div>
             </div>
           ))}
-          {/* Zone legend */}
           <div style={{marginTop:14,paddingTop:12,borderTop:"1px solid var(--bd)"}}>
             <div style={{fontSize:".65rem",fontWeight:700,color:"var(--tx3)",marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>MAF zone boundaries</div>
             <div style={{display:"flex",gap:3,overflowX:"auto"}}>
@@ -1703,8 +1544,6 @@ const HRInsightsTab = ({acts, hrProfile, onEditHR}) => {
           </div>
         </div>
       )}
-
-      {/* HR trend chart */}
       {hrTrend.length > 2 && (
         <div className="card a3" style={{padding:18,marginBottom:14}}>
           <SectionHead title="HR Trend" sub="Avg HR per run vs MAF"/>
@@ -1732,14 +1571,10 @@ const HRInsightsTab = ({acts, hrProfile, onEditHR}) => {
           </ResponsiveContainer>
         </div>
       )}
-
-      {/* Coach insight full */}
       <div className="a4" style={{marginBottom:14}}>
         <SectionHead title="Coach Assessment"/>
         <CoachCard insight={insights}/>
       </div>
-
-      {/* Last runs HR breakdown */}
       {runsWithHR.slice(0,5).length > 0 && (
         <div className="card a5" style={{padding:18}}>
           <SectionHead title="Recent HR Data"/>
@@ -1777,9 +1612,6 @@ const HRInsightsTab = ({acts, hrProfile, onEditHR}) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// §Q  TASKS TAB
-// ─────────────────────────────────────────────────────────────────
 const TASK_COLORS = {hr:"var(--rd)",run:"var(--or)",recovery:"var(--gn)",load:"var(--yw)",wellness:"var(--bl)"};
 
 const TasksTab = ({tasks, setTasks, hrProfile, acts}) => {
@@ -1802,7 +1634,6 @@ const TasksTab = ({tasks, setTasks, hrProfile, acts}) => {
   const todayDone = tasks.filter(t=>t.enabled&&t.completions?.[todayStr]).length;
   const totalEnabled = tasks.filter(t=>t.enabled).length;
 
-  // Last 7 days labels
   const last7 = Array.from({length:7},(_,i)=>{
     const d = new Date(); d.setDate(d.getDate()-(6-i)); d.setHours(0,0,0,0);
     return {key:d.toISOString().split("T")[0],label:d.toLocaleDateString("en-GB",{weekday:"short"}).slice(0,1)};
@@ -1810,7 +1641,6 @@ const TasksTab = ({tasks, setTasks, hrProfile, acts}) => {
 
   return (
     <div style={{padding:"4px 0 32px"}}>
-      {/* Progress header */}
       <div className="a0" style={{marginBottom:20}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:10}}>
           <div>
@@ -1828,15 +1658,12 @@ const TasksTab = ({tasks, setTasks, hrProfile, acts}) => {
           <div className="pf" style={{width:`${totalEnabled>0?todayDone/totalEnabled*100:0}%`,background:todayDone===totalEnabled?"var(--gn)":"var(--or)"}}/>
         </div>
       </div>
-
-      {/* Task cards */}
       <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
         {tasks.filter(t=>t.enabled).map((task,i)=>{
           const done = !!task.completions?.[todayStr];
           const color = TASK_COLORS[task.category] || "var(--tx2)";
           const maxStreak = Math.max(...tasks.map(t=>t.streak));
 
-          // Context-aware detail for MAF task
           const detail = task.category==="hr" && hrProfile?.age
             ? `MAF = ${mafHR} bpm · Stay below this`
             : task.desc;
@@ -1846,7 +1673,6 @@ const TasksTab = ({tasks, setTasks, hrProfile, acts}) => {
               style={{padding:"16px 16px",borderColor:done?`${color}35`:"var(--bd)",background:done?`${color}08`:"var(--s1)",transition:"all .2s"}}
               onClick={()=>toggle(task.id)}>
               <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
-                {/* Checkbox */}
                 <div style={{width:26,height:26,borderRadius:8,border:`2.5px solid ${done?color:"var(--bd2)"}`,background:done?color:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1,transition:"all .18s"}}>
                   {done&&<span style={{color:"#fff",fontSize:".72rem",fontWeight:700}}>✓</span>}
                 </div>
@@ -1858,7 +1684,6 @@ const TasksTab = ({tasks, setTasks, hrProfile, acts}) => {
                       </div>
                       <div style={{fontSize:".74rem",color:"var(--tx3)",lineHeight:1.4}}>{detail}</div>
                     </div>
-                    {/* Streak */}
                     {task.streak>0&&(
                       <div style={{textAlign:"center",flexShrink:0}}>
                         <div style={{fontSize:".82rem"}}>🔥</div>
@@ -1866,7 +1691,6 @@ const TasksTab = ({tasks, setTasks, hrProfile, acts}) => {
                       </div>
                     )}
                   </div>
-                  {/* Week dots */}
                   <div style={{display:"flex",gap:4,marginTop:10}}>
                     {last7.map(({key,label})=>{
                       const completed = !!task.completions?.[key];
@@ -1885,8 +1709,6 @@ const TasksTab = ({tasks, setTasks, hrProfile, acts}) => {
           );
         })}
       </div>
-
-      {/* Streak leaderboard */}
       {tasks.some(t=>t.streak>0) && (
         <div className="card a5" style={{padding:18}}>
           <SectionHead title="Streak Tracker"/>
@@ -1909,9 +1731,6 @@ const TasksTab = ({tasks, setTasks, hrProfile, acts}) => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// §R  SETTINGS PANEL (bottom sheet modal)
-// ─────────────────────────────────────────────────────────────────
 const SettingsPanel = ({acts, goals, hrProfile, profile, onSaveGoals, onSaveHR, onSaveProfile, onClearAll, onClose}) => {
   const [view, setView] = useState("main"); // main | goals | hr | profile
   const [age, setAge] = useState(hrProfile.age||"");
@@ -2032,14 +1851,123 @@ const SettingsPanel = ({acts, goals, hrProfile, profile, onSaveGoals, onSaveHR, 
   );
 };
 
-// ─────────────────────────────────────────────────────────────────
-// §S  APP ROOT
-// ─────────────────────────────────────────────────────────────────
+const AchievementsTab = ({earnedBadges, acts, analytics}) => {
+  const totalKm = useMemo(()=>acts.reduce((s,r)=>s+r.distanceKm,0),[acts]);
+
+  const earned = BADGE_DEFS.filter(b=>earnedBadges.has(b.id));
+  const locked  = BADGE_DEFS.filter(b=>!earnedBadges.has(b.id));
+
+  const grouped = useMemo(()=>{
+    const all = BADGE_DEFS.map(b=>({...b, earned:earnedBadges.has(b.id)}));
+    const map = {};
+    BADGE_CAT_ORDER.forEach(c=>{ map[c] = all.filter(b=>b.cat===c); });
+    return map;
+  },[earnedBadges]);
+
+  return (
+    <div style={{padding:"4px 0 40px"}}>
+      <div className="a0" style={{marginBottom:20}}>
+        <div style={{fontSize:".65rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:8}}>Achievements</div>
+        <div style={{display:"flex",alignItems:"center",gap:16}}>
+          <Ring pct={earned.length/BADGE_DEFS.length} size={68} color="var(--or)">
+            <span style={{fontSize:".6rem",fontWeight:700,color:"var(--or)"}}>{Math.round(earned.length/BADGE_DEFS.length*100)}%</span>
+          </Ring>
+          <div>
+            <div style={{fontSize:"1.4rem",fontWeight:800,lineHeight:1}}>
+              <span className="mono" style={{color:"var(--or)"}}>{earned.length}</span>
+              <span style={{fontSize:".82rem",color:"var(--tx2)",fontWeight:400}}> / {BADGE_DEFS.length}</span>
+            </div>
+            <div style={{fontSize:".76rem",color:"var(--tx2)",marginTop:4}}>badges earned</div>
+            <div style={{fontSize:".7rem",color:"var(--tx3)",marginTop:2}}>
+              {fmtKm(totalKm)} km · {acts.length} runs · {analytics.streak}d streak
+            </div>
+          </div>
+        </div>
+      </div>
+      {earned.length > 0 && (
+        <div className="card a1" style={{padding:16,marginBottom:16,background:"linear-gradient(135deg,var(--s1),var(--s2))"}}>
+          <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:12}}>Latest Badges</div>
+          <div style={{display:"flex",gap:10,overflowX:"auto",paddingBottom:4}} className="scroll-x">
+            {earned.slice(-6).reverse().map((b,i)=>(
+              <div key={b.id} style={{
+                display:"flex",flexDirection:"column",alignItems:"center",gap:6,
+                padding:"12px 10px",minWidth:76,borderRadius:14,flexShrink:0,
+                background:`${b.color}12`,border:`1.5px solid ${b.color}35`,
+                animation:`badgePop .4s ${i*0.06}s cubic-bezier(.34,1.56,.64,1) both`,
+              }}>
+                <span style={{fontSize:"1.8rem",filter:`drop-shadow(0 2px 8px ${b.color}60)`}}>{b.icon}</span>
+                <div style={{fontSize:".6rem",fontWeight:700,color:b.color,textAlign:"center",lineHeight:1.3}}>{b.name}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {BADGE_CAT_ORDER.map((cat, ci) => {
+        const badges = grouped[cat];
+        if (!badges?.length) return null;
+        const catEarned = badges.filter(b=>b.earned).length;
+        return (
+          <div key={cat} className={`a${Math.min(ci+2,5)}`} style={{marginBottom:16}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <div style={{fontSize:".65rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)"}}>
+                {BADGE_CAT_LABEL[cat]}
+              </div>
+              <span style={{fontSize:".62rem",color:"var(--tx3)"}}>{catEarned}/{badges.length}</span>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              {badges.map(b=>(
+                <div key={b.id} className="card2" style={{
+                  padding:"13px 14px",
+                  display:"flex",alignItems:"center",gap:14,
+                  opacity: b.earned ? 1 : 0.45,
+                  borderColor: b.earned ? `${b.color}30` : "var(--bd)",
+                  background: b.earned ? `${b.color}08` : "var(--s2)",
+                  transition:"all .2s",
+                }}>
+                  <div style={{
+                    width:44,height:44,borderRadius:13,flexShrink:0,
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    background: b.earned ? `${b.color}18` : "var(--s3)",
+                    border: b.earned ? `1.5px solid ${b.color}35` : "1px solid var(--bd2)",
+                    fontSize:"1.5rem",
+                    filter: b.earned ? `drop-shadow(0 2px 6px ${b.color}50)` : "grayscale(1) brightness(.6)",
+                  }}>{b.icon}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:700,fontSize:".86rem",color:b.earned?b.color:"var(--tx2)",marginBottom:3}}>{b.name}</div>
+                    <div style={{fontSize:".72rem",color:"var(--tx3)",lineHeight:1.4}}>{b.desc}</div>
+                  </div>
+                  {b.earned && (
+                    <div style={{width:22,height:22,borderRadius:"50%",background:"var(--gn)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      <span style={{fontSize:".65rem",color:"#fff",fontWeight:700}}>✓</span>
+                    </div>
+                  )}
+                  {!b.earned && (
+                    <div style={{fontSize:".9rem",color:"var(--tx3)",flexShrink:0}}>🔒</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+
+      {acts.length === 0 && (
+        <div style={{textAlign:"center",padding:"48px 0",color:"var(--tx2)"}}>
+          <div style={{fontSize:"3rem",marginBottom:14}}>🏅</div>
+          <div style={{fontWeight:600,marginBottom:6}}>No badges yet</div>
+          <div style={{fontSize:".82rem",lineHeight:1.6}}>Upload your first run to start earning achievements</div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const TABS = [
-  {id:"home",  icon:"🏃", label:"Home"},
-  {id:"stats", icon:"📊", label:"Stats"},
-  {id:"hr",    icon:"❤️", label:"HR"},
-  {id:"tasks", icon:"✅", label:"Tasks"},
+  {id:"home",         icon:"🏃", label:"Home"},
+  {id:"stats",        icon:"📊", label:"Stats"},
+  {id:"hr",           icon:"❤️", label:"HR"},
+  {id:"tasks",        icon:"✅", label:"Tasks"},
+  {id:"achievements", icon:"🏅", label:"Awards"},
 ];
 
 export default function App() {
@@ -2048,6 +1976,7 @@ export default function App() {
   const [hrProfile, setHRProfile] = useState(()=>loadHRProfile());
   const [profile,   setProfile]   = useState(()=>loadProfile());
   const [tasks,     setTasks]     = useState(()=>loadTasks());
+  const [seenBadges,setSeenBadges]= useState(()=>loadSeenBadges());
   const [tab,       setTab]       = useState("home");
   const [detail,    setDetail]    = useState(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -2055,13 +1984,103 @@ export default function App() {
   const [showSplash,   setShowSplash]   = useState(true);
   const [showAllRuns,  setShowAllRuns]  = useState(false);
   const [showMonthly,  setShowMonthly]  = useState(false);
-  const [feedbackRun,  setFeedbackRun]  = useState(null);   // run to show post-upload feedback for
+  const [feedbackRun,  setFeedbackRun]  = useState(null);
   const scrollRef = useRef(null);
 
+ 
+
+  useEffect(() => {
+    history.replaceState({ _rl: "root" }, "");
+    history.pushState({ _rl: "sentinel" }, "");
+  }, []);
+
+  const detailRef      = useRef(detail);
+  const feedbackRef    = useRef(feedbackRun);
+  const settingsRef    = useRef(showSettings);
+  const allRunsRef     = useRef(showAllRuns);
+  const monthlyRef     = useRef(showMonthly);
+  const uploadRef      = useRef(showUpload);
+
+  useEffect(() => { detailRef.current   = detail;       }, [detail]);
+  useEffect(() => { feedbackRef.current = feedbackRun;  }, [feedbackRun]);
+  useEffect(() => { settingsRef.current = showSettings; }, [showSettings]);
+  useEffect(() => { allRunsRef.current  = showAllRuns;  }, [showAllRuns]);
+  useEffect(() => { monthlyRef.current  = showMonthly;  }, [showMonthly]);
+  useEffect(() => { uploadRef.current   = showUpload;   }, [showUpload]);
+
+  useEffect(() => {
+    const handlePop = () => {
+      if (feedbackRef.current)  { history.pushState({_rl:"sentinel"},""); setFeedbackRun(null);    return; }
+      if (detailRef.current)    { history.pushState({_rl:"sentinel"},""); setDetail(null);          return; }
+      if (settingsRef.current)  { history.pushState({_rl:"sentinel"},""); setShowSettings(false);  return; }
+      if (allRunsRef.current)   { history.pushState({_rl:"sentinel"},""); setShowAllRuns(false);   return; }
+      if (monthlyRef.current)   { history.pushState({_rl:"sentinel"},""); setShowMonthly(false);   return; }
+      if (uploadRef.current)    { history.pushState({_rl:"sentinel"},""); setShowUpload(false);    return; }
+    };
+    window.addEventListener("popstate", handlePop);
+    return () => window.removeEventListener("popstate", handlePop);
+  }, []); // empty deps — refs keep values current without re-subscribing
+
+ 
+  const openDetail = useCallback(act => {
+    history.pushState({ _rl: "detail" }, "");
+    setDetail(act);
+  }, []);
+
+  const openSettings = useCallback(() => {
+    history.pushState({ _rl: "settings" }, "");
+    setShowSettings(true);
+  }, []);
+
+  const openAllRuns = useCallback(() => {
+    history.pushState({ _rl: "allRuns" }, "");
+    setShowAllRuns(true);
+  }, []);
+
+  const openMonthly = useCallback(() => {
+    history.pushState({ _rl: "monthly" }, "");
+    setShowMonthly(true);
+  }, []);
+
+  const openUpload = useCallback(() => {
+    history.pushState({ _rl: "upload" }, "");
+    setShowUpload(true);
+  }, []);
+
+  const closeDetail   = useCallback(() => { history.back(); }, []);
+  const closeSettings = useCallback(() => { history.back(); }, []);
+  const closeAllRuns  = useCallback(() => { history.back(); }, []);
+  const closeMonthly  = useCallback(() => { history.back(); }, []);
+  const closeUpload   = useCallback(() => { history.back(); }, []);
+  const closeFeedback = useCallback(() => {
+    const next = new Set([...seenBadges, ...earnedBadges]);
+    setSeenBadges(next);
+    saveSeenBadges(next);
+    setFeedbackRun(null);
+  }, [earnedBadges, seenBadges]);
+
+ 
   useEffect(()=>{ saveActs(acts); },[acts]);
   useEffect(()=>{ scrollRef.current?.scrollTo({top:0,behavior:"smooth"}); },[tab]);
 
   const analytics = useMemo(()=>buildAnalytics(acts,hrProfile),[acts,hrProfile]);
+
+  const mafHRGlobal   = useMemo(()=>getMafHR(hrProfile, null),[hrProfile]);
+  const earnedBadges  = useMemo(()=>computeEarnedBadges(acts, analytics, mafHRGlobal),[acts, analytics, mafHRGlobal]);
+
+  const newBadgesSinceLastCheck = useMemo(()=>{
+    return [...earnedBadges].filter(id=>!seenBadges.has(id));
+  },[earnedBadges, seenBadges]);
+
+  const hasUnseen = newBadgesSinceLastCheck.length > 0;
+
+  useEffect(()=>{
+    if (tab==="achievements" && hasUnseen) {
+      const next = new Set([...seenBadges, ...earnedBadges]);
+      setSeenBadges(next);
+      saveSeenBadges(next);
+    }
+  },[tab]); // intentionally only re-runs on tab change; seenBadges/earnedBadges read via closure
 
   const addActs = useCallback((parsed) => {
     setActs(prev => {
@@ -2069,42 +2088,38 @@ export default function App() {
       m.sort((a,b) => b.dateTs - a.dateTs);
       return m;
     });
-    // Show post-run feedback for the most significant new run (longest by distance)
     if (parsed.length > 0) {
       const highlight = parsed.reduce((b,r) => r.distanceKm > b.distanceKm ? r : b, parsed[0]);
       setFeedbackRun(highlight);
     }
-    setShowUpload(false);
+    if (uploadRef.current) history.back();
     setTab("home");
   }, []);
 
-  const deleteAct = useCallback(id=>{
-    setActs(p=>p.filter(a=>a.id!==id));
-    setDetail(null);
-  },[]);
+  const deleteAct = useCallback(id => {
+    setActs(p => p.filter(a => a.id !== id));
+    if (detailRef.current) history.back();
+  }, []);
 
-  const clearAll = ()=>{
-    if(!confirm(`Delete all ${acts.length} activities? This cannot be undone.`))return;
+  const clearAll = () => {
+    if (!confirm(`Delete all ${acts.length} activities? This cannot be undone.`)) return;
     setActs([]); saveActs([]);
   };
 
-  const saveGoalsHandler  = g=>{ setGoals(g);     saveGoals(g);     setShowSettings(false); };
-  const saveHRHandler     = p=>{ setHRProfile(p); saveHRProfile(p); };
-  const saveProfileHandler= p=>{ setProfile(p);   saveProfile(p);   };
+  const saveGoalsHandler   = g => { setGoals(g);     saveGoals(g);     history.back(); }; // closes settings
+  const saveHRHandler      = p => { setHRProfile(p); saveHRProfile(p); };
+  const saveProfileHandler = p => { setProfile(p);   saveProfile(p);   };
 
-  // Splash — 1.5s
   const [splashOut, setSplashOut] = useState(false);
-  useEffect(()=>{
-    const t1 = setTimeout(()=>setSplashOut(true), 1500);
-    const t2 = setTimeout(()=>setShowSplash(false), 1860);
-    return ()=>{ clearTimeout(t1); clearTimeout(t2); };
-  },[]);
+  useEffect(() => {
+    const t1 = setTimeout(() => setSplashOut(true), 1500);
+    const t2 = setTimeout(() => setShowSplash(false), 1860);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
 
   return (
     <>
       <Styles/>
-
-      {/* Splash */}
       {showSplash && (
         <div style={{position:"fixed",inset:0,zIndex:999,background:"var(--bg)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:0,opacity:splashOut?0:1,transition:"opacity .35s ease",pointerEvents:splashOut?"none":"auto"}}>
           <div style={{position:"absolute",top:"30%",left:"50%",transform:"translate(-50%,-50%)",width:260,height:260,borderRadius:"50%",background:"radial-gradient(circle,rgba(249,115,22,.12) 0%,transparent 70%)",pointerEvents:"none"}}/>
@@ -2116,93 +2131,112 @@ export default function App() {
           </div>
         </div>
       )}
-
-      {/* Post-run feedback modal */}
       {feedbackRun && (
         <RunFeedbackModal
           run={feedbackRun}
           mafHR={getMafHR(hrProfile, feedbackRun.maxHR)}
-          onClose={() => setFeedbackRun(null)}/>
+          newBadges={newBadgesSinceLastCheck}
+          onClose={closeFeedback}/>
       )}
-
-      {/* All Runs overlay */}
       {showAllRuns && (
         <AllRunsView
           acts={acts}
           hrProfile={hrProfile}
-          onSelect={act => { setDetail(act); }}
-          onClose={() => setShowAllRuns(false)}/>
+          onSelect={act => { openDetail(act); }}
+          onClose={closeAllRuns}/>
       )}
-
-      {/* Monthly Report overlay */}
       {showMonthly && (
         <MonthlyReport
           acts={acts}
           hrProfile={hrProfile}
-          onClose={() => setShowMonthly(false)}/>
+          onClose={closeMonthly}/>
       )}
-
-      {/* Activity detail */}
       {detail && (
-        <Detail act={detail} allActs={acts} hrProfile={hrProfile}
-          onClose={()=>setDetail(null)}
-          onDelete={id=>{ deleteAct(id); }}/>
+        <Detail
+          act={detail} allActs={acts} hrProfile={hrProfile}
+          onClose={closeDetail}
+          onDelete={id => deleteAct(id)}/>
       )}
-
-      {/* Settings */}
       {showSettings && (
         <SettingsPanel
           acts={acts} goals={goals} hrProfile={hrProfile} profile={profile}
           onSaveGoals={saveGoalsHandler}
-          onSaveHR={p=>{ saveHRHandler(p); setShowSettings(false); }}
-          onSaveProfile={p=>{ saveProfileHandler(p); }}
+          onSaveHR={p => { saveHRHandler(p); closeSettings(); }}
+          onSaveProfile={p => saveProfileHandler(p)}
           onClearAll={clearAll}
-          onClose={()=>setShowSettings(false)}/>
+          onClose={closeSettings}/>
       )}
-
-      {/* Main app shell */}
       <div style={{maxWidth:430,margin:"0 auto",minHeight:"100vh",background:"var(--bg)",display:"flex",flexDirection:"column",position:"relative"}}>
-
-        {/* Top bar */}
         <div className="glass" style={{position:"sticky",top:0,zIndex:50,padding:"14px 18px 12px",borderBottom:"1px solid var(--bd)"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <div>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <div style={{width:28,height:28,borderRadius:8,background:"linear-gradient(135deg,#f97316,#c2410c)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:".85rem"}}>🏃</div>
-                <span className="mono" style={{fontSize:"1rem",fontWeight:700,letterSpacing:".06em"}}>RUNLYTICS</span>
-              </div>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{width:28,height:28,borderRadius:8,background:"linear-gradient(135deg,#f97316,#c2410c)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:".85rem"}}>🏃</div>
+              <span className="mono" style={{fontSize:"1rem",fontWeight:700,letterSpacing:".06em"}}>RUNLYTICS</span>
             </div>
             <div style={{display:"flex",gap:8,alignItems:"center"}}>
-              {acts.length>0&&<span style={{background:"var(--or2)",color:"var(--or)",padding:"2px 9px",borderRadius:20,fontSize:".62rem",fontWeight:700}}>{acts.length} runs</span>}
-              <button className="btn b-or" style={{padding:"6px 13px",fontSize:".78rem"}} onClick={()=>setShowUpload(v=>!v)}>
-                {showUpload?"✕ Close":"+ Upload"}
+              {acts.length>0 && (
+                <span style={{background:"var(--or2)",color:"var(--or)",padding:"2px 9px",borderRadius:20,fontSize:".62rem",fontWeight:700}}>{acts.length} runs</span>
+              )}
+              <button className="btn b-or" style={{padding:"6px 13px",fontSize:".78rem"}}
+                onClick={() => showUpload ? closeUpload() : openUpload()}>
+                {showUpload ? "✕ Close" : "+ Upload"}
               </button>
-              <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.1rem",padding:4}} onClick={()=>setShowSettings(true)}>⚙️</button>
+              <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.1rem",padding:4}}
+                onClick={openSettings}>⚙️</button>
             </div>
           </div>
         </div>
-
-        {/* Content */}
         <div ref={scrollRef} style={{flex:1,overflowY:"auto",padding:"0 18px"}}>
           {showUpload ? (
             <Upload acts={acts} hrProfile={hrProfile} onAdd={addActs} onClearAll={clearAll}/>
           ) : (
             <>
-              {tab==="home" && <HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} tasks={tasks} onSelectAct={setDetail} onUpload={()=>setShowUpload(true)} onEditGoals={()=>setShowSettings(true)} onViewAll={()=>setShowAllRuns(true)} onViewMonthly={()=>setShowMonthly(true)}/>}
-              {tab==="stats" && <StatsTab acts={acts} analytics={analytics} hrProfile={hrProfile} onViewAll={()=>setShowAllRuns(true)} onViewMonthly={()=>setShowMonthly(true)}/>}
-              {tab==="hr" && <HRInsightsTab acts={acts} hrProfile={hrProfile} onEditHR={()=>setShowSettings(true)}/>}
-              {tab==="tasks" && <TasksTab tasks={tasks} setTasks={setTasks} hrProfile={hrProfile} acts={acts}/>}
+              {tab==="home" && (
+                <HomeTab
+                  acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile}
+                  profile={profile} tasks={tasks}
+                  onSelectAct={openDetail}
+                  onUpload={openUpload}
+                  onEditGoals={openSettings}
+                  onViewAll={openAllRuns}
+                  onViewMonthly={openMonthly}/>
+              )}
+              {tab==="stats" && (
+                <StatsTab
+                  acts={acts} analytics={analytics} hrProfile={hrProfile}
+                  onViewAll={openAllRuns}
+                  onViewMonthly={openMonthly}/>
+              )}
+              {tab==="hr" && (
+                <HRInsightsTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings}/>
+              )}
+              {tab==="tasks" && (
+                <TasksTab tasks={tasks} setTasks={setTasks} hrProfile={hrProfile} acts={acts}/>
+              )}
+              {tab==="achievements" && (
+                <AchievementsTab
+                  earnedBadges={earnedBadges}
+                  acts={acts}
+                  analytics={analytics}/>
+              )}
             </>
           )}
         </div>
-
-        {/* Bottom tab bar */}
         {!showUpload && (
           <div className="glass" style={{position:"sticky",bottom:0,borderTop:"1px solid var(--bd)",display:"flex",paddingBottom:"env(safe-area-inset-bottom,0)"}}>
-            {TABS.map(t=>(
-              <button key={t.id} className={`tab-btn ${tab===t.id?"on":""}`} onClick={()=>{setTab(t.id);}}>
+            {TABS.map(t => (
+              <button key={t.id} className={`tab-btn ${tab===t.id?"on":""}`}
+                onClick={() => setTab(t.id)}
+                style={{position:"relative"}}>
                 <span style={{fontSize:"1.15rem",lineHeight:1,marginBottom:1}}>{t.icon}</span>
                 {t.label}
+                {t.id==="achievements" && hasUnseen && tab!=="achievements" && (
+                  <span style={{
+                    position:"absolute",top:6,right:"calc(50% - 12px)",
+                    width:7,height:7,borderRadius:"50%",
+                    background:"var(--or)",border:"1.5px solid var(--bg)",
+                  }}/>
+                )}
               </button>
             ))}
           </div>
