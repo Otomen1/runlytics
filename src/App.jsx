@@ -124,17 +124,59 @@ function computeZones(hrSamples, mafHR) {
 function getMafCoachingInsight(acts, hrProfile) {
   const mafHR = getMafHR(hrProfile, null);
   const runsWithHR = acts.filter(a=>a.avgHR&&a.distanceKm>0).slice(-5);
-  if (!runsWithHR.length) return { type:"neutral", title:"Set up your HR profile", body:"Enter your age in HR Insights to unlock MAF-based coaching.", action:"Go to HR Insights →" };
+  if (!runsWithHR.length) return { type:"neutral", title:"Set up your HR profile", detail:"Enter your age in HR Insights to unlock MAF-based coaching.", action:"Go to HR Insights →" };
 
   const aboveMaf = runsWithHR.filter(a=>a.avgHR>mafHR).length;
   const ratio = aboveMaf/runsWithHR.length;
   const avgHR = Math.round(runsWithHR.reduce((s,a)=>s+a.avgHR,0)/runsWithHR.length);
 
   if (ratio>=0.6)
-    return { type:"warning", title:"Training too hard", body:`${Math.round(ratio*100)}% of recent runs exceeded your MAF HR (${mafHR} bpm). This limits aerobic development.`, action:"Slow down on next run →", mafHR, avgHR };
+    return { type:"warning", title:"Training too hard", detail:`${Math.round(ratio*100)}% of recent runs exceeded your MAF HR (${mafHR} bpm). This limits aerobic development.`, action:"Slow down on next run →", mafHR, avgHR };
   if (ratio<=0.2)
-    return { type:"positive", title:"Great aerobic training", body:`You're staying below MAF HR consistently. This builds the aerobic base that makes you faster long-term.`, action:"Keep it up →", mafHR, avgHR };
-  return { type:"info", title:"Mixed intensity", body:`Some runs above MAF (${mafHR} bpm). Aim for 80% of runs to be below MAF for optimal aerobic development.`, action:"See HR breakdown →", mafHR, avgHR };
+    return { type:"positive", title:"Great aerobic training", detail:`You're staying below MAF HR consistently. This builds the aerobic base that makes you faster long-term.`, action:"Keep it up →", mafHR, avgHR };
+  return { type:"info", title:"Mixed intensity", detail:`Some runs above MAF (${mafHR} bpm). Aim for 80% of runs to be below MAF for optimal aerobic development.`, action:"See HR breakdown →", mafHR, avgHR };
+}
+
+// Today's coaching recommendation — short, actionable, data-driven
+function getTodayRecommendation(acts, hrProfile) {
+  const mafHR = getMafHR(hrProfile, null);
+  const sorted = [...acts].sort((a,b) => b.dateTs - a.dateTs);
+  const last = sorted[0] || null;
+  const now = Date.now();
+  const daysSinceLast = last ? Math.floor((now - last.dateTs) / 86400000) : 999;
+  const recent = sorted.slice(0, 5);
+  const avgLoad = recent.length ? recent.reduce((s,r)=>s+(r.trainingLoad||0),0)/recent.length : 0;
+  const highLoadStreak = recent.length >= 3 && recent.slice(0,3).every(r=>(r.trainingLoad||0)>65);
+  const runsWithHR = recent.filter(r=>r.avgHR);
+  const hrRatio = runsWithHR.length ? runsWithHR.filter(r=>r.avgHR>mafHR).length/runsWithHR.length : 0;
+  if (!acts.length) return { icon:"👟", title:"Upload your first run", sub:"Import a GPX file to start coaching.", type:"neutral" };
+  if (highLoadStreak) return { icon:"😴", title:"Rest or recover today", sub:"3 hard sessions in a row — your body needs recovery.", type:"warning" };
+  if (hrRatio >= 0.6 && last?.avgHR) return { icon:"💚", title:"Easy run today", sub:`Stay below ${mafHR} bpm to build aerobic base.`, type:"positive" };
+  if (daysSinceLast >= 3) return { icon:"🏃", title:"Time to run again", sub:`${daysSinceLast} days off — an easy run keeps consistency.`, type:"info" };
+  if (daysSinceLast >= 2) return { icon:"🏃", title:"Easy run recommended", sub:"2 days rest — a light aerobic run today is ideal.", type:"info" };
+  if (hrRatio <= 0.2 && runsWithHR.length >= 3) return { icon:"📈", title:"You're building well", sub:"Consistent aerobic pace — keep it up.", type:"positive" };
+  if (avgLoad > 70) return { icon:"⚡", title:"High load this week", sub:"Consider rest or recovery today.", type:"warning" };
+  return { icon:"✅", title:"Stay consistent", sub:"Your training is on track. Keep the aerobic pace.", type:"neutral" };
+}
+
+// Post-run feedback — instant insight after upload
+function getRunFeedback(run, mafHR) {
+  if (!run) return null;
+  const { avgHR, trainingLoad, splitInsight, distanceKm } = run;
+  const feedbacks = [];
+  if (avgHR && avgHR <= mafHR)
+    feedbacks.push({ type:"positive", icon:"💚", title:"Good aerobic run", detail:"You stayed at or below MAF — perfect for endurance building." });
+  else if (avgHR && avgHR > mafHR)
+    feedbacks.push({ type:"warning", icon:"⚠️", title:"Above MAF HR", detail:`Avg ${avgHR} bpm exceeded your MAF (${mafHR} bpm). Slow down next time.` });
+  if (splitInsight?.splitType === "negative")
+    feedbacks.push({ type:"positive", icon:"⬆️", title:"Great pacing", detail:"Negative split — you ran the second half faster. Excellent control." });
+  else if (splitInsight?.splitType === "positive")
+    feedbacks.push({ type:"info", icon:"⬇️", title:"Started too fast", detail:"Positive split — try starting easier and building pace." });
+  if ((trainingLoad||0) > 70)
+    feedbacks.push({ type:"warning", icon:"🔥", title:"High training load", detail:"This was a tough session. Prioritise sleep and recovery." });
+  if (!avgHR)
+    feedbacks.push({ type:"neutral", icon:"📊", title:"No HR data", detail:"Upload from a HR-enabled watch to unlock MAF coaching." });
+  return feedbacks.length ? feedbacks : [{ type:"positive", icon:"✅", title:"Run saved", detail:`${distanceKm?.toFixed(1)} km logged successfully.` }];
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -479,34 +521,40 @@ const Ring = ({pct=0, size=72, color="var(--or)", track="var(--bd)", strokeWidth
 // ─────────────────────────────────────────────────────────────────
 // §J  COACH INSIGHT CARD
 // ─────────────────────────────────────────────────────────────────
-const insightStyles = {good:"ins-good",warning:"ins-warn",danger:"ins-danger",info:"ins-info",neutral:"ins-neutral"};
-const insightColors = {good:"var(--gn)",warning:"var(--yw)",danger:"var(--rd)",info:"var(--bl)",neutral:"var(--tx2)"};
+const insightStyles = {good:"ins-good",positive:"ins-good",warning:"ins-warn",danger:"ins-danger",info:"ins-info",neutral:"ins-neutral"};
+const insightColors = {good:"var(--gn)",positive:"var(--gn)",warning:"var(--yw)",danger:"var(--rd)",info:"var(--bl)",neutral:"var(--tx2)"};
 
-const CoachCard = ({insight, compact=false}) => {
-  const [open, setOpen] = useState(!compact);
+// Compact accordion coach card — title only by default, tap to expand detail
+const CoachCard = ({insight, defaultOpen=false}) => {
+  const [open, setOpen] = useState(defaultOpen);
   if (!insight) return null;
-  const cls = insightStyles[insight.type] || "ins-neutral";
   const col = insightColors[insight.type] || "var(--tx2)";
+  const detail = insight.detail || insight.body;
+  const hasDetail = !!(detail || insight.action);
+
   return (
-    <div className={`card2 tap ${cls}`} style={{border:"1px solid",borderRadius:16,overflow:"hidden"}}
-      onClick={()=>compact&&setOpen(o=>!o)}>
-      <div style={{padding:"13px 15px",display:"flex",alignItems:"flex-start",gap:12}}>
-        <div style={{width:36,height:36,borderRadius:10,background:`${col}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.1rem",flexShrink:0}}>{insight.icon}</div>
+    <div style={{
+      background:`${col}08`, border:`1px solid ${col}28`,
+      borderRadius:14, overflow:"hidden",
+      cursor:hasDetail?"pointer":"default",
+    }} onClick={()=>hasDetail&&setOpen(o=>!o)}>
+      {/* Always-visible row */}
+      <div style={{padding:"13px 15px",display:"flex",alignItems:"center",gap:12}}>
+        <span style={{fontSize:"1.25rem",flexShrink:0,lineHeight:1}}>{insight.icon||"🧠"}</span>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-            <div style={{fontWeight:600,fontSize:".88rem",lineHeight:1.3}}>{insight.title}</div>
-            {compact && (
-              <div style={{color:"var(--tx3)",fontSize:".7rem",flexShrink:0,transition:"transform .2s",transform:open?"rotate(180deg)":"none"}}>▾</div>
-            )}
-          </div>
-          {compact && !open && insight.body && (
-            <div style={{fontSize:".75rem",color:"var(--tx2)",marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{insight.body}</div>
+          <div style={{fontWeight:700,fontSize:".9rem",color:"var(--tx)",lineHeight:1.3}}>{insight.title}</div>
+          {!open && detail && (
+            <div style={{fontSize:".73rem",color:"var(--tx2)",marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{detail}</div>
           )}
         </div>
+        {hasDetail && (
+          <div style={{color:`${col}`,fontSize:".75rem",transition:"transform .2s",transform:open?"rotate(180deg)":"none",flexShrink:0}}>▾</div>
+        )}
       </div>
-      {open && (insight.body || insight.action) && (
-        <div style={{padding:"0 15px 14px 63px",animation:"fadeIn .18s ease"}}>
-          {insight.body && <div style={{fontSize:".8rem",color:"var(--tx2)",lineHeight:1.6,marginBottom:insight.action?10:0}}>{insight.body}</div>}
+      {/* Expanded detail */}
+      {open && hasDetail && (
+        <div style={{padding:"0 15px 14px 52px",animation:"fadeIn .15s ease"}}>
+          {detail && <div style={{fontSize:".8rem",color:"var(--tx2)",lineHeight:1.65,marginBottom:insight.action?10:0}}>{detail}</div>}
           {insight.action && <div style={{fontSize:".76rem",color:col,fontWeight:600}}>{insight.action}</div>}
         </div>
       )}
@@ -844,19 +892,391 @@ const Upload = ({acts, hrProfile, onAdd, onClearAll}) => {
 };
 
 // ─────────────────────────────────────────────────────────────────
+// §N1  POST-RUN FEEDBACK MODAL
+// ─────────────────────────────────────────────────────────────────
+const RunFeedbackModal = ({run, mafHR, onClose}) => {
+  const feedbacks = useMemo(()=>getRunFeedback(run, mafHR),[run, mafHR]);
+  if (!run || !feedbacks) return null;
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:250,background:"rgba(0,0,0,.7)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="glass" style={{width:"100%",maxWidth:430,borderRadius:"20px 20px 0 0",padding:"24px 20px 40px",border:"1px solid var(--bd)"}}>
+        {/* Handle */}
+        <div style={{width:36,height:4,borderRadius:2,background:"var(--bd2)",margin:"0 auto 20px"}}/>
+        <div style={{fontWeight:700,fontSize:"1.05rem",marginBottom:4}}>Run Feedback</div>
+        <div style={{fontSize:".76rem",color:"var(--tx2)",marginBottom:18}}>
+          {run.name} · {fmtKm(run.distanceKm)} km · {fmtDate(run.date)}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
+          {feedbacks.map((fb,i) => {
+            const col = insightColors[fb.type] || "var(--tx2)";
+            return (
+              <div key={i} style={{display:"flex",gap:12,padding:"12px 14px",borderRadius:13,background:`${col}10`,border:`1px solid ${col}25`}}>
+                <span style={{fontSize:"1.2rem",flexShrink:0,lineHeight:1.2}}>{fb.icon}</span>
+                <div>
+                  <div style={{fontWeight:700,fontSize:".88rem",color:"var(--tx)",marginBottom:3}}>{fb.title}</div>
+                  <div style={{fontSize:".78rem",color:"var(--tx2)",lineHeight:1.5}}>{fb.detail}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <button className="btn b-or" style={{width:"100%",padding:"13px",fontSize:".9rem"}} onClick={onClose}>Got it</button>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────
+// §N2  ALL RUNS VIEW (full history)
+// ─────────────────────────────────────────────────────────────────
+const AllRunsView = ({acts, hrProfile, onSelect, onClose}) => {
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const mafHR = getMafHR(hrProfile, null);
+
+  const filtered = useMemo(() => {
+    let list = [...acts].sort((a,b)=>b.dateTs-a.dateTs);
+    if (filter !== "all") list = list.filter(a=>a.type===filter);
+    if (search.trim()) list = list.filter(a=>a.name.toLowerCase().includes(search.toLowerCase()));
+    return list;
+  }, [acts, filter, search]);
+
+  const types = ["all", ...new Set(acts.map(a=>a.type))].filter((v,i,arr)=>arr.indexOf(v)===i);
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:220,background:"var(--bg)",display:"flex",flexDirection:"column"}}>
+      {/* Header */}
+      <div className="glass" style={{padding:"14px 18px 0",borderBottom:"1px solid var(--bd)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontWeight:700,fontSize:"1.05rem"}}>All Runs</div>
+          <button className="btn b-ghost" style={{padding:"6px 14px",fontSize:".82rem"}} onClick={onClose}>✕ Close</button>
+        </div>
+        {/* Search */}
+        <input className="inp" value={search} onChange={e=>setSearch(e.target.value)}
+          placeholder="Search runs…" style={{marginBottom:12}}/>
+        {/* Type filters */}
+        <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:12}}>
+          {types.map(t=>(
+            <button key={t} className={`pill ${filter===t?"on":""}`} onClick={()=>setFilter(t)}
+              style={{flexShrink:0,padding:"4px 12px",fontSize:".72rem",textTransform:"capitalize"}}>
+              {t==="all"?`All (${acts.length})`:t}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* List */}
+      <div style={{flex:1,overflowY:"auto",padding:"12px 18px 32px"}}>
+        {filtered.length===0 ? (
+          <div style={{textAlign:"center",padding:"40px 0",color:"var(--tx2)"}}>
+            <div style={{fontSize:"1.8rem",marginBottom:10}}>🔍</div>
+            <div>No runs found</div>
+          </div>
+        ) : filtered.map((act,i)=>{
+          const clr = ACT_CLR[act.type]||"#6b7280";
+          const aboveMaf = act.avgHR && act.avgHR > mafHR;
+          return (
+            <div key={act.id} className="card2 tap" style={{padding:"13px 14px",marginBottom:9,cursor:"pointer"}} onClick={()=>{onSelect(act);onClose();}}>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:38,height:38,borderRadius:11,background:`${clr}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.1rem",flexShrink:0}}>{ACT_ICN[act.type]||"🏃"}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:".84rem",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:4}}>{act.name}</div>
+                  <div style={{display:"flex",gap:10,fontSize:".7rem",color:"var(--tx2)"}}>
+                    <span>{fmtDateS(act.date)}</span>
+                    <span style={{color:clr,fontWeight:600}}>{fmtKm(act.distanceKm)} km</span>
+                    <span>{fmtPace(act.avgPaceSecKm)}/km</span>
+                    {act.avgHR&&<span style={{color:aboveMaf?"var(--yw)":"var(--gn)"}}>♥ {act.avgHR}</span>}
+                  </div>
+                </div>
+                <div style={{fontSize:".72rem",color:"var(--tx3)"}}>›</div>
+              </div>
+            </div>
+          );
+        })}
+        <div style={{textAlign:"center",fontSize:".72rem",color:"var(--tx3)",padding:"8px 0"}}>{filtered.length} of {acts.length} runs</div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────
+// §N3  MONTHLY REPORT
+// ─────────────────────────────────────────────────────────────────
+const monthKeyOf = ts => { const d=new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; };
+const monthLabelOf = k => { if(!k)return""; const[y,m]=k.split("-").map(Number); return new Date(y,m-1,1).toLocaleDateString("en-GB",{month:"long",year:"numeric"}); };
+
+const MonthlyReport = ({acts, hrProfile, onClose}) => {
+  const mafHR = getMafHR(hrProfile, null);
+
+  // Available completed months (before current month)
+  const currentMK = monthKeyOf(Date.now());
+  const monthGroups = useMemo(() => {
+    const map = {};
+    acts.filter(a=>a.distanceKm>0).forEach(a=>{
+      const mk = monthKeyOf(a.dateTs||new Date(a.date).getTime());
+      if (mk >= currentMK) return; // exclude current month
+      if (!map[mk]) map[mk]=[];
+      map[mk].push(a);
+    });
+    return Object.entries(map).sort((a,b)=>b[0].localeCompare(a[0]));
+  }, [acts, currentMK]);
+
+  const [selected, setSelected] = useState(monthGroups[0]?.[0] || "");
+  const monthRuns = useMemo(()=>(monthGroups.find(([k])=>k===selected)||[,""])[1]||[], [monthGroups, selected]);
+
+  const stats = useMemo(()=>{
+    if (!monthRuns.length) return null;
+    const km = monthRuns.reduce((s,r)=>s+r.distanceKm,0);
+    const timeSec = monthRuns.reduce((s,r)=>s+(r.movingTimeSec||0),0);
+    const paceRuns = monthRuns.filter(r=>r.avgPaceSecKm>0);
+    const avgPace = paceRuns.length ? paceRuns.reduce((s,r)=>s+r.avgPaceSecKm,0)/paceRuns.length : 0;
+    const hrRuns = monthRuns.filter(r=>r.avgHR);
+    const avgHR = hrRuns.length ? Math.round(hrRuns.reduce((s,r)=>s+r.avgHR,0)/hrRuns.length) : null;
+    const elevGain = monthRuns.reduce((s,r)=>s+(r.elevGainM||0),0);
+    const longest = monthRuns.reduce((b,r)=>r.distanceKm>b.distanceKm?r:b, monthRuns[0]);
+    const fastest = paceRuns.length ? paceRuns.reduce((b,r)=>r.avgPaceSecKm<b.avgPaceSecKm?r:b, paceRuns[0]) : null;
+    // Weekly active count
+    const weekSet = new Set(monthRuns.map(r=>{ const d=new Date(r.dateTs||r.date); d.setHours(0,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)); return d.getTime(); }));
+    // Coach summary
+    const aboveMaf = hrRuns.filter(r=>r.avgHR>mafHR).length;
+    const hrRatio = hrRuns.length ? aboveMaf/hrRuns.length : 0;
+    let coachSummary = "";
+    if (monthRuns.length >= 8) coachSummary = "Strong consistency this month — great work!";
+    else if (monthRuns.length <= 3) coachSummary = "Low run count — aim for 3+ runs per week.";
+    else if (hrRatio > 0.6) coachSummary = "Training intensity was too high — more easy runs next month.";
+    else if (hrRatio < 0.3 && hrRuns.length > 2) coachSummary = "Strong aerobic base building — keep this up.";
+    else coachSummary = "Solid mixed training month. Stay consistent.";
+    return { km, timeSec, avgPace, avgHR, elevGain, longest, fastest, count:monthRuns.length, activeWeeks:weekSet.size, hrRatio, coachSummary };
+  }, [monthRuns, mafHR]);
+
+  const exportTxt = () => {
+    if (!stats) return;
+    const rows = [
+      `RUNLYTICS — Monthly Report`,
+      `Month: ${monthLabelOf(selected)}`,
+      `Generated: ${new Date().toLocaleString()}`,
+      ``,
+      `── SUMMARY ──────────────────────────`,
+      `Runs:         ${stats.count}`,
+      `Distance:     ${fmtKm(stats.km)} km`,
+      `Time:         ${fmtDur(stats.timeSec)}`,
+      `Avg Pace:     ${fmtPace(stats.avgPace)} /km`,
+      `Avg HR:       ${stats.avgHR ? stats.avgHR+" bpm" : "—"}`,
+      `Elev Gain:    ${Math.round(stats.elevGain)} m`,
+      `Longest:      ${fmtKm(stats.longest.distanceKm)} km`,
+      `Active Weeks: ${stats.activeWeeks}`,
+      ``,
+      `── COACH SUMMARY ────────────────────`,
+      stats.coachSummary,
+      ``,
+      `── RUN LOG ──────────────────────────`,
+      ...monthRuns.slice().sort((a,b)=>(a.dateTs||0)-(b.dateTs||0)).map(r=>
+        `  ${fmtDateS(r.date).padEnd(9)} ${fmtKm(r.distanceKm).padStart(5)} km  ${fmtPace(r.avgPaceSecKm)}/km  ${r.name}`
+      ),
+    ];
+    const blob = new Blob([rows.join("\n")], {type:"text/plain"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href=url; a.download=`runlytics-${selected}.txt`; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
+
+  const exportPdf = () => {
+    if (!stats) return;
+    const label = monthLabelOf(selected);
+    const mafLabel = mafHR ? `MAF ${mafHR} bpm` : "—";
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Runlytics — ${label}</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#06080f;color:#d8e6f7;padding:32px 28px;max-width:540px;margin:0 auto;}
+  h1{font-size:1.5rem;font-weight:800;color:#f97316;margin-bottom:4px;}
+  .sub{font-size:.8rem;color:#6178a0;margin-bottom:28px;}
+  .section{margin-bottom:22px;}
+  .label{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#2e3d55;margin-bottom:10px;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .card{background:#0b0f1a;border:1px solid #1a2336;border-radius:12px;padding:14px 13px;}
+  .val{font-family:'Courier New',monospace;font-size:1.35rem;font-weight:700;color:#f97316;line-height:1;}
+  .unit{font-size:.62rem;color:#6178a0;font-weight:400;margin-left:3px;}
+  .clabel{font-size:.62rem;color:#6178a0;margin-top:5px;}
+  .coach{background:#101622;border:1px solid #22c55e40;border-radius:12px;padding:14px 15px;color:#d8e6f7;font-size:.85rem;line-height:1.65;}
+  table{width:100%;border-collapse:collapse;font-size:.76rem;}
+  td{padding:7px 0;border-bottom:1px solid #1a2336;color:#d8e6f7;}
+  td:first-child{color:#6178a0;width:90px;}
+  td:last-child{font-family:'Courier New',monospace;text-align:right;color:#f97316;font-weight:600;}
+  .maf{font-size:.72rem;color:#6178a0;margin-top:6px;}
+  @media print{body{background:#fff;color:#111;}h1{color:#f97316;}.card{background:#f5f5f5;border:1px solid #ddd;}.coach{background:#f0fdf4;border-color:#22c55e80;}}
+</style></head><body>
+<h1>Monthly Report</h1>
+<div class="sub">${label} &nbsp;·&nbsp; Generated ${new Date().toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</div>
+
+<div class="section">
+  <div class="label">Summary</div>
+  <div class="grid">
+    <div class="card"><div class="val">${fmtKm(stats.km)}<span class="unit">km</span></div><div class="clabel">Distance</div></div>
+    <div class="card"><div class="val">${stats.count}<span class="unit">runs</span></div><div class="clabel">Total Runs</div></div>
+    <div class="card"><div class="val">${fmtDur(stats.timeSec)}</div><div class="clabel">Total Time</div></div>
+    <div class="card"><div class="val">${fmtPace(stats.avgPace)}<span class="unit">/km</span></div><div class="clabel">Avg Pace</div></div>
+    <div class="card"><div class="val">${stats.avgHR||"—"}<span class="unit">${stats.avgHR?"bpm":""}</span></div><div class="clabel">Avg HR</div></div>
+    <div class="card"><div class="val">${Math.round(stats.elevGain)}<span class="unit">m</span></div><div class="clabel">Elev Gain</div></div>
+  </div>
+  <div class="maf">MAF reference: ${mafLabel} &nbsp;·&nbsp; Active weeks: ${stats.activeWeeks}</div>
+</div>
+
+<div class="section">
+  <div class="label">Highlights</div>
+  <div class="grid">
+    <div class="card"><div style="font-size:.6rem;color:#f97316;font-weight:700;margin-bottom:5px">🏆 LONGEST</div><div class="val">${fmtKm(stats.longest.distanceKm)}<span class="unit">km</span></div><div class="clabel" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${stats.longest.name}</div></div>
+    ${stats.fastest ? `<div class="card"><div style="font-size:.6rem;color:#3b82f6;font-weight:700;margin-bottom:5px">⚡ FASTEST</div><div class="val" style="color:#3b82f6">${fmtPace(stats.fastest.avgPaceSecKm)}<span class="unit">/km</span></div><div class="clabel" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${stats.fastest.name}</div></div>` : ""}
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">Coach Summary</div>
+  <div class="coach">${stats.coachSummary}</div>
+</div>
+
+<div class="section">
+  <div class="label">Run Log (${monthRuns.length} runs)</div>
+  <table>
+    ${monthRuns.slice().sort((a,b)=>(a.dateTs||0)-(b.dateTs||0)).map(r=>`
+    <tr>
+      <td>${fmtDateS(r.date)}</td>
+      <td>${r.name.length>28?r.name.slice(0,28)+"…":r.name}</td>
+      <td>${fmtKm(r.distanceKm)} km &nbsp; ${fmtPace(r.avgPaceSecKm)}/km${r.avgHR?` &nbsp; ♥${r.avgHR}`:""}</td>
+    </tr>`).join("")}
+  </table>
+</div>
+
+<div style="margin-top:32px;font-size:.65rem;color:#2e3d55;text-align:center">Generated by RUNLYTICS &nbsp;·&nbsp; Your personal running coach</div>
+</body></html>`;
+    const blob = new Blob([html], {type:"text/html"});
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank");
+    if (win) {
+      win.onload = () => { win.print(); setTimeout(()=>URL.revokeObjectURL(url), 3000); };
+    } else {
+      // fallback: direct download
+      const a = document.createElement("a");
+      a.href=url; a.download=`runlytics-${selected}.html`; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+    }
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:220,background:"var(--bg)",display:"flex",flexDirection:"column",overflowY:"auto"}}>
+      {/* Header */}
+      <div className="glass" style={{position:"sticky",top:0,zIndex:10,padding:"14px 18px 12px",borderBottom:"1px solid var(--bd)"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div style={{fontWeight:700,fontSize:"1.05rem"}}>Monthly Report</div>
+          <button className="btn b-ghost" style={{padding:"6px 14px",fontSize:".82rem"}} onClick={onClose}>✕ Close</button>
+        </div>
+        {/* Month selector */}
+        {monthGroups.length > 0 ? (
+          <select value={selected} onChange={e=>setSelected(e.target.value)}
+            style={{width:"100%",padding:"9px 12px",borderRadius:10,fontSize:".86rem",fontFamily:"inherit"}}>
+            {monthGroups.map(([k])=><option key={k} value={k}>{monthLabelOf(k)}</option>)}
+          </select>
+        ) : null}
+      </div>
+
+      <div style={{padding:"18px 18px 40px"}}>
+        {monthGroups.length === 0 ? (
+          <div style={{textAlign:"center",padding:"48px 0",color:"var(--tx2)"}}>
+            <div style={{fontSize:"2rem",marginBottom:12}}>📅</div>
+            <div style={{fontWeight:600,marginBottom:6}}>No completed months yet</div>
+            <div style={{fontSize:".82rem",lineHeight:1.6}}>Monthly reports are available from the 1st of each month for the previous month.</div>
+          </div>
+        ) : !stats ? (
+          <div style={{textAlign:"center",padding:"40px 0",color:"var(--tx2)"}}>No runs in {monthLabelOf(selected)}</div>
+        ) : (<>
+
+          {/* Summary cards */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+            {[
+              {l:"Distance",  v:fmtKm(stats.km),        u:"km",   c:"var(--or)"},
+              {l:"Runs",      v:stats.count,              u:"",     c:"var(--bl)"},
+              {l:"Total Time",v:fmtDur(stats.timeSec),   u:"",     c:"var(--gn)"},
+              {l:"Avg Pace",  v:fmtPace(stats.avgPace),  u:"/km",  c:"var(--pu)"},
+              {l:"Avg HR",    v:stats.avgHR||"—",         u:stats.avgHR?"bpm":"", c:"var(--rd)"},
+              {l:"Elev Gain", v:Math.round(stats.elevGain), u:"m", c:"var(--cy)"},
+            ].map(x=>(
+              <div key={x.l} className="card2" style={{padding:"13px 14px"}}>
+                <div className="mono" style={{fontSize:"1.4rem",fontWeight:700,color:x.c,lineHeight:1}}>{x.v}<span style={{fontSize:".62rem",color:"var(--tx2)",fontWeight:400,marginLeft:2}}>{x.u}</span></div>
+                <div style={{fontSize:".64rem",color:"var(--tx2)",marginTop:5}}>{x.l}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Highlights */}
+          <div className="card" style={{padding:16,marginBottom:14}}>
+            <SectionHead title="Highlights"/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              <div style={{background:"var(--or3)",borderRadius:12,padding:12}}>
+                <div style={{fontSize:".6rem",fontWeight:700,color:"var(--or)",marginBottom:5}}>🏆 LONGEST</div>
+                <div className="mono" style={{fontSize:"1.3rem",fontWeight:700,color:"var(--or)"}}>{fmtKm(stats.longest.distanceKm)}<span style={{fontSize:".62rem",color:"var(--tx2)",fontWeight:400}}> km</span></div>
+                <div style={{fontSize:".68rem",color:"var(--tx2)",marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{stats.longest.name}</div>
+              </div>
+              {stats.fastest&&(
+                <div style={{background:"var(--bl2)",borderRadius:12,padding:12}}>
+                  <div style={{fontSize:".6rem",fontWeight:700,color:"var(--bl)",marginBottom:5}}>⚡ FASTEST</div>
+                  <div className="mono" style={{fontSize:"1.3rem",fontWeight:700,color:"var(--bl)"}}>{fmtPace(stats.fastest.avgPaceSecKm)}<span style={{fontSize:".62rem",color:"var(--tx2)",fontWeight:400}}>/km</span></div>
+                  <div style={{fontSize:".68rem",color:"var(--tx2)",marginTop:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{stats.fastest.name}</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Coach summary */}
+          <div style={{marginBottom:14}}>
+            <SectionHead title="Coach Summary"/>
+            <CoachCard insight={{type:"info",icon:"🧠",title:monthLabelOf(selected),detail:stats.coachSummary}} defaultOpen={true}/>
+          </div>
+
+          {/* Run list */}
+          <div className="card" style={{padding:16,marginBottom:16}}>
+            <SectionHead title="All Runs" sub={`${stats.count} total`}/>
+            {monthRuns.slice().sort((a,b)=>b.dateTs-a.dateTs).map((r,i,arr)=>(
+              <div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:i<arr.length-1?"1px solid var(--bd)":"none",gap:10}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:".8rem",fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</div>
+                  <div style={{fontSize:".68rem",color:"var(--tx2)",marginTop:2}}>{fmtDateS(r.date)}</div>
+                </div>
+                <div style={{display:"flex",gap:10,fontSize:".74rem",flexShrink:0}}>
+                  <span className="mono" style={{color:"var(--or)",fontWeight:600}}>{fmtKm(r.distanceKm)} km</span>
+                  <span className="mono" style={{color:"var(--tx2)"}}>{fmtPace(r.avgPaceSecKm)}/km</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Export */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <button className="btn b-or" style={{padding:"12px",fontSize:".82rem"}} onClick={exportPdf}>
+              🖨 Print / PDF
+            </button>
+            <button className="btn b-ghost" style={{padding:"12px",fontSize:".82rem"}} onClick={exportTxt}>
+              📄 Download .txt
+            </button>
+          </div>
+        </>)}
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────
 // §N  HOME TAB
 // ─────────────────────────────────────────────────────────────────
-const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct, onUpload, onEditGoals}) => {
+const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct, onUpload, onEditGoals, onViewAll, onViewMonthly}) => {
   const lastRun = acts.length ? acts.reduce((b,a)=>a.dateTs>b.dateTs?a:b) : null;
   const mafHR = getMafHR(hrProfile, null);
-  const insight = getMafCoachingInsight(acts, hrProfile);
+  const insight = useMemo(()=>getMafCoachingInsight(acts, hrProfile),[acts, hrProfile]);
+  const recommendation = useMemo(()=>getTodayRecommendation(acts, hrProfile),[acts, hrProfile]);
 
-  // Weekly goal progress
   const weekStart = new Date(); weekStart.setHours(0,0,0,0); weekStart.setDate(weekStart.getDate()-((weekStart.getDay()+6)%7));
-  const thisWeekKm = acts.filter(a=>new Date(a.dateTs)>=weekStart).reduce((s,a)=>s+a.distanceKm,0);
+  const thisWeekKm = useMemo(()=>acts.filter(a=>new Date(a.dateTs)>=weekStart).reduce((s,a)=>s+a.distanceKm,0),[acts]);
   const weekPct = Math.min(1, thisWeekKm / goals.weekly);
 
-  // Today's tasks
   const todayStr = todayKey();
   const todayTasks = tasks.filter(t=>t.enabled).slice(0,3);
   const todayDone = todayTasks.filter(t=>t.completions?.[todayStr]).length;
@@ -864,7 +1284,7 @@ const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct
   return (
     <div style={{padding:"4px 0 32px"}}>
       {/* Greeting */}
-      <div className="a0" style={{marginBottom:24,paddingTop:4}}>
+      <div className="a0" style={{marginBottom:20,paddingTop:4}}>
         <div style={{fontSize:".72rem",color:"var(--tx3)",fontWeight:500,marginBottom:4}}>{greet()}</div>
         <div style={{fontSize:"1.55rem",fontWeight:700,lineHeight:1.2}}>
           {profile.name === "Runner" ? "Welcome back 👋" : `Welcome back, ${profile.name} 👋`}
@@ -877,9 +1297,25 @@ const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct
         )}
       </div>
 
+      {/* TODAY'S RECOMMENDATION — always at top */}
+      <div className="a1" style={{marginBottom:14}}>
+        <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:7}}>Today's Recommendation</div>
+        <div style={{
+          background:`${insightColors[recommendation.type]||"var(--tx2)"}09`,
+          border:`1px solid ${insightColors[recommendation.type]||"var(--bd)"}30`,
+          borderRadius:14,padding:"14px 16px",display:"flex",alignItems:"center",gap:13,
+        }}>
+          <span style={{fontSize:"1.5rem",lineHeight:1,flexShrink:0}}>{recommendation.icon}</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:".95rem",color:"var(--tx)",marginBottom:3}}>{recommendation.title}</div>
+            <div style={{fontSize:".78rem",color:"var(--tx2)",lineHeight:1.5}}>{recommendation.sub}</div>
+          </div>
+        </div>
+      </div>
+
       {/* Last run hero card */}
       {lastRun ? (
-        <div className="card a1 tap" style={{padding:20,marginBottom:14,cursor:"pointer",background:`linear-gradient(135deg,var(--s1),var(--s2))`,borderColor:"var(--bd)"}} onClick={()=>onSelectAct(lastRun)}>
+        <div className="card a2 tap" style={{padding:20,marginBottom:14,cursor:"pointer",background:`linear-gradient(135deg,var(--s1),var(--s2))`}} onClick={()=>onSelectAct(lastRun)}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
             <div>
               <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:ACT_CLR[lastRun.type]||"var(--or)",marginBottom:4}}>
@@ -902,9 +1338,12 @@ const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct
               </div>
             ))}
           </div>
+          {acts.length>1&&<div style={{marginTop:10,textAlign:"center",fontSize:".7rem",color:"var(--tx3)"}}>
+            <span className="tap" style={{color:"var(--or)",fontWeight:600}} onClick={e=>{e.stopPropagation();onViewAll();}}>View all {acts.length} runs →</span>
+          </div>}
         </div>
       ) : (
-        <div className="card a1" style={{padding:24,textAlign:"center",marginBottom:14,borderStyle:"dashed"}}>
+        <div className="card a2" style={{padding:24,textAlign:"center",marginBottom:14,borderStyle:"dashed"}}>
           <div style={{fontSize:"2.5rem",marginBottom:12}}>🏃</div>
           <div style={{fontWeight:600,marginBottom:6}}>No runs yet</div>
           <div style={{fontSize:".82rem",color:"var(--tx2)",marginBottom:16}}>Upload your first GPX file to get started</div>
@@ -912,14 +1351,14 @@ const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct
         </div>
       )}
 
-      {/* MAF Coach Insight */}
-      <div className="a2" style={{marginBottom:14}}>
-        <SectionHead title="Coach Insight"/>
-        <CoachCard insight={insight} compact={false}/>
+      {/* Coach Insight — compact, accordion */}
+      <div className="a3" style={{marginBottom:14}}>
+        <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:7}}>Coach Insight</div>
+        <CoachCard insight={insight}/>
       </div>
 
       {/* Weekly goal ring */}
-      <div className="card a3" style={{padding:18,marginBottom:14}}>
+      <div className="card a4" style={{padding:18,marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:16}}>
           <Ring pct={weekPct} size={72} color={weekPct>=1?"var(--gn)":"var(--or)"}>
             <span style={{fontSize:".62rem",fontWeight:700,color:weekPct>=1?"var(--gn)":"var(--or)"}}>{Math.round(weekPct*100)}%</span>
@@ -941,7 +1380,7 @@ const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct
 
       {/* Tasks preview */}
       {todayTasks.length > 0 && (
-        <div className="card a4" style={{padding:18}}>
+        <div className="card a5" style={{padding:18}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
             <div style={{fontSize:".65rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)"}}>Today's Habits</div>
             <span style={{fontSize:".7rem",color:"var(--tx2)"}}>{todayDone}/{todayTasks.length} done</span>
@@ -965,6 +1404,16 @@ const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct
           </div>
         </div>
       )}
+
+      {/* Monthly Report quick access */}
+      {acts.length > 0 && (
+        <div className="a5" style={{marginTop:14}}>
+          <button className="btn b-ghost" style={{width:"100%",padding:"12px",fontSize:".82rem",gap:8,borderRadius:14}}
+            onClick={onViewMonthly}>
+            📅 Monthly Report
+          </button>
+        </div>
+      )}
     </div>
   );
 };
@@ -972,7 +1421,7 @@ const HomeTab = ({acts, analytics, goals, hrProfile, profile, tasks, onSelectAct
 // ─────────────────────────────────────────────────────────────────
 // §O  STATS TAB
 // ─────────────────────────────────────────────────────────────────
-const StatsTab = ({acts, analytics, hrProfile}) => {
+const StatsTab = ({acts, analytics, hrProfile, onViewAll, onViewMonthly}) => {
   const [range, setRange] = useState(8);
   const runs = acts.filter(a=>a.type==="Run"||a.type==="Walk");
   const totalKm = runs.reduce((s,a)=>s+a.distanceKm,0);
@@ -1119,6 +1568,18 @@ const StatsTab = ({acts, analytics, hrProfile}) => {
           <div style={{fontSize:"2.5rem",marginBottom:12}}>📊</div>
           <div style={{fontWeight:600,marginBottom:6}}>No data yet</div>
           <div style={{fontSize:".82rem"}}>Upload runs to see your stats</div>
+        </div>
+      )}
+
+      {/* Quick actions */}
+      {runs.length > 0 && (
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginTop:8}}>
+          <button className="btn b-ghost" style={{padding:"12px",fontSize:".8rem",borderRadius:14}} onClick={onViewAll}>
+            🏃 All Runs ({acts.length})
+          </button>
+          <button className="btn b-ghost" style={{padding:"12px",fontSize:".8rem",borderRadius:14}} onClick={onViewMonthly}>
+            📅 Monthly Report
+          </button>
         </div>
       )}
     </div>
@@ -1592,6 +2053,9 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showUpload,   setShowUpload]   = useState(false);
   const [showSplash,   setShowSplash]   = useState(true);
+  const [showAllRuns,  setShowAllRuns]  = useState(false);
+  const [showMonthly,  setShowMonthly]  = useState(false);
+  const [feedbackRun,  setFeedbackRun]  = useState(null);   // run to show post-upload feedback for
   const scrollRef = useRef(null);
 
   useEffect(()=>{ saveActs(acts); },[acts]);
@@ -1599,11 +2063,20 @@ export default function App() {
 
   const analytics = useMemo(()=>buildAnalytics(acts,hrProfile),[acts,hrProfile]);
 
-  const addActs = useCallback(parsed=>{
-    setActs(prev=>{const m=[...parsed,...prev];m.sort((a,b)=>b.dateTs-a.dateTs);return m;});
+  const addActs = useCallback((parsed) => {
+    setActs(prev => {
+      const m = [...parsed, ...prev];
+      m.sort((a,b) => b.dateTs - a.dateTs);
+      return m;
+    });
+    // Show post-run feedback for the most significant new run (longest by distance)
+    if (parsed.length > 0) {
+      const highlight = parsed.reduce((b,r) => r.distanceKm > b.distanceKm ? r : b, parsed[0]);
+      setFeedbackRun(highlight);
+    }
     setShowUpload(false);
     setTab("home");
-  },[]);
+  }, []);
 
   const deleteAct = useCallback(id=>{
     setActs(p=>p.filter(a=>a.id!==id));
@@ -1642,6 +2115,31 @@ export default function App() {
             {[0,.15,.3].map(d=><div key={d} style={{width:6,height:6,borderRadius:"50%",background:"var(--or)",animation:`pulse 1.2s ${d}s ease infinite`}}/>)}
           </div>
         </div>
+      )}
+
+      {/* Post-run feedback modal */}
+      {feedbackRun && (
+        <RunFeedbackModal
+          run={feedbackRun}
+          mafHR={getMafHR(hrProfile, feedbackRun.maxHR)}
+          onClose={() => setFeedbackRun(null)}/>
+      )}
+
+      {/* All Runs overlay */}
+      {showAllRuns && (
+        <AllRunsView
+          acts={acts}
+          hrProfile={hrProfile}
+          onSelect={act => { setDetail(act); }}
+          onClose={() => setShowAllRuns(false)}/>
+      )}
+
+      {/* Monthly Report overlay */}
+      {showMonthly && (
+        <MonthlyReport
+          acts={acts}
+          hrProfile={hrProfile}
+          onClose={() => setShowMonthly(false)}/>
       )}
 
       {/* Activity detail */}
@@ -1690,8 +2188,8 @@ export default function App() {
             <Upload acts={acts} hrProfile={hrProfile} onAdd={addActs} onClearAll={clearAll}/>
           ) : (
             <>
-              {tab==="home" && <HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} tasks={tasks} onSelectAct={setDetail} onUpload={()=>setShowUpload(true)} onEditGoals={()=>setShowSettings(true)}/>}
-              {tab==="stats" && <StatsTab acts={acts} analytics={analytics} hrProfile={hrProfile}/>}
+              {tab==="home" && <HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} tasks={tasks} onSelectAct={setDetail} onUpload={()=>setShowUpload(true)} onEditGoals={()=>setShowSettings(true)} onViewAll={()=>setShowAllRuns(true)} onViewMonthly={()=>setShowMonthly(true)}/>}
+              {tab==="stats" && <StatsTab acts={acts} analytics={analytics} hrProfile={hrProfile} onViewAll={()=>setShowAllRuns(true)} onViewMonthly={()=>setShowMonthly(true)}/>}
               {tab==="hr" && <HRInsightsTab acts={acts} hrProfile={hrProfile} onEditHR={()=>setShowSettings(true)}/>}
               {tab==="tasks" && <TasksTab tasks={tasks} setTasks={setTasks} hrProfile={hrProfile} acts={acts}/>}
             </>
