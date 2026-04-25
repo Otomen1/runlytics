@@ -51,7 +51,7 @@ function loadActs() {
         const lp = JSON.parse(lr);
         const src = Array.isArray(lp)?lp:(lp?.data&&Array.isArray(lp.data))?lp.data:null;
         if (src?.length) { const m=src.map(migrateActivity).filter(Boolean); saveActs(m); return m; }
-      } catch {}
+      } catch(e) {}
     }
     return [];
   } catch { return []; }
@@ -65,19 +65,19 @@ function loadGoals() {
   try { return {...{weekly:30,monthly:120},...JSON.parse(localStorage.getItem(GOALS_KEY)||"{}")}; }
   catch { return {weekly:30,monthly:120}; }
 }
-function saveGoals(g) { try { localStorage.setItem(GOALS_KEY,JSON.stringify(g)); } catch {} }
+function saveGoals(g) { try { localStorage.setItem(GOALS_KEY,JSON.stringify(g)); } catch(e) {} }
 
 function loadHRProfile() {
   try { return {...{age:null,restingHR:null,maxHROverride:null},...JSON.parse(localStorage.getItem(HR_PROFILE_KEY)||"{}")}; }
   catch { return {age:null,restingHR:null,maxHROverride:null}; }
 }
-function saveHRProfile(p) { try { localStorage.setItem(HR_PROFILE_KEY,JSON.stringify(p)); } catch {} }
+function saveHRProfile(p) { try { localStorage.setItem(HR_PROFILE_KEY,JSON.stringify(p)); } catch(e) {} }
 
 function loadProfile() {
   try { return {...{name:"Runner"},...JSON.parse(localStorage.getItem(PROFILE_KEY)||"{}")}; }
   catch { return {name:"Runner"}; }
 }
-function saveProfile(p) { try { localStorage.setItem(PROFILE_KEY,JSON.stringify(p)); } catch {} }
+function saveProfile(p) { try { localStorage.setItem(PROFILE_KEY,JSON.stringify(p)); } catch(e) {} }
 
 function getMafHR(hrProfile, activityMaxHR) {
   if (hrProfile?.maxHROverride) { const v=Number(hrProfile.maxHROverride); if(v>=100&&v<=220) return v; }
@@ -318,7 +318,6 @@ const BADGE_CAT_LABEL={milestone:"Milestones",streak:"Streaks",distance:"Distanc
 function computeEarnedBadges(acts,an,mafHR){const s=new Set();for(const b of BADGE_DEFS){try{if(b.check(acts,an,mafHR))s.add(b.id);}catch(e){}}return s;}
 function loadSeenBadges(){try{return new Set(JSON.parse(localStorage.getItem(BADGES_KEY)||"[]"));}catch(e){return new Set();}}
 function saveSeenBadges(ids){try{localStorage.setItem(BADGES_KEY,JSON.stringify([...ids]));}catch(e){}}
-}
 
 const DEFAULT_TASKS = [
   {id:"t1",title:"Stay below MAF HR",desc:"Keep avg HR under your MAF threshold",icon:"❤️",category:"hr"},
@@ -344,7 +343,7 @@ function initTasks() {
   return DEFAULT_TASKS.map(t=>({...t,streak:0,completions:{},enabled:true}));
 }
 function saveTasks(tasks) {
-  try { localStorage.setItem(TASKS_KEY, JSON.stringify(tasks.map(t=>({id:t.id,streak:t.streak,completions:t.completions,enabled:t.enabled})))); } catch {}
+  try { localStorage.setItem(TASKS_KEY, JSON.stringify(tasks.map(t=>({id:t.id,streak:t.streak,completions:t.completions,enabled:t.enabled})))); } catch(e) {}
 }
 const todayKey = () => new Date().toISOString().split("T")[0]; // "2026-04-23"
 function getStreak(completions) {
