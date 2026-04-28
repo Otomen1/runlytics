@@ -481,11 +481,11 @@ const Detail=({act,hrProfile,onClose,onDelete})=>{
   const mafHR=getMafHR(hrProfile,act.maxHR);
   const zones=act.hrSamples?.length?computeZones(act.hrSamples,mafHR):act.hrZones;
   return(
-    <div style={{position:"fixed",inset:0,zIndex:200,background:"var(--bg)",display:"flex",flexDirection:"column",overflowY:"auto"}}>
+    <div style={{position:"fixed",inset:0,zIndex:240,background:"var(--bg)",display:"flex",flexDirection:"column",overflowY:"auto"}}>
       <div className="glass" style={{position:"sticky",top:0,zIndex:10,padding:"14px 18px 0",borderBottom:"1px solid var(--bd)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
           <div style={{flex:1,minWidth:0,paddingRight:12}}>
-            <div style={{fontSize:".62rem",fontWeight:700,color,marginBottom:4,textTransform:"uppercase"}}>{ACT_ICN[act.type]} {act.type} · {act.runClass}</div>
+            <div style={{fontSize:".62rem",fontWeight:700,color:col,marginBottom:4,textTransform:"uppercase"}}>{ACT_ICN[act.type]} {act.type} · {act.runClass}</div>
             <div style={{fontWeight:700,fontSize:"1rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{act.name}</div>
             <div style={{fontSize:".72rem",color:"var(--tx2)",marginTop:2}}>{act.startDateLocal||fmtDate(act.date)}</div>
           </div>
@@ -720,7 +720,7 @@ const AllRunsView=({acts,hrProfile,onSelect,onClose})=>{
         {list.map((a,i)=>{
           const clr=ACT_CLR[a.type]||"#6b7280";
           return(
-            <div key={a.id} className="card2 tap" style={{padding:"12px 14px",marginBottom:8,cursor:"pointer"}} onClick={()=>{onSelect(a);onClose();}}>
+            <div key={a.id} className="card2 tap" style={{padding:"12px 14px",marginBottom:8,cursor:"pointer"}} onClick={()=>onSelect(a)}>
               <div style={{display:"flex",alignItems:"center",gap:12}}>
                 <div style={{width:36,height:36,borderRadius:10,background:`${clr}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1rem",flexShrink:0}}>{ACT_ICN[a.type]||"🏃"}</div>
                 <div style={{flex:1,minWidth:0}}>
@@ -890,7 +890,7 @@ const StatsTab=({acts,analytics,onViewAll,onViewMonthly})=>{
               <CartesianGrid strokeDasharray="3 3" stroke="var(--bd)" vertical={false}/>
               <XAxis dataKey="label" tick={{fill:"var(--tx3)",fontSize:9}} axisLine={false} tickLine={false}/>
               <YAxis tick={{fill:"var(--tx3)",fontSize:9}} axisLine={false} tickLine={false}/>
-              <Tooltip content={({active,payload,label})=>{if(!active||!payload?.length)return null;return<div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"6px 10px"}}><div style={{fontSize:".65rem",color:"var(--tx2)"}}>{label}</div><div style={{color:"var(--or)",fontWeight:700}}>{payload[0]?.value} km</div></div>;}}/>
+              <Tooltip content={({active,payload,label})=>{if(!active||!payload?.length)return null;return <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"6px 10px"}}><div style={{fontSize:".65rem",color:"var(--tx2)"}}>{label}</div><div style={{color:"var(--or)",fontWeight:700}}>{payload[0]?.value} km</div></div>;}}/>
               <Bar dataKey="km" fill="var(--or)" radius={[5,5,0,0]}/>
             </BarChart>
           </ResponsiveContainer>
@@ -905,7 +905,7 @@ const StatsTab=({acts,analytics,onViewAll,onViewMonthly})=>{
               <CartesianGrid strokeDasharray="3 3" stroke="var(--bd)" vertical={false}/>
               <XAxis dataKey="date" tick={{fill:"var(--tx3)",fontSize:8}} axisLine={false} tickLine={false}/>
               <YAxis reversed domain={["auto","auto"]} tick={{fill:"var(--tx3)",fontSize:8}} axisLine={false} tickLine={false} tickFormatter={v=>`${Math.floor(v)}:${Math.round((v%1)*60).toString().padStart(2,"0")}`}/>
-              <Tooltip content={({active,payload})=>{if(!active||!payload?.length)return null;const pv=payload[0].value;return<div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"6px 10px"}}><div style={{color:"var(--bl)",fontWeight:700}}>{Math.floor(pv)}:{Math.round((pv%1)*60).toString().padStart(2,"0")}/km</div></div>;}}/>
+              <Tooltip content={({active,payload})=>{if(!active||!payload?.length)return null;const pv=payload[0].value;return <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"6px 10px"}}><div style={{color:"var(--bl)",fontWeight:700}}>{Math.floor(pv)}:{Math.round((pv%1)*60).toString().padStart(2,"0")}/km</div></div>;}}/>
               <Area type="monotone" dataKey="pace" stroke="var(--bl)" strokeWidth={2} fill="url(#pt)" dot={{r:3,fill:"var(--bl)",strokeWidth:0}}/>
             </AreaChart>
           </ResponsiveContainer>
@@ -995,7 +995,7 @@ const HRTab=({acts,hrProfile,onEditHR})=>{
               <XAxis dataKey="date" tick={{fill:"var(--tx3)",fontSize:8}} axisLine={false} tickLine={false}/>
               <YAxis domain={["auto","auto"]} tick={{fill:"var(--tx3)",fontSize:8}} axisLine={false} tickLine={false}/>
               <ReferenceLine y={mafHR} stroke="var(--or)" strokeDasharray="4 2" strokeWidth={1.5} label={{value:"MAF",position:"right",fontSize:8,fill:"var(--or)"}}/>
-              <Tooltip content={({active,payload})=>{if(!active||!payload?.length)return null;return<div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"6px 10px"}}><div style={{color:"var(--rd)",fontWeight:700}}>{payload[0]?.value} bpm</div></div>;}}/>
+              <Tooltip content={({active,payload})=>{if(!active||!payload?.length)return null;return <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"6px 10px"}}><div style={{color:"var(--rd)",fontWeight:700}}>{payload[0]?.value} bpm</div></div>;}}/>
               <Area type="monotone" dataKey="hr" stroke="var(--rd)" strokeWidth={2} fill="url(#hrg)" dot={{r:3,fill:"var(--rd)",strokeWidth:0}}/>
             </AreaChart>
           </ResponsiveContainer>
