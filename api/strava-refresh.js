@@ -8,10 +8,31 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // Support both POST body and GET query (for flexibility)
-  const refresh_token =
-    (req.method === "POST" ? req.body?.refresh_token : null) ||
-    req.query?.refresh_token;
+  // Vercel does NOT auto-parse JSON bodies — read raw body and parse manually.
+  // Also support refresh_token via query param as GET fallback.
+  let refresh_token = req.query?.refresh_token || null;
+
+  if (!refresh_token && req.method === "POST") {
+    try {
+      // req.body may be pre-parsed by Vercel in some configs, or may be a stream
+      if (req.body && typeof req.body === "object") {
+        refresh_token = req.body.refresh_token;
+      } else if (typeof req.body === "string") {
+        refresh_token = JSON.parse(req.body).refresh_token;
+      } else {
+        // Read raw stream
+        const raw = await new Promise((resolve, reject) => {
+          let body = "";
+          req.on("data", chunk => { body += chunk; });
+          req.on("end", () => resolve(body));
+          req.on("error", reject);
+        });
+        if (raw) refresh_token = JSON.parse(raw).refresh_token;
+      }
+    } catch (e) {
+      return res.status(400).json({ error: "Invalid request body" });
+    }
+  }
 
   if (!refresh_token) {
     return res.status(400).json({ error: "Missing refresh_token" });
@@ -44,3 +65,4 @@ export default async function handler(req, res) {
     res.status(500).json({ error: "Refresh failed", message: e.message });
   }
 }
+
