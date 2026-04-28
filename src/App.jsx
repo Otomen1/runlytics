@@ -405,7 +405,6 @@ const ACT_CLR = {Run:"#f97316",Ride:"#3b82f6",Walk:"#22c55e",Swim:"#06b6d4",Hike
 const ACT_ICN = {Run:"🏃",Ride:"🚴",Walk:"🚶",Swim:"🏊",Hike:"🥾"};
 const rc = t=>ACT_CLR[t]||"#6b7280";
 
-
 const Styles=()=><style>{`
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#06080f;color:#d8e6f7;-webkit-font-smoothing:antialiased;}
@@ -444,6 +443,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 `}</style>;
 
 const IC={good:"var(--gn)",positive:"var(--gn)",warning:"var(--yw)",danger:"var(--rd)",info:"var(--bl)",neutral:"var(--tx2)"};
+const IC_BG={good:"rgba(34,197,94,.08)",positive:"rgba(34,197,94,.08)",warning:"rgba(234,179,8,.08)",danger:"rgba(239,68,68,.08)",info:"rgba(59,130,246,.08)",neutral:"rgba(255,255,255,.04)"};
+const IC_BD={good:"rgba(34,197,94,.22)",positive:"rgba(34,197,94,.22)",warning:"rgba(234,179,8,.22)",danger:"rgba(239,68,68,.22)",info:"rgba(59,130,246,.22)",neutral:"rgba(255,255,255,.1)"};
 
 const Spn=()=>(
   <div style={{width:16,height:16,borderRadius:"50%",border:"2px solid var(--bd2)",borderTopColor:"var(--or)",animation:"spin 1s linear infinite"}}/>
@@ -495,9 +496,11 @@ const CoachCard=({insight})=>{
   const[open,setOpen]=useState(false);
   if(!insight)return null;
   const col=IC[insight.type]||"var(--tx2)";
-  const body=insight.detail||insight.body;
+  const bg=IC_BG[insight.type]||"rgba(255,255,255,.04)";
+  const bd=IC_BD[insight.type]||"rgba(255,255,255,.1)";
+  const body=insight.detail||insight.body||null;
   return(
-    <div style={{background:col.replace(")",", .08)").replace("var(","rgba("),border:"1px solid "+col.replace(")",", .22)").replace("var(","rgba("),borderRadius:12,cursor:body?"pointer":"default"}} onClick={()=>body&&setOpen(o=>!o)}>
+    <div style={{background:bg,border:"1px solid "+bd,borderRadius:12,cursor:body?"pointer":"default"}} onClick={()=>body&&setOpen(o=>!o)}>
       <div style={{padding:"12px 14px",display:"flex",alignItems:"center",gap:11}}>
         <span style={{fontSize:"1.15rem",flexShrink:0}}>{insight.icon||"💡"}</span>
         <div style={{flex:1,minWidth:0}}>
@@ -749,8 +752,10 @@ const FeedbackModal=({run,mafHR,newBadges,onClose})=>{
         <div style={{display:"flex",flexDirection:"column",gap:9,marginBottom:18}}>
           {feedbacks.map((fb,i)=>{
             const col=IC[fb.type]||"var(--tx2)";
+            const fbg=IC_BG[fb.type]||"rgba(255,255,255,.04)";
+            const fbd=IC_BD[fb.type]||"rgba(255,255,255,.1)";
             return(
-              <div key={i} style={{display:"flex",gap:11,padding:"11px 13px",borderRadius:11,background:col+"12",border:"1px solid "+col+"22"}}>
+              <div key={i} style={{display:"flex",gap:11,padding:"11px 13px",borderRadius:11,background:fbg,border:"1px solid "+fbd}}>
                 <span style={{fontSize:"1.1rem",flexShrink:0}}>{fb.icon}</span>
                 <div>
                   <div style={{fontWeight:700,fontSize:".86rem",marginBottom:2}}>{fb.title}</div>
@@ -830,7 +835,7 @@ const HomeTab=({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUploa
   const todayStr=todayKey();
   const todayTasks=tasks.filter(t=>t.enabled).slice(0,3);
   const todayDone=todayTasks.filter(t=>t.completions&&t.completions[todayStr]).length;
-  const recCol=IC[rec.type]||"var(--tx2)";
+  const recBg=IC_BG[rec.type]||"rgba(255,255,255,.04)";const recBd=IC_BD[rec.type]||"rgba(255,255,255,.1)";const recCol=IC[rec.type]||"var(--tx2)";
   return(
     <div style={{padding:"4px 0 32px"}}>
       <div className="a0" style={{marginBottom:20,paddingTop:4}}>
@@ -856,7 +861,7 @@ const HomeTab=({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUploa
 
       <div className="a1" style={{marginBottom:14}}>
         <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:7}}>Today's Recommendation</div>
-        <div style={{background:recCol+"10",border:"1px solid "+recCol+"25",borderRadius:12,padding:"13px 15px",display:"flex",alignItems:"center",gap:12}}>
+        <div style={{background:recBg,border:"1px solid "+recBd,borderRadius:12,padding:"13px 15px",display:"flex",alignItems:"center",gap:12}}>
           <span style={{fontSize:"1.4rem",flexShrink:0}}>{rec.icon}</span>
           <div>
             <div style={{fontWeight:700,fontSize:".88rem",marginBottom:2}}>{rec.title}</div>
@@ -1136,7 +1141,7 @@ const TasksTab=({tasks,setTasks,hrProfile})=>{
     const d=new Date();d.setDate(d.getDate()-(6-i));d.setHours(0,0,0,0);
     return{key:d.toISOString().split("T")[0],label:d.toLocaleDateString("en-GB",{weekday:"short"}).slice(0,1)};
   });
-  const TCLR={hr:"var(--rd)",run:"var(--or)",recovery:"var(--gn)",load:"var(--yw)",wellness:"var(--bl)"};
+  const TCLR={hr:"#ef4444",run:"#f97316",recovery:"#22c55e",load:"#eab308",wellness:"#3b82f6"};
   return(
     <div style={{padding:"4px 0 32px"}}>
       <div className="a0" style={{marginBottom:18}}>
@@ -1298,16 +1303,16 @@ const SettingsPanel=({
 })=>{
   const[view,setView]=useState("main");
   const[age,setAge]=useState(hrProfile.age||"");
-  const[override,setOverride]=useState(hrProfile.maxHROverride||"");
+  const[ov,setOv]=useState(hrProfile.maxHROverride||"");
   const[useOv,setUseOv]=useState(!!hrProfile.maxHROverride);
-  const[weekly,setWeekly]=useState(goals.weekly);
-  const[monthly,setMonthly]=useState(goals.monthly);
-  const[name,setName]=useState(profile.name||"Runner");
+  const[wk,setWk]=useState(goals.weekly);
+  const[mo,setMo]=useState(goals.monthly);
+  const[nm,setNm]=useState(profile.name||"Runner");
   const ageNum=parseInt(age)||null;
-  const previewMaf=useOv&&parseInt(override)?parseInt(override):ageNum?180-ageNum:null;
+  const previewMaf=useOv&&parseInt(ov)?parseInt(ov):ageNum?180-ageNum:null;
+  const backBtn=<button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.1rem"}} onClick={()=>setView("main")}>‹</button>;
   return(
-    <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,.6)"}}
-      onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,.6)"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
       <div className="glass" style={{width:"100%",maxWidth:430,borderRadius:"22px 22px 0 0",padding:"22px 20px 40px",maxHeight:"92vh",overflowY:"auto",border:"1px solid var(--bd)"}}>
         <div style={{width:36,height:4,borderRadius:2,background:"var(--bd2)",margin:"0 auto 18px"}}/>
         {view==="main"&&(
@@ -1316,16 +1321,11 @@ const SettingsPanel=({
               <div style={{fontWeight:700,fontSize:"1.05rem"}}>Settings</div>
               <button className="btn b-gh" style={{padding:"6px 13px",fontSize:".8rem"}} onClick={onClose}>Done</button>
             </div>
-            {[
-              {icon:"👤",label:"Profile",action:()=>setView("profile")},
-              {icon:"❤️",label:"MAF HR Profile",action:()=>setView("hr")},
-              {icon:"🎯",label:"Distance Goals",action:()=>setView("goals")},
-              {icon:"🟠",label:"Strava Sync",action:()=>setView("strava")}
-            ].map(item=>(
-              <div key={item.label} className="tap card2" style={{padding:"14px 15px",marginBottom:10,display:"flex",alignItems:"center",gap:14,borderRadius:12,cursor:"pointer"}} onClick={item.action}>
+            {[{icon:"👤",label:"Profile",v:"profile"},{icon:"❤️",label:"MAF HR",v:"hr"},{icon:"🎯",label:"Goals",v:"goals"},{icon:"🟠",label:"Strava Sync",v:"strava"}].map(item=>(
+              <div key={item.v} className="tap card2" style={{padding:"14px 15px",marginBottom:10,display:"flex",alignItems:"center",gap:14,borderRadius:12,cursor:"pointer"}} onClick={()=>setView(item.v)}>
                 <div style={{width:36,height:36,borderRadius:10,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.1rem"}}>{item.icon}</div>
                 <div style={{flex:1,fontWeight:500,fontSize:".88rem"}}>{item.label}</div>
-                <div style={{color:"var(--tx3)"}}>›</div>
+                <span style={{color:"var(--tx3)"}}>›</span>
               </div>
             ))}
             <div className="card2" style={{padding:14,marginBottom:10,borderRadius:12}}>
@@ -1342,34 +1342,32 @@ const SettingsPanel=({
         )}
         {view==="profile"&&(
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
-              <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.1rem"}} onClick={()=>setView("main")}>‹</button>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}
               <div style={{fontWeight:700,fontSize:"1.05rem"}}>Profile</div>
             </div>
             <label style={{fontSize:".76rem",fontWeight:600,display:"block",marginBottom:7}}>Your name</label>
-            <input className="inp" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Alex" style={{marginBottom:18}}/>
-            <button className="btn b-or" style={{width:"100%",padding:"12px"}} onClick={()=>{onSaveProfile({name:name||"Runner"});setView("main");}}>Save</button>
+            <input className="inp" value={nm} onChange={e=>setNm(e.target.value)} placeholder="e.g. Alex" style={{marginBottom:18}}/>
+            <button className="btn b-or" style={{width:"100%",padding:"12px"}} onClick={()=>{onSaveProfile({name:nm||"Runner"});setView("main");}}>Save</button>
           </div>
         )}
         {view==="hr"&&(
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
-              <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.1rem"}} onClick={()=>setView("main")}>‹</button>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}
               <div style={{fontWeight:700,fontSize:"1.05rem"}}>MAF HR Profile</div>
             </div>
-            <label style={{fontSize:".76rem",fontWeight:600,display:"block",marginBottom:7}}>{"Age · 180 − age formula"}</label>
+            <label style={{fontSize:".76rem",fontWeight:600,display:"block",marginBottom:7}}>Age · 180 − age formula</label>
             <input className="inp" type="number" min="10" max="100" placeholder="e.g. 32" value={age} onChange={e=>setAge(e.target.value)} style={{marginBottom:ageNum&&!useOv?6:14}}/>
             {ageNum&&!useOv&&<div style={{fontSize:".72rem",color:"var(--gn)",marginBottom:14}}>{"✓ MAF HR: "+(180-ageNum)+" bpm"}</div>}
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:useOv?10:16}}>
               <div style={{width:36,height:20,borderRadius:10,background:useOv?"var(--or)":"var(--bd2)",position:"relative",cursor:"pointer",transition:"background .2s"}} onClick={()=>setUseOv(v=>!v)}>
                 <div style={{position:"absolute",top:2,left:useOv?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
               </div>
-              <label style={{fontSize:".78rem",fontWeight:500,cursor:"pointer"}} onClick={()=>setUseOv(v=>!v)}>Custom MAF override</label>
+              <span style={{fontSize:".78rem",cursor:"pointer"}} onClick={()=>setUseOv(v=>!v)}>Custom MAF override</span>
             </div>
-            {useOv&&<input className="inp" type="number" min="100" max="220" placeholder="e.g. 148" value={override} onChange={e=>setOverride(e.target.value)} style={{marginBottom:14}}/>}
+            {useOv&&<input className="inp" type="number" min="100" max="220" placeholder="e.g. 148" value={ov} onChange={e=>setOv(e.target.value)} style={{marginBottom:14}}/>}
             {previewMaf&&(
-              <div style={{marginBottom:16,padding:"12px 13px",background:"rgba(249,115,22,.07)",border:"1px solid rgba(249,115,22,.2)",borderRadius:12}}>
-                <div style={{fontSize:".7rem",color:"var(--or)",fontWeight:600,marginBottom:7}}>{"Preview · MAF = "+previewMaf+" bpm"}</div>
+              <div style={{marginBottom:16,padding:"12px",background:"rgba(249,115,22,.07)",border:"1px solid rgba(249,115,22,.2)",borderRadius:12}}>
+                <div style={{fontSize:".7rem",color:"var(--or)",fontWeight:600,marginBottom:7}}>{"MAF = "+previewMaf+" bpm"}</div>
                 {getMafZones(previewMaf).map(z=>(
                   <div key={z.zone} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                     <div style={{width:7,height:7,borderRadius:"50%",background:z.color}}/>
@@ -1381,44 +1379,40 @@ const SettingsPanel=({
             )}
             <div style={{display:"flex",gap:8}}>
               <button className="btn b-gh" style={{padding:"12px 14px"}} onClick={()=>{onSaveHR({age:null,restingHR:null,maxHROverride:null});setView("main");}}>Clear</button>
-              <button className="btn b-or" style={{flex:1,padding:"12px"}} onClick={()=>{onSaveHR({age:ageNum,restingHR:null,maxHROverride:useOv&&parseInt(override)?parseInt(override):null});setView("main");}}>Save Profile</button>
+              <button className="btn b-or" style={{flex:1,padding:"12px"}} onClick={()=>{onSaveHR({age:ageNum,restingHR:null,maxHROverride:useOv&&parseInt(ov)?parseInt(ov):null});setView("main");}}>Save</button>
             </div>
           </div>
         )}
         {view==="goals"&&(
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
-              <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.1rem"}} onClick={()=>setView("main")}>‹</button>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}
               <div style={{fontWeight:700,fontSize:"1.05rem"}}>Distance Goals</div>
             </div>
-            {[["Weekly goal (km)",weekly,setWeekly],["Monthly goal (km)",monthly,setMonthly]].map(([l,v,sv])=>(
+            {[["Weekly (km)",wk,setWk],["Monthly (km)",mo,setMo]].map(([l,v,sv])=>(
               <div key={l} style={{marginBottom:16}}>
                 <label style={{fontSize:".76rem",fontWeight:600,display:"block",marginBottom:7}}>{l}</label>
                 <input className="inp" type="number" min="1" max="500" value={v} onChange={e=>sv(Number(e.target.value))}/>
               </div>
             ))}
-            <button className="btn b-or" style={{width:"100%",padding:"12px"}} onClick={()=>{onSaveGoals({weekly:Number(weekly),monthly:Number(monthly)});setView("main");}}>Save Goals</button>
+            <button className="btn b-or" style={{width:"100%",padding:"12px"}} onClick={()=>{onSaveGoals({weekly:Number(wk),monthly:Number(mo)});setView("main");}}>Save</button>
           </div>
         )}
         {view==="strava"&&(
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
-              <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.1rem"}} onClick={()=>setView("main")}>‹</button>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>{backBtn}
               <div style={{fontWeight:700,fontSize:"1.05rem"}}>Strava Sync</div>
             </div>
             {stravaAuth?(
               <div>
-                <div style={{padding:"12px 14px",borderRadius:12,background:"var(--gn2)",border:"1px solid rgba(34,197,94,.2)",marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
-                  <div style={{width:38,height:38,borderRadius:"50%",background:"#fc4c02",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.2rem",flexShrink:0}}>🟠</div>
+                <div style={{padding:"12px 14px",borderRadius:12,background:"rgba(34,197,94,.1)",border:"1px solid rgba(34,197,94,.2)",marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{width:36,height:36,borderRadius:"50%",background:"#fc4c02",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.1rem",flexShrink:0}}>🟠</div>
                   <div>
-                    <div style={{fontWeight:700,fontSize:".88rem",color:"var(--gn)"}}>✓ Connected to Strava</div>
-                    <div style={{fontSize:".74rem",color:"var(--tx2)",marginTop:2}}>{(stravaAuth.athlete&&stravaAuth.athlete.firstname)||"Athlete"}</div>
+                    <div style={{fontWeight:700,color:"var(--gn)"}}>✓ Connected to Strava</div>
+                    <div style={{fontSize:".74rem",color:"var(--tx2)"}}>{stravaAuth.athlete&&stravaAuth.athlete.firstname||"Athlete"}</div>
                   </div>
                 </div>
-                <button className="btn b-or" style={{width:"100%",padding:"12px",fontSize:".88rem",marginBottom:10}} onClick={onStravaSync} disabled={stravaSync&&stravaSync.loading}>
-                  {stravaSync&&stravaSync.loading?"⏳ Syncing…":"🔄 Sync from Strava"}
-                </button>
-                {stravaSync&&stravaSync.msg&&<div style={{fontSize:".74rem",color:"var(--tx2)",textAlign:"center",marginBottom:12,padding:"7px",background:"var(--s3)",borderRadius:9}}>{stravaSync.msg}</div>}
+                <button className="btn b-or" style={{width:"100%",padding:"12px",marginBottom:10}} onClick={onStravaSync} disabled={stravaSync&&stravaSync.loading}>{stravaSync&&stravaSync.loading?"⏳ Syncing…":"🔄 Sync from Strava"}</button>
+                {stravaSync&&stravaSync.msg&&<div style={{fontSize:".74rem",color:"var(--tx2)",textAlign:"center",padding:"7px",background:"var(--s3)",borderRadius:9,marginBottom:10}}>{stravaSync.msg}</div>}
                 <button className="btn b-rd" style={{width:"100%",padding:"11px",fontSize:".82rem"}} onClick={()=>{onStravaDisconnect();setView("main");}}>Disconnect Strava</button>
               </div>
             ):(
@@ -1428,7 +1422,7 @@ const SettingsPanel=({
                   <div style={{fontWeight:700,marginBottom:8}}>Connect Strava</div>
                   <div style={{fontSize:".8rem",color:"var(--tx2)",lineHeight:1.7,marginBottom:20}}>Import your runs automatically. No GPX uploads needed.</div>
                 </div>
-                <button className="btn b-or" style={{width:"100%",padding:"13px",fontSize:".9rem",marginBottom:10}} onClick={onStravaConnect}>🟠 Connect with Strava</button>
+                <button className="btn b-or" style={{width:"100%",padding:"13px",marginBottom:10}} onClick={onStravaConnect}>🟠 Connect with Strava</button>
                 {stravaSync&&stravaSync.msg&&<div style={{fontSize:".74rem",color:"var(--rd)",textAlign:"center",marginTop:8}}>{stravaSync.msg}</div>}
               </div>
             )}
@@ -1502,7 +1496,7 @@ export default function App(){
 
   const getStravaToken=useCallback(async auth=>{
     if(!auth)return null;
-    if(Date.now()/1000<auth.expires_at-300)return auth.access_token;
+    if(auth.expires_at&&Date.now()/1000<auth.expires_at-300)return auth.access_token;
     try{
       const r=await fetch("/api/strava-refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({refresh_token:auth.refresh_token})});
       const fresh=await r.json();
@@ -1569,12 +1563,9 @@ export default function App(){
   const back=useCallback(()=>history.back(),[]);
 
   const handleStravaConnect=useCallback(()=>{
-    const clientId=window.__STRAVA_CLIENT_ID||localStorage.getItem("strava_client_id")||"";
+    const clientId=window.__STRAVA_CLIENT_ID||"";
     if(!clientId){
-      const id=prompt("Enter your Strava Client ID (from strava.com/settings/api):");
-      if(!id)return;
-      localStorage.setItem("strava_client_id",id.trim());
-      window.location.href="https://www.strava.com/oauth/authorize?client_id="+id.trim()+"&redirect_uri="+encodeURIComponent(window.location.origin+"/")+"&response_type=code&approval_prompt=auto&scope=activity:read_all";
+      alert("Strava Client ID not configured. Check your Vercel environment variables.");
       return;
     }
     window.location.href="https://www.strava.com/oauth/authorize?client_id="+clientId+"&redirect_uri="+encodeURIComponent(window.location.origin+"/")+"&response_type=code&approval_prompt=auto&scope=activity:read_all";
