@@ -117,6 +117,71 @@ function mapStravaActivity(a) {
   };
 }
 
+// Race PR bucket definitions
+const PR_DEFS = [
+  {id:"5k",    label:"5K",           icon:"⭐", minKm:4.5,  maxKm:5.5,  targetKm:5,    color:"#06b6d4"},
+  {id:"10k",   label:"10K",          icon:"🏅", minKm:9.0,  maxKm:11.0, targetKm:10,   color:"#3b82f6"},
+  {id:"half",  label:"Half Marathon", icon:"🥈", minKm:20.0, maxKm:23.0, targetKm:21.1, color:"#a855f7"},
+  {id:"full",  label:"Marathon",      icon:"🏆", minKm:40.0, maxKm:45.0, targetKm:42.2, color:"#eab308"},
+];
+
+// Compute race PRs from activity list — pure function, safe to memoize
+function computeRacePRs(acts) {
+  const runs = acts.filter(a =>
+    a.type === "Run" &&
+    a.distanceKm > 0 &&
+    a.movingTimeSec > 0
+  );
+  return PR_DEFS.map(def => {
+    const bucket = runs.filter(r => r.distanceKm >= def.minKm && r.distanceKm <= def.maxKm);
+    if (!bucket.length) return { ...def, record: null };
+    // Best = lowest pace (moving_time / distance) = truest effort
+    const best = bucket.reduce((b, r) => {
+      const pace = r.movingTimeSec / r.distanceKm;
+      const bPace = b.movingTimeSec / b.distanceKm;
+      return pace < bPace ? r : b;
+    });
+    const pace = best.movingTimeSec / best.distanceKm;
+    // Projected time over target distance for normalised comparison
+    const projectedSec = Math.round(pace * def.targetKm);
+    // Previous PR (second-best) for trend
+    const rest = bucket.filter(r => r.id !== best.id);
+    const prev = rest.length ? rest.reduce((b, r) => {
+      const p = r.movingTimeSec / r.distanceKm;
+      const bp = b.movingTimeSec / b.distanceKm;
+      return p < bp ? r : b;
+    }) : null;
+    const trend = prev
+      ? (pace < prev.movingTimeSec / prev.distanceKm ? "improved" : "same")
+      : "first";
+    return {
+      ...def,
+      record: {
+        name: best.name,
+        date: best.date,
+        dateTs: best.dateTs,
+        distanceKm: best.distanceKm,
+        movingTimeSec: best.movingTimeSec,
+        projectedSec,
+        paceSecKm: Math.round(pace),
+        stravaId: best.stravaId || null,
+        trend,
+        bucketCount: bucket.length,
+      },
+    };
+  });
+}
+
+// Format seconds as h:mm:ss or mm:ss
+function fmtRaceTime(sec) {
+  if (!sec || sec <= 0) return "—";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return h+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+  return m+":"+String(s).padStart(2,"0");
+}
+
 function getMafHR(hrProfile, activityMaxHR) {
   if (hrProfile?.maxHROverride) { const v=Number(hrProfile.maxHROverride); if(v>=100&&v<=220) return v; }
   if (hrProfile?.age) { const a=Number(hrProfile.age); if(a>=10&&a<=100) return Math.round(180-a); }
@@ -970,12 +1035,20 @@ const StatsTab=({acts,analytics,onViewAll,onViewMonthly})=>{
   const runs=acts.filter(a=>a.type==="Run"||a.type==="Walk");
   const totalKm=runs.reduce((s,a)=>s+a.distanceKm,0);
   const weeklyData=analytics.weekly.slice(-range);
-  const prs=runs.length?{
+
+  // Simple overall PRs
+  const overallPRs=runs.length?{
     longest:runs.reduce((b,r)=>r.distanceKm>b.distanceKm?r:b),
     fastest:runs.filter(r=>r.avgPaceSecKm>0).reduce((b,r)=>r.avgPaceSecKm<b.avgPaceSecKm?r:b,runs.find(r=>r.avgPaceSecKm>0)||runs[0])
   }:null;
+
+  // Race PRs — memoized, recomputed only when acts changes
+  const racePRs=useMemo(()=>computeRacePRs(acts),[acts]);
+  const hasAnyRacePR=racePRs.some(r=>r.record);
+
   return(
     <div style={{padding:"4px 0 32px"}}>
+      {/* Summary strip */}
       <div className="a0" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:18}}>
         {[
           {l:"Total km",v:parseFloat(totalKm.toFixed(0)).toLocaleString(),c:"var(--or)"},
@@ -988,6 +1061,8 @@ const StatsTab=({acts,analytics,onViewAll,onViewMonthly})=>{
           </div>
         ))}
       </div>
+
+      {/* Weekly distance chart */}
       {weeklyData.length>1&&(
         <div className="card a1" style={{padding:16,marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -1017,13 +1092,106 @@ const StatsTab=({acts,analytics,onViewAll,onViewMonthly})=>{
           </ResponsiveContainer>
         </div>
       )}
-      {prs&&(
-        <div className="card a2" style={{padding:16,marginBottom:14}}>
-          <SH title="Personal Records"/>
+
+      {/* Race Personal Records */}
+      <div className="card a2" style={{padding:16,marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+          <SH title="Race Personal Records 🏆"/>
+          {!hasAnyRacePR&&(
+            <span style={{fontSize:".68rem",color:"var(--tx3)"}}>Sync Strava or upload GPX</span>
+          )}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          {racePRs.map((def,i)=>{
+            const r=def.record;
+            return(
+              <div key={def.id} style={{
+                borderRadius:13,overflow:"hidden",
+                border:"1px solid "+(r?def.color+"35":"var(--bd)"),
+                background:r?def.color+"08":"transparent",
+              }}>
+                {/* Header row */}
+                <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderBottom:r?"1px solid "+def.color+"20":"none"}}>
+                  <div style={{width:36,height:36,borderRadius:10,background:r?def.color+"18":"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.2rem",flexShrink:0,filter:r?"none":"grayscale(1) brightness(.5)"}}>
+                    {def.icon}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:700,fontSize:".9rem",color:r?def.color:"var(--tx3)"}}>{def.label}</div>
+                    {r?(
+                      <div style={{fontSize:".68rem",color:"var(--tx2)",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {r.name}
+                      </div>
+                    ):(
+                      <div style={{fontSize:".72rem",color:"var(--tx3)",marginTop:1}}>No record yet</div>
+                    )}
+                  </div>
+                  {r&&(
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <div style={{fontSize:"1.15rem",fontWeight:800,color:def.color,lineHeight:1,fontFamily:"'Courier New',monospace"}}>
+                        {fmtRaceTime(r.projectedSec)}
+                      </div>
+                      <div style={{fontSize:".6rem",color:"var(--tx3)",marginTop:2}}>
+                        {r.trend==="improved"?"↑ PR improved":r.trend==="first"?"⭐ First record":""} 
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Stats row */}
+                {r&&(
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:0,padding:"10px 14px"}}>
+                    {[
+                      {l:"Distance",v:fmtKm(r.distanceKm)+" km"},
+                      {l:"Time",v:fmtRaceTime(r.movingTimeSec)},
+                      {l:"Pace",v:fmtPace(r.paceSecKm)+"/km"},
+                      {l:"Date",v:fmtDateS(r.date)},
+                    ].map((s,j)=>(
+                      <div key={s.l} style={{borderLeft:j>0?"1px solid var(--bd)":"none",paddingLeft:j>0?10:0,paddingRight:j<3?10:0}}>
+                        <div style={{fontSize:".56rem",color:"var(--tx3)",marginBottom:3,textTransform:"uppercase",letterSpacing:".06em"}}>{s.l}</div>
+                        <div style={{fontSize:".8rem",fontWeight:600,color:"var(--tx)"}}>{s.v}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Strava link + effort count */}
+                {r&&(
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 14px 10px"}}>
+                    <span style={{fontSize:".65rem",color:"var(--tx3)"}}>
+                      {"From "+r.bucketCount+" run"+(r.bucketCount!==1?"s":"")}
+                    </span>
+                    {r.stravaId&&(
+                      <a
+                        href={"https://www.strava.com/activities/"+r.stravaId}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{fontSize:".68rem",color:"#fc4c02",fontWeight:600,textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>
+                        🟠 View on Strava
+                      </a>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Explanation when no records */}
+        {!hasAnyRacePR&&runs.length>0&&(
+          <div style={{marginTop:12,padding:"10px 12px",borderRadius:10,background:"var(--s3)",fontSize:".76rem",color:"var(--tx2)",lineHeight:1.6}}>
+            Run distances need to fall within standard race ranges to qualify as a PR (e.g. 4.5–5.5km for 5K).
+          </div>
+        )}
+      </div>
+
+      {/* Overall PRs */}
+      {overallPRs&&(
+        <div className="card a3" style={{padding:16,marginBottom:14}}>
+          <SH title="Overall Bests"/>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
             {[
-              {l:"🏆 Longest",v:fmtKm(prs.longest&&prs.longest.distanceKm||0)+" km",c:"var(--or)",sub:prs.longest?fmtDateS(prs.longest.date):""},
-              {l:"⚡ Best Pace",v:fmtPace(prs.fastest&&prs.fastest.avgPaceSecKm||0)+"/km",c:"var(--bl)",sub:prs.fastest?fmtDateS(prs.fastest.date):""}
+              {l:"🏆 Longest",v:fmtKm(overallPRs.longest&&overallPRs.longest.distanceKm||0)+" km",c:"var(--or)",sub:overallPRs.longest?fmtDateS(overallPRs.longest.date):""},
+              {l:"⚡ Best Pace",v:fmtPace(overallPRs.fastest&&overallPRs.fastest.avgPaceSecKm||0)+"/km",c:"var(--bl)",sub:overallPRs.fastest?fmtDateS(overallPRs.fastest.date):""}
             ].map(s=>(
               <div key={s.l} className="card2" style={{padding:"13px 11px"}}>
                 <div style={{fontSize:".6rem",color:"var(--tx3)",marginBottom:7}}>{s.l}</div>
@@ -1034,6 +1202,8 @@ const StatsTab=({acts,analytics,onViewAll,onViewMonthly})=>{
           </div>
         </div>
       )}
+
+      {/* Quick links */}
       {runs.length>0&&(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <button className="btn b-gh" style={{padding:"12px",fontSize:".8rem",borderRadius:13}} onClick={onViewAll}>{"🏃 All Runs ("+acts.length+")"}</button>
