@@ -372,6 +372,53 @@ function computeEarnedBadges(acts,an,mafHR){const s=new Set();for(const b of BAD
 function loadSeenBadges(){try{return new Set(JSON.parse(localStorage.getItem(BADGES_KEY)||"[]"));}catch(e){return new Set();}}
 function saveSeenBadges(ids){try{localStorage.setItem(BADGES_KEY,JSON.stringify([...ids]));}catch(e){}}
 
+// ── Tier Badge System ─────────────────────────────────────────────
+const TIER_LABELS=["Bronze 5","Bronze 4","Bronze 3","Bronze 2","Bronze 1","Silver 5","Silver 4","Silver 3","Silver 2","Silver 1","Gold 5","Gold 4","Gold 3","Gold 2","Gold 1","Elite"];
+const TIER_COLORS=["#cd7c2f","#cd7c2f","#cd7c2f","#cd7c2f","#cd7c2f","#9ca3af","#9ca3af","#9ca3af","#9ca3af","#9ca3af","#eab308","#eab308","#eab308","#eab308","#eab308","#a855f7"];
+const TIER_PREFIX=["🥉","🥉","🥉","🥉","🥉","🥈","🥈","🥈","🥈","🥈","🥇","🥇","🥇","🥇","🥇","👑"];
+
+function makeTiers(reqs){
+  return reqs.map((req,i)=>({level:i+1,label:TIER_LABELS[i],color:TIER_COLORS[i],icon:TIER_PREFIX[i],req}));
+}
+
+const TIER_BADGES=[
+  {id:"t_dist",name:"Distance",icon:"🛣️",unit:"km",
+    getValue:acts=>Math.round(acts.filter(a=>a.type==="Run"||a.type==="Walk").reduce((s,a)=>s+a.distanceKm,0)),
+    tiers:makeTiers([10,25,50,75,100,150,200,300,400,500,700,900,1200,1500,2000,3000])},
+  {id:"t_runs",name:"Total Runs",icon:"🏃",unit:"runs",
+    getValue:acts=>acts.filter(a=>a.type==="Run").length,
+    tiers:makeTiers([3,5,10,15,20,30,50,75,100,150,200,300,400,500,750,1000])},
+  {id:"t_longest",name:"Longest Run",icon:"📏",unit:"km",
+    getValue:acts=>{const r=acts.filter(a=>a.type==="Run");return r.length?parseFloat(Math.max(...r.map(a=>a.distanceKm)).toFixed(1)):0;},
+    tiers:makeTiers([3,5,7,10,15,21.1,25,30,35,42.2,50,60,70,80,90,100])},
+  {id:"t_streak",name:"Best Streak",icon:"🔥",unit:"days",
+    getValue:(acts,an)=>an&&an.streak?an.streak:0,
+    tiers:makeTiers([2,3,5,7,10,14,20,30,45,60,75,100,150,200,300,365])},
+];
+
+function computeTierProgress(acts,analytics){
+  return TIER_BADGES.map(badge=>{
+    let progress;
+    try{progress=badge.getValue(acts,analytics)||0;}catch(e){progress=0;}
+    const earned=badge.tiers.filter(t=>progress>=t.req);
+    const current=earned.length?earned[earned.length-1]:null;
+    const next=badge.tiers.find(t=>progress<t.req)||null;
+    let pct=0;
+    if(current&&next){
+      pct=Math.round((progress-current.req)/(next.req-current.req)*100);
+    }else if(current){
+      pct=100;
+    }else if(next){
+      pct=Math.round(progress/next.req*100);
+    }
+    return{id:badge.id,badge,progress,current,next,pct:Math.min(100,Math.max(0,pct)),totalTiers:badge.tiers.length,earnedCount:earned.length};
+  });
+}
+
+const TIERS_KEY="runlytics_tiers_v1";
+function loadSeenTiers(){try{return JSON.parse(localStorage.getItem(TIERS_KEY)||"{}");}catch(e){return {};}}
+function saveSeenTiers(obj){try{localStorage.setItem(TIERS_KEY,JSON.stringify(obj));}catch(e){}}
+
 const DEFAULT_TASKS = [
   {id:"t1",title:"Stay below MAF HR",desc:"Keep avg HR under your MAF threshold",icon:"❤️",category:"hr"},
   {id:"t2",title:"Complete an easy run",desc:"Any run where you stay in Z1–Z2 the whole time",icon:"🏃",category:"run"},
@@ -1626,17 +1673,31 @@ export default function App(){
       return fresh.access_token;
     }catch(e){return null;}
   },[]);
-  const doStravaSync=useCallback(async authOverride=>{
+  const isSyncingRef=useRef(false);
+  const lastSyncRef=useRef(0);
+  const doStravaSync=useCallback(async(authOverride,silent=false)=>{
     const auth=authOverride||stravaAuth;
-    if(!auth){setStravaSync({loading:false,msg:"Not connected."});return;}
-    setStravaSync({loading:true,msg:"Fetching from Strava…"});
+    if(!auth)return;
+    const now=Date.now();
+    if(isSyncingRef.current)return;
+    if(!authOverride&&now-lastSyncRef.current<10000)return;
+    isSyncingRef.current=true;
+    lastSyncRef.current=now;
+    if(!silent)setStravaSync({loading:true,msg:"Syncing…"});
+    else setStravaSync(s=>({...s,loading:true}));
     const token=await getStravaToken(auth);
-    if(!token){setStravaSync({loading:false,msg:"Session expired — reconnect Strava."});return;}
+    if(!token){
+      isSyncingRef.current=false;
+      setStravaSync({loading:false,msg:"Session expired — reconnect Strava."});
+      return;
+    }
     try{
-      const res=await fetch("https://www.strava.com/api/v3/athlete/activities?per_page=100&page=1",{headers:{Authorization:"Bearer "+token}});
+      const res=await fetch("https://www.strava.com/api/v3/athlete/activities?per_page=30&page=1",{headers:{Authorization:"Bearer "+token}});
       const data=await res.json();
       if(!Array.isArray(data)){setStravaSync({loading:false,msg:"Sync error."});return;}
-      const mapped=data.filter(a=>["Run","Walk","Hike","TrailRun","VirtualRun"].includes(a.sport_type||a.type)).map(mapStravaActivity);
+      const mapped=data
+        .filter(a=>["Run","Walk","Hike","TrailRun","VirtualRun"].includes(a.sport_type||a.type))
+        .map(mapStravaActivity);
       let added=0;
       setActs(prev=>{
         const ids=new Set(prev.map(a=>a.id));
@@ -1645,10 +1706,31 @@ export default function App(){
         if(!fresh.length)return prev;
         return [...fresh,...prev].sort((a,b)=>b.dateTs-a.dateTs);
       });
-      setStravaSync({loading:false,msg:"Synced "+mapped.length+" activities (+"+ added+" new) ✓"});
-    }catch(e){setStravaSync({loading:false,msg:"Sync failed."});}
+      if(silent&&added===0){
+        setStravaSync(s=>({...s,loading:false}));
+      }else{
+        setStravaSync({loading:false,msg:added>0?"+"+ added+" new activit"+(added===1?"y":"ies")+" synced ✓":"Up to date ✓"});
+        if(added===0)setTimeout(()=>setStravaSync(s=>({...s,msg:""})),3000);
+      }
+    }catch(e){
+      setStravaSync({loading:false,msg:"Sync failed."});
+    }finally{
+      isSyncingRef.current=false;
+    }
   },[stravaAuth,getStravaToken]);
   useEffect(()=>{doStravaRef.current=doStravaSync;},[doStravaSync]);
+  useEffect(()=>{if(stravaAuth)doStravaSync(null,true);},[]);
+  useEffect(()=>{
+    if(!stravaAuth)return;
+    const onFocus=()=>doStravaSync(null,true);
+    window.addEventListener("focus",onFocus);
+    return()=>window.removeEventListener("focus",onFocus);
+  },[stravaAuth,doStravaSync]);
+  useEffect(()=>{
+    if(!stravaAuth)return;
+    const id=setInterval(()=>doStravaSync(null,true),5*60*1000);
+    return()=>clearInterval(id);
+  },[stravaAuth,doStravaSync]);
   useEffect(()=>{
     history.replaceState({_rl:"root"},"");
     history.pushState({_rl:"s"},"");
@@ -1754,6 +1836,10 @@ export default function App(){
             </div>
             <div style={{display:"flex",gap:7,alignItems:"center"}}>
               {acts.length>0&&<span style={{background:"var(--or2)",color:"var(--or)",padding:"2px 8px",borderRadius:20,fontSize:".6rem",fontWeight:700}}>{acts.length+" runs"}</span>}
+              {stravaSync.loading&&<span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:".6rem",color:"var(--tx2)",padding:"2px 8px",borderRadius:20,background:"var(--s2)"}}>
+                <span style={{width:6,height:6,borderRadius:"50%",border:"1.5px solid var(--tx3)",borderTopColor:"var(--or)",animation:"spin 1s linear infinite",display:"inline-block"}}/>
+                Syncing
+              </span>}
               <button className="btn b-or" style={{padding:"6px 12px",fontSize:".76rem"}} onClick={()=>showUpload?back():openUpload()}>
                 {showUpload?"✕ Close":"+ Upload"}
               </button>
