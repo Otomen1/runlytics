@@ -1371,8 +1371,10 @@ const TasksTab=({tasks,setTasks,hrProfile})=>{
   );
 };
 
-const AchievementsTab=({earnedBadges,acts,analytics})=>{
+const AchievementsTab=({earnedBadges,acts,analytics,tierProgress,newTiers})=>{
+  const[exp,setExp]=useState(null);
   const earned=BADGE_DEFS.filter(b=>earnedBadges.has(b.id));
+  const overallPct=Math.round(earned.length/BADGE_DEFS.length*100);
   const grouped=useMemo(()=>{
     const map={};
     BADGE_CAT_ORDER.forEach(c=>{map[c]=BADGE_DEFS.filter(b=>b.cat===c).map(b=>Object.assign({},b,{earned:earnedBadges.has(b.id)}));});
@@ -1382,8 +1384,8 @@ const AchievementsTab=({earnedBadges,acts,analytics})=>{
     <div style={{padding:"4px 0 40px"}}>
       <div className="a0" style={{marginBottom:18}}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
-          <Ring pct={earned.length/BADGE_DEFS.length} size={62} color="var(--or)">
-            <span style={{fontSize:".56rem",fontWeight:700,color:"var(--or)"}}>{Math.round(earned.length/BADGE_DEFS.length*100)+"%"}</span>
+          <Ring pct={overallPct/100} size={62} color="var(--or)">
+            <span style={{fontSize:".56rem",fontWeight:700,color:"var(--or)"}}>{overallPct+"%"}</span>
           </Ring>
           <div>
             <div style={{fontSize:"1.3rem",fontWeight:800,lineHeight:1}}>
@@ -1391,54 +1393,113 @@ const AchievementsTab=({earnedBadges,acts,analytics})=>{
               <span style={{fontSize:".82rem",color:"var(--tx2)",fontWeight:400}}>{" / "+BADGE_DEFS.length}</span>
             </div>
             <div style={{fontSize:".74rem",color:"var(--tx2)",marginTop:4}}>badges earned</div>
-            <div style={{fontSize:".68rem",color:"var(--tx3)",marginTop:2}}>{analytics.streak+"d streak · "+acts.length+" runs"}</div>
+            <div style={{fontSize:".68rem",color:"var(--tx3)",marginTop:2}}>{analytics.streak+"d · "+acts.length+" runs"}</div>
           </div>
         </div>
       </div>
+
+      <div className="a1" style={{marginBottom:16}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)"}}>Tier Progression</div>
+          <div style={{fontSize:".6rem",color:"var(--tx3)"}}>Tap to expand</div>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:9}}>
+          {(tierProgress||[]).map(tp=>{
+            const isExp=exp===tp.id;
+            const c=tp.current?tp.current.color:"#6b7280";
+            const isNew=newTiers&&newTiers.includes(tp.id);
+            return(
+              <div key={tp.id} className="card2 tap"
+                style={{overflow:"hidden",borderColor:tp.current?c+"30":"var(--bd)",background:tp.current?c+"06":"var(--s2)",cursor:"pointer"}}
+                onClick={()=>setExp(isExp?null:tp.id)}>
+                <div style={{padding:"12px 14px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:"1.3rem",flexShrink:0}}>{tp.badge.icon}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontWeight:700,fontSize:".86rem"}}>{tp.badge.name}</span>
+                          {isNew&&<span style={{fontSize:".58rem",background:"var(--or)",color:"#fff",padding:"1px 6px",borderRadius:8,fontWeight:700}}>NEW!</span>}
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+                          {tp.current
+                            ?<span style={{fontSize:".72rem",fontWeight:700,color:c}}>{tp.current.icon+" "+tp.current.label}</span>
+                            :<span style={{fontSize:".7rem",color:"var(--tx3)"}}>Not started</span>}
+                          <span style={{color:"var(--tx3)",fontSize:".7rem",transition:"transform .2s",display:"inline-block",transform:isExp?"rotate(180deg)":"none"}}>▾</span>
+                        </div>
+                      </div>
+                      <div className="pb">
+                        <div className="pf" style={{width:tp.pct+"%",background:tp.current?c:"var(--tx3)"}}/>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",marginTop:5}}>
+                        <span style={{fontSize:".64rem",color:"var(--tx3)"}}>{tp.progress+" "+tp.badge.unit}</span>
+                        {tp.next
+                          ?<span style={{fontSize:".64rem",color:"var(--tx2)"}}>{"Next: "+tp.next.label+" ("+tp.next.req+" "+tp.badge.unit+")"}</span>
+                          :<span style={{fontSize:".64rem",color:c,fontWeight:700}}>👑 Elite!</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                {isExp&&(
+                  <div style={{padding:"0 14px 12px",borderTop:"1px solid var(--bd)"}}>
+                    <div style={{fontSize:".6rem",color:"var(--tx3)",marginBottom:8,marginTop:10,textTransform:"uppercase",letterSpacing:".08em"}}>Full Ladder</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                      {tp.badge.tiers.map(t=>{
+                        const done=tp.progress>=t.req;
+                        const isCurr=tp.current&&tp.current.level===t.level;
+                        const isNext=tp.next&&tp.next.level===t.level;
+                        return(
+                          <div key={t.level} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:8,opacity:done?1:isNext?0.8:0.4,
+                            background:isCurr?t.color+"18":isNext?"var(--s3)":"transparent",
+                            border:isCurr?"1px solid "+t.color+"35":isNext?"1px solid var(--bd2)":"1px solid transparent"}}>
+                            <span style={{fontSize:".85rem",flexShrink:0}}>{done?"✓":isNext?"▷":"○"}</span>
+                            <div style={{flex:1,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                              <span style={{fontSize:".74rem",fontWeight:isCurr||done?600:400,color:done?t.color:"var(--tx2)"}}>{t.icon+" "+t.label}</span>
+                              <span style={{fontSize:".68rem",color:"var(--tx3)"}}>{t.req+" "+tp.badge.unit}</span>
+                            </div>
+                            {isCurr&&<span style={{fontSize:".58rem",background:t.color,color:"#fff",padding:"1px 5px",borderRadius:6,fontWeight:700,flexShrink:0}}>NOW</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {earned.length>0&&(
-        <div className="card a1" style={{padding:16,marginBottom:14}}>
-          <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:10}}>Latest Badges</div>
+        <div className="card a2" style={{padding:16,marginBottom:14}}>
+          <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:10}}>Achievement Badges</div>
           <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:4}} className="scroll-x">
-            {earned.slice(-5).reverse().map((b,i)=>(
-              <div key={b.id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"10px 9px",minWidth:68,borderRadius:12,flexShrink:0,
+            {earned.slice(-6).reverse().map((b,i)=>(
+              <div key={b.id} style={{display:"flex",flexDirection:"column",alignItems:"center",
+                gap:5,padding:"10px 9px",minWidth:64,borderRadius:12,flexShrink:0,
                 background:b.color+"15",border:"1.5px solid "+b.color+"30",animation:"pop .4s "+(i*0.06)+"s both"}}>
-                <span style={{fontSize:"1.7rem"}}>{b.icon}</span>
-                <div style={{fontSize:".58rem",fontWeight:700,color:b.color,textAlign:"center",lineHeight:1.3}}>{b.name}</div>
+                <span style={{fontSize:"1.6rem"}}>{b.icon}</span>
+                <div style={{fontSize:".56rem",fontWeight:700,color:b.color,textAlign:"center",lineHeight:1.3}}>{b.name}</div>
               </div>
             ))}
           </div>
         </div>
       )}
-      {BADGE_CAT_ORDER.map((cat,ci)=>{
-        const badges=grouped[cat];
-        if(!badges||!badges.length)return null;
-        const catEarned=badges.filter(b=>b.earned).length;
-        return(
-          <div key={cat} className={"a"+(ci<3?ci+1:3)} style={{marginBottom:14}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)"}}>{BADGE_CAT_LABEL[cat]}</div>
-              <span style={{fontSize:".62rem",color:"var(--tx3)"}}>{catEarned+"/"+badges.length}</span>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",gap:7}}>
-              {badges.map(b=>(
-                <div key={b.id} className="card2" style={{padding:"12px 13px",display:"flex",alignItems:"center",gap:12,opacity:b.earned?1:.45,borderColor:b.earned?b.color+"28":"var(--bd)",background:b.earned?b.color+"07":"var(--s2)"}}>
-                  <div style={{width:40,height:40,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",
-                    background:b.earned?b.color+"18":"var(--s3)",border:"1px solid "+(b.earned?b.color+"30":"var(--bd2)"),
-                    fontSize:"1.4rem",flexShrink:0,filter:b.earned?"none":"grayscale(1) brightness(.5)"}}>{b.icon}</div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:700,fontSize:".84rem",color:b.earned?b.color:"var(--tx2)",marginBottom:2}}>{b.name}</div>
-                    <div style={{fontSize:".7rem",color:"var(--tx3)",lineHeight:1.4}}>{b.desc}</div>
-                  </div>
-                  {b.earned
-                    ?<div style={{width:20,height:20,borderRadius:"50%",background:"var(--gn)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:".6rem",color:"#fff",fontWeight:700}}>✓</span></div>
-                    :<span style={{fontSize:".9rem",color:"var(--tx3)"}}>🔒</span>
-                  }
-                </div>
-              ))}
-            </div>
+
+      {BADGE_DEFS.filter(b=>!earnedBadges.has(b.id)).length>0&&(
+        <div className="a3" style={{marginBottom:14}}>
+          <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:8}}>{"Locked ("+BADGE_DEFS.filter(b=>!earnedBadges.has(b.id)).length+")"}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {BADGE_DEFS.filter(b=>!earnedBadges.has(b.id)).map(b=>(
+              <div key={b.id} style={{padding:"5px 9px",borderRadius:20,border:"1px solid var(--bd)",background:"var(--s2)",display:"flex",alignItems:"center",gap:5,opacity:.6}}>
+                <span style={{fontSize:".85rem",filter:"grayscale(1)"}}>{b.icon}</span>
+                <span style={{fontSize:".68rem",color:"var(--tx3)"}}>{b.name}</span>
+              </div>
+            ))}
           </div>
-        );
-      })}
+        </div>
+      )}
+
       {!acts.length&&(
         <div style={{textAlign:"center",padding:"48px 0",color:"var(--tx2)"}}>
           <div style={{fontSize:"3rem",marginBottom:12}}>🏅</div>
@@ -1449,6 +1510,7 @@ const AchievementsTab=({earnedBadges,acts,analytics})=>{
     </div>
   );
 };
+
 
 const MonthlyReport=({acts,onClose})=>(
   <div style={{position:"fixed",inset:0,zIndex:220,background:"var(--bg)",display:"flex",flexDirection:"column"}}>
@@ -1637,11 +1699,16 @@ export default function App(){
   const mafHRGlobal=useMemo(()=>getMafHR(hrProfile,null),[hrProfile]);
   const earnedBadges=useMemo(()=>computeEarnedBadges(acts,analytics,mafHRGlobal),[acts,analytics,mafHRGlobal]);
   const newBadges=useMemo(()=>[...earnedBadges].filter(id=>!seenBadges.has(id)),[earnedBadges,seenBadges]);
-  const hasUnseen=newBadges.length>0;
+  const[seenTiers,setSeenTiers]=useState(()=>loadSeenTiers());
+  const tierProgress=useMemo(()=>computeTierProgress(acts,analytics),[acts,analytics]);
+  const newTiers=useMemo(()=>tierProgress.filter(tp=>{const prev=seenTiers[tp.id]||0;return tp.earnedCount>prev;}).map(tp=>tp.id),[tierProgress,seenTiers]);
+  const hasUnseen=newBadges.length>0||newTiers.length>0;
   useEffect(()=>{
     if(tab==="awards"&&hasUnseen){
       const next=new Set([...seenBadges,...earnedBadges]);
       setSeenBadges(next);saveSeenBadges(next);
+      const tierSeen={};tierProgress.forEach(tp=>{tierSeen[tp.id]=tp.earnedCount;});
+      setSeenTiers(tierSeen);saveSeenTiers(tierSeen);
     }
   },[tab]);
   const doStravaRef=useRef(null);
@@ -1860,7 +1927,11 @@ export default function App(){
               {tab==="stats"&&<StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={setPrDetail}/>}
               {tab==="hr"&&<HRTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings}/>}
               {tab==="tasks"&&<TasksTab tasks={tasks} setTasks={setTasks} hrProfile={hrProfile}/>}
-              {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadges} acts={acts} analytics={analytics}/>}
+              {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadges} acts={acts} analytics={analytics}
+                tierProgress={tierProgress}
+                newTierIds={newTiers}
+                onClearNewTiers={()=>{const s={};tierProgress.forEach(tp=>{s[tp.id]=tp.earnedCount;});setSeenTiers(s);saveSeenTiers(s);}}
+              />}
             </div>
           )}
         </div>
