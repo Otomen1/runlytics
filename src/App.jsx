@@ -7,6 +7,8 @@ import {
 
 const STORAGE_KEY    = "runlytics_data_v1";
 const GOALS_KEY      = "runlytics_goals_v1";
+const NAV_KEY        = "runlytics_nav_v1";
+const TAB_KEY        = "runlytics_tab_v1";
 const HR_PROFILE_KEY = "runlytics_hr_profile_v1";
 const TASKS_KEY      = "runlytics_tasks_v2";
 const PROFILE_KEY    = "runlytics_profile_v1";
@@ -455,7 +457,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 const IC={good:"var(--gn)",positive:"var(--gn)",warning:"var(--yw)",danger:"var(--rd)",info:"var(--bl)",neutral:"var(--tx2)"};
 
-const PRDetailModal=({entry,onClose})=>{
+const PRDetailModal=({entry,onClose,onOpenRun})=>{
   if(!entry)return null;
   const{cat,top3}=entry;
   const RL=["🥇","🥈","🥉"];
@@ -472,8 +474,13 @@ const PRDetailModal=({entry,onClose})=>{
         {top3.length===0
           ?<div style={{textAlign:"center",padding:"24px 0",color:"var(--tx2)"}}>{"No records for "+cat.label}</div>
           :top3.map((r,i)=>(
-            <div key={r.id} style={{borderRadius:12,marginBottom:10,padding:"12px 14px",border:"1px solid "+(i===0?cat.color+"50":"var(--bd)"),
-              background:i===0?cat.color+"08":"var(--s2)"}}>
+            <div key={r.id}
+              className="tap"
+              style={{borderRadius:12,marginBottom:10,padding:"12px 14px",cursor:"pointer",
+                border:"1px solid "+(i===0?cat.color+"50":"var(--bd)"),
+                background:i===0?cat.color+"08":"var(--s2)",
+                transition:"transform .12s, box-shadow .12s"}}
+              onClick={()=>{ onClose(); onOpenRun(r.id); }}>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <span style={{fontSize:"1.3rem"}}>{RL[i]}</span>
                 <div style={{flex:1,minWidth:0}}>
@@ -484,10 +491,12 @@ const PRDetailModal=({entry,onClose})=>{
                   <div style={{fontWeight:800,color:i===0?cat.color:"var(--tx)",fontFamily:"monospace"}}>{fmtRaceTime(r.movingTimeSec)}</div>
                   <div style={{fontSize:".7rem",color:"var(--tx2)"}}>{fmtPace(r.paceSecKm)+"/km"}</div>
                 </div>
+                <span style={{color:"var(--tx3)",fontSize:".9rem",marginLeft:4}}>›</span>
               </div>
               {r.stravaId&&(
                 <a href={"https://www.strava.com/activities/"+r.stravaId} target="_blank"
                   rel="noopener noreferrer"
+                  onClick={e=>e.stopPropagation()}
                   style={{display:"inline-block",marginTop:8,fontSize:".7rem",color:"#fc4c02",fontWeight:600,textDecoration:"none"}}>
                   🟠 View on Strava
                 </a>
@@ -495,6 +504,7 @@ const PRDetailModal=({entry,onClose})=>{
             </div>
           ))
         }
+        <div style={{marginTop:6,textAlign:"center",fontSize:".68rem",color:"var(--tx3)"}}>Tap a run to view full details</div>
       </div>
     </div>
   );
@@ -1561,7 +1571,8 @@ export default function App(){
   const[profile,setProfile]=useState(()=>loadProfile());
   const[tasks,setTasks]=useState(()=>loadTasks());
   const[seenBadges,setSeenBadges]=useState(()=>loadSeenBadges());
-  const[tab,setTab]=useState("home");
+  const[tab,setTab]=useState(()=>{try{return localStorage.getItem(TAB_KEY)||"home";}catch(e){return"home";}});
+  const setTabPersist=useCallback(t=>{setTab(t);try{localStorage.setItem(TAB_KEY,t);}catch(e){}},[]);
   const[detail,setDetail]=useState(null);
   const[showSettings,setShowSettings]=useState(false);
   const[showUpload,setShowUpload]=useState(false);
@@ -1638,7 +1649,11 @@ export default function App(){
     }catch(e){setStravaSync({loading:false,msg:"Sync failed."});}
   },[stravaAuth,getStravaToken]);
   useEffect(()=>{doStravaRef.current=doStravaSync;},[doStravaSync]);
-  useEffect(()=>{history.replaceState({_rl:"root"},"");history.pushState({_rl:"s"},"");},[]);
+  useEffect(()=>{
+    history.replaceState({_rl:"root"},"");
+    history.pushState({_rl:"s"},"");
+    history.pushState({_rl:"s"},"");
+  },[]);
   const detRef=useRef(null),fbRef=useRef(null),setRef=useRef(null),arRef=useRef(null),monRef=useRef(null),upRef=useRef(null);
   useEffect(()=>{detRef.current=detail;},[detail]);
   useEffect(()=>{fbRef.current=feedbackRun;},[feedbackRun]);
@@ -1647,14 +1662,20 @@ export default function App(){
   useEffect(()=>{monRef.current=showMonthly;},[showMonthly]);
   useEffect(()=>{upRef.current=showUpload;},[showUpload]);
   useEffect(()=>{
-    const h=()=>{
+    const h=(e)=>{
       if(fbRef.current){history.pushState({_rl:"s"},"");setFeedbackRun(null);return;}
       if(detRef.current){history.pushState({_rl:"s"},"");setDetail(null);return;}
       if(setRef.current){history.pushState({_rl:"s"},"");setShowSettings(false);return;}
       if(arRef.current){history.pushState({_rl:"s"},"");setShowAllRuns(false);return;}
       if(monRef.current){history.pushState({_rl:"s"},"");setShowMonthly(false);return;}
       if(upRef.current){history.pushState({_rl:"s"},"");setShowUpload(false);return;}
-    };window.addEventListener("popstate",h);return()=>window.removeEventListener("popstate",h);
+      const state=e.state;
+      if(!state||state._rl==="root"){
+        history.pushState({_rl:"s"},"");
+      }
+    };
+    window.addEventListener("popstate",h);
+    return()=>window.removeEventListener("popstate",h);
   },[]);
   const openDetail=useCallback(act=>{history.pushState({_rl:"d"},"");setDetail(act);},[]);
   const openSettings=useCallback(()=>{history.pushState({_rl:"s"},"");setShowSettings(true);},[]);
@@ -1674,8 +1695,8 @@ export default function App(){
     setActs(prev=>{const m=[...parsed,...prev];m.sort((a,b)=>b.dateTs-a.dateTs);return m;});
     if(parsed.length>0){const h=parsed.reduce((b,r)=>r.distanceKm>b.distanceKm?r:b,parsed[0]);setFeedbackRun(h);}
     if(upRef.current)history.back();
-    setTab("home");
-  },[]);
+    setTabPersist("home");
+  },[setTabPersist]);
   const deleteAct=useCallback(id=>{setActs(p=>p.filter(a=>a.id!==id));if(detRef.current)history.back();},[]);
   const clearAll=()=>{if(!confirm("Delete all "+acts.length+" activities?"))return;setActs([]);saveActs([]);};
   const closeFeedback=useCallback(()=>{
@@ -1705,7 +1726,9 @@ export default function App(){
         </div>
       )}
       {feedbackRun&&<FeedbackModal run={feedbackRun} mafHR={getMafHR(hrProfile,feedbackRun.maxHR)} newBadges={newBadges} onClose={closeFeedback}/>}
-      {prDetail&&<PRDetailModal entry={prDetail} onClose={()=>setPrDetail(null)}/>}
+      {prDetail&&<PRDetailModal entry={prDetail} onClose={()=>setPrDetail(null)}
+        onOpenRun={id=>{const act=acts.find(a=>a.id===id);if(act){setPrDetail(null);openDetail(act);}}}
+      />}
       {showAllRuns&&<AllRunsView acts={acts} hrProfile={hrProfile} onSelect={openDetail} onClose={back}/>}
       {showMonthly&&<MonthlyReport acts={acts} onClose={back}/>}
       {detail&&<Detail act={detail} hrProfile={hrProfile} onClose={back} onDelete={id=>deleteAct(id)}/>}
@@ -1758,7 +1781,7 @@ export default function App(){
         {!showUpload&&(
           <div className="glass" style={{position:"sticky",bottom:0,borderTop:"1px solid var(--bd)",display:"flex",paddingBottom:"env(safe-area-inset-bottom,0)"}}>
             {TABS.map(t=>(
-              <button key={t.id} className={"tab-btn "+(tab===t.id?"on":"")} onClick={()=>setTab(t.id)} style={{position:"relative"}}>
+              <button key={t.id} className={"tab-btn "+(tab===t.id?"on":"")} onClick={()=>setTabPersist(t.id)} style={{position:"relative"}}>
                 <span style={{fontSize:"1.1rem",lineHeight:1,marginBottom:1}}>{t.icon}</span>
                 {t.label}
                 {t.id==="awards"&&hasUnseen&&tab!=="awards"&&(
