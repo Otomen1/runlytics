@@ -108,78 +108,18 @@ function mapStravaActivity(a) {
     avgSpeedKmh: km>0&&a.moving_time>0 ? parseFloat((km/(a.moving_time/3600)).toFixed(2)) : 0,
     pointCount: 0,
     parsedAt: Date.now(),
-    loadLabel: (() => { const t = a.average_heartrate&&a.moving_time ? Math.min(100,Math.round((a.moving_time/60)*(a.average_heartrate/145)*1.1)) : Math.min(100,Math.round((a.moving_time/60)*0.5)); return t<=40?"Easy":t<=70?"Moderate":"Hard"; })(),
-    loadColor: (() => { const t = a.average_heartrate&&a.moving_time ? Math.min(100,Math.round((a.moving_time/60)*(a.average_heartrate/145)*1.1)) : Math.min(100,Math.round((a.moving_time/60)*0.5)); return t<=40?"#22c55e":t<=70?"#f97316":"#ef4444"; })(),
+    loadLabel: (()=>{
+      const t=a.average_heartrate&&a.moving_time
+        ?Math.min(100,Math.round((a.moving_time/60)*(a.average_heartrate/145)*1.1))
+        :Math.min(100,Math.round((a.moving_time/60)*0.5));
+      return t<=40?"Easy":t<=70?"Moderate":"Hard";
+    })(),
+    loadColor: (()=>{const t=a.average_heartrate&&a.moving_time?Math.min(100,Math.round((a.moving_time/60)*(a.average_heartrate/145)*1.1)):Math.min(100,Math.round((a.moving_time/60)*0.5));return t<=40?"#22c55e":t<=70?"#f97316":"#ef4444";})(),
     runClass: paceSecKm>390?"Easy":paceSecKm>330?"Moderate":"Tempo",
     trainingLoad: a.average_heartrate&&a.moving_time
       ? Math.min(100,Math.round((a.moving_time/60)*(a.average_heartrate/145)*1.1))
       : Math.min(100,Math.round((a.moving_time/60)*0.5)),
   };
-}
-
-// Race PR bucket definitions
-const PR_DEFS = [
-  {id:"5k",    label:"5K",           icon:"⭐", minKm:4.5,  maxKm:5.5,  targetKm:5,    color:"#06b6d4"},
-  {id:"10k",   label:"10K",          icon:"🏅", minKm:9.0,  maxKm:11.0, targetKm:10,   color:"#3b82f6"},
-  {id:"half",  label:"Half Marathon", icon:"🥈", minKm:20.0, maxKm:23.0, targetKm:21.1, color:"#a855f7"},
-  {id:"full",  label:"Marathon",      icon:"🏆", minKm:40.0, maxKm:45.0, targetKm:42.2, color:"#eab308"},
-];
-
-// Compute race PRs from activity list — pure function, safe to memoize
-function computeRacePRs(acts) {
-  const runs = acts.filter(a =>
-    a.type === "Run" &&
-    a.distanceKm > 0 &&
-    a.movingTimeSec > 0
-  );
-  return PR_DEFS.map(def => {
-    const bucket = runs.filter(r => r.distanceKm >= def.minKm && r.distanceKm <= def.maxKm);
-    if (!bucket.length) return { ...def, record: null };
-    // Best = lowest pace (moving_time / distance) = truest effort
-    const best = bucket.reduce((b, r) => {
-      const pace = r.movingTimeSec / r.distanceKm;
-      const bPace = b.movingTimeSec / b.distanceKm;
-      return pace < bPace ? r : b;
-    });
-    const pace = best.movingTimeSec / best.distanceKm;
-    // Projected time over target distance for normalised comparison
-    const projectedSec = Math.round(pace * def.targetKm);
-    // Previous PR (second-best) for trend
-    const rest = bucket.filter(r => r.id !== best.id);
-    const prev = rest.length ? rest.reduce((b, r) => {
-      const p = r.movingTimeSec / r.distanceKm;
-      const bp = b.movingTimeSec / b.distanceKm;
-      return p < bp ? r : b;
-    }) : null;
-    const trend = prev
-      ? (pace < prev.movingTimeSec / prev.distanceKm ? "improved" : "same")
-      : "first";
-    return {
-      ...def,
-      record: {
-        name: best.name,
-        date: best.date,
-        dateTs: best.dateTs,
-        distanceKm: best.distanceKm,
-        movingTimeSec: best.movingTimeSec,
-        projectedSec,
-        paceSecKm: Math.round(pace),
-        stravaId: best.stravaId || null,
-        trend,
-        bucketCount: bucket.length,
-      },
-    };
-  });
-}
-
-// Format seconds as h:mm:ss or mm:ss
-function fmtRaceTime(sec) {
-  if (!sec || sec <= 0) return "—";
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  if (h > 0) return h+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
-  return m+":"+String(s).padStart(2,"0");
 }
 
 function getMafHR(hrProfile, activityMaxHR) {
@@ -217,17 +157,15 @@ function computeZones(hrSamples, mafHR) {
 function getMafCoachingInsight(acts, hrProfile) {
   const mafHR = getMafHR(hrProfile, null);
   const runsWithHR = acts.filter(a=>a.avgHR&&a.distanceKm>0).slice(-5);
-  if (!runsWithHR.length) return { type:"neutral", title:"Set up your HR profile", detail:"Enter your age in HR Insights to unlock MAF-based coaching.", action:"Go to HR Insights →" };
-
+  if (!runsWithHR.length) return { type:"neutral", title:"Set up your HR profile", body:"Enter your age in HR Insights to unlock MAF-based coaching.", action:"Go to HR Insights \\u2192" };
   const aboveMaf = runsWithHR.filter(a=>a.avgHR>mafHR).length;
   const ratio = aboveMaf/runsWithHR.length;
   const avgHR = Math.round(runsWithHR.reduce((s,a)=>s+a.avgHR,0)/runsWithHR.length);
-
   if (ratio>=0.6)
-    return { type:"warning", title:"Training too hard", detail:`${Math.round(ratio*100)}% of recent runs exceeded your MAF HR (${mafHR} bpm). This limits aerobic development.`, action:"Slow down on next run →", mafHR, avgHR };
+    return { type:"warning", title:"Training too hard", body:`${Math.round(ratio*100)}% of recent runs exceeded your MAF HR (${mafHR} bpm). This limits aerobic development.`, action:"Slow down on next run \\u2192", mafHR, avgHR };
   if (ratio<=0.2)
-    return { type:"positive", title:"Great aerobic training", detail:`You're staying below MAF HR consistently. This builds the aerobic base that makes you faster long-term.`, action:"Keep it up →", mafHR, avgHR };
-  return { type:"info", title:"Mixed intensity", detail:`Some runs above MAF (${mafHR} bpm). Aim for 80% of runs to be below MAF for optimal aerobic development.`, action:"See HR breakdown →", mafHR, avgHR };
+    return { type:"positive", title:"Great aerobic training", body:`You're staying below MAF HR consistently. This builds the aerobic base that makes you faster long-term.`, action:"Keep it up \\u2192", mafHR, avgHR };
+  return { type:"info", title:"Mixed intensity", body:`Some runs above MAF (${mafHR} bpm). Aim for 80% of runs to be below MAF for optimal aerobic development.`, action:"See HR breakdown \\u2192", mafHR, avgHR };
 }
 
 function getTodayRecommendation(acts, hrProfile) {
@@ -241,14 +179,14 @@ function getTodayRecommendation(acts, hrProfile) {
   const highLoadStreak = recent.length >= 3 && recent.slice(0,3).every(r=>(r.trainingLoad||0)>65);
   const runsWithHR = recent.filter(r=>r.avgHR);
   const hrRatio = runsWithHR.length ? runsWithHR.filter(r=>r.avgHR>mafHR).length/runsWithHR.length : 0;
-  if (!acts.length) return { icon:"👟", title:"Upload your first run", sub:"Import a GPX file to start coaching.", type:"neutral" };
-  if (highLoadStreak) return { icon:"😴", title:"Rest or recover today", sub:"3 hard sessions in a row — your body needs recovery.", type:"warning" };
-  if (hrRatio >= 0.6 && last?.avgHR) return { icon:"💚", title:"Easy run today", sub:`Stay below ${mafHR} bpm to build aerobic base.`, type:"positive" };
-  if (daysSinceLast >= 3) return { icon:"🏃", title:"Time to run again", sub:`${daysSinceLast} days off — an easy run keeps consistency.`, type:"info" };
-  if (daysSinceLast >= 2) return { icon:"🏃", title:"Easy run recommended", sub:"2 days rest — a light aerobic run today is ideal.", type:"info" };
-  if (hrRatio <= 0.2 && runsWithHR.length >= 3) return { icon:"📈", title:"You're building well", sub:"Consistent aerobic pace — keep it up.", type:"positive" };
-  if (avgLoad > 70) return { icon:"⚡", title:"High load this week", sub:"Consider rest or recovery today.", type:"warning" };
-  return { icon:"✅", title:"Stay consistent", sub:"Your training is on track. Keep the aerobic pace.", type:"neutral" };
+  if (!acts.length) return { icon:"\ud83d\udc5f", title:"Upload your first run", sub:"Import a GPX file to start coaching.", type:"neutral" };
+  if (highLoadStreak) return { icon:"\ud83d\ude34", title:"Rest or recover today", sub:"3 hard sessions in a row \u2014 your body needs recovery.", type:"warning" };
+  if (hrRatio >= 0.6 && last?.avgHR) return { icon:"\ud83d\udc9a", title:"Easy run today", sub:`Stay below ${mafHR} bpm to build aerobic base.`, type:"positive" };
+  if (daysSinceLast >= 3) return { icon:"\ud83c\udfc3", title:"Time to run again", sub:`${daysSinceLast} days off \u2014 an easy run keeps consistency.`, type:"info" };
+  if (daysSinceLast >= 2) return { icon:"\ud83c\udfc3", title:"Easy run recommended", sub:"2 days rest \u2014 a light aerobic run today is ideal.", type:"info" };
+  if (hrRatio <= 0.2 && runsWithHR.length >= 3) return { icon:"\ud83d\udcc8", title:"You're building well", sub:"Consistent aerobic pace \u2014 keep it up.", type:"positive" };
+  if (avgLoad > 70) return { icon:"\u26a1", title:"High load this week", sub:"Consider rest or recovery today.", type:"warning" };
+  return { icon:"\u2705", title:"Stay consistent", sub:"Your training is on track. Keep the aerobic pace.", type:"neutral" };
 }
 
 function getRunFeedback(run, mafHR) {
@@ -256,141 +194,151 @@ function getRunFeedback(run, mafHR) {
   const { avgHR, trainingLoad, splitInsight, distanceKm } = run;
   const feedbacks = [];
   if (avgHR && avgHR <= mafHR)
-    feedbacks.push({ type:"positive", icon:"💚", title:"Good aerobic run", detail:"You stayed at or below MAF — perfect for endurance building." });
+    feedbacks.push({ type:"positive", icon:"\ud83d\udc9a", title:"Good aerobic run", detail:"You stayed at or below MAF \u2014 perfect for endurance building." });
   else if (avgHR && avgHR > mafHR)
-    feedbacks.push({ type:"warning", icon:"⚠️", title:"Above MAF HR", detail:`Avg ${avgHR} bpm exceeded your MAF (${mafHR} bpm). Slow down next time.` });
+    feedbacks.push({ type:"warning", icon:"\u26a0\ufe0f", title:"Above MAF HR", detail:`Avg ${avgHR} bpm exceeded your MAF (${mafHR} bpm). Slow down next time.` });
   if (splitInsight?.splitType === "negative")
-    feedbacks.push({ type:"positive", icon:"⬆️", title:"Great pacing", detail:"Negative split — you ran the second half faster. Excellent control." });
+    feedbacks.push({ type:"positive", icon:"\u2b06\ufe0f", title:"Great pacing", detail:"Negative split \u2014 you ran the second half faster. Excellent control." });
   else if (splitInsight?.splitType === "positive")
-    feedbacks.push({ type:"info", icon:"⬇️", title:"Started too fast", detail:"Positive split — try starting easier and building pace." });
+    feedbacks.push({ type:"info", icon:"\u2b07\ufe0f", title:"Started too fast", detail:"Positive split \u2014 try starting easier and building pace." });
   if ((trainingLoad||0) > 70)
-    feedbacks.push({ type:"warning", icon:"🔥", title:"High training load", detail:"This was a tough session. Prioritise sleep and recovery." });
+    feedbacks.push({ type:"warning", icon:"\ud83d\udd25", title:"High training load", detail:"This was a tough session. Prioritise sleep and recovery." });
   if (!avgHR)
-    feedbacks.push({ type:"neutral", icon:"📊", title:"No HR data", detail:"Upload from a HR-enabled watch to unlock MAF coaching." });
-  return feedbacks.length ? feedbacks : [{ type:"positive", icon:"✅", title:"Run saved", detail:`${distanceKm?.toFixed(1)} km logged successfully.` }];
+    feedbacks.push({ type:"neutral", icon:"\ud83d\udcca", title:"No HR data", detail:"Upload from a HR-enabled watch to unlock MAF coaching." });
+  return feedbacks.length ? feedbacks : [{ type:"positive", icon:"\u2705", title:"Run saved", detail:`${distanceKm?.toFixed(1)} km logged successfully.` }];
 }
 
 function parseGPX(xmlText, fileName, hrProfile=null) {
-  const doc = new DOMParser().parseFromString(xmlText,"application/xml");
-  if (doc.querySelector("parsererror")) throw new Error("Invalid GPX file");
-  const nameEl=doc.querySelector("trk > name")||doc.querySelector("name");
-  const typeEl=doc.querySelector("trk > type")||doc.querySelector("type");
-  const rawName=nameEl?.textContent?.trim()||fileName.replace(/\.gpx$/i,"");
-  const rawType=(typeEl?.textContent?.trim()||"running").toLowerCase();
-  const typeMap={running:"Run",run:"Run",9:"Run",cycling:"Ride",biking:"Ride",ride:"Ride",1:"Ride",walking:"Walk",walk:"Walk",swimming:"Swim",hiking:"Hike"};
-  const actType=typeMap[rawType]||typeMap[rawType.split(" ")[0]]||"Run";
-
-  let pts=Array.from(doc.querySelectorAll("trkpt")).map(p=>({
+  const doc=new DOMParser().parseFromString(xmlText,"application/xml");
+  if(doc.querySelector("parsererror"))throw new Error("Invalid GPX file");
+  const name=(doc.querySelector("trk > name")||doc.querySelector("name"))?.textContent?.trim()||fileName.replace(/\.gpx$/i,"");
+  const pts=Array.from(doc.querySelectorAll("trkpt")).map(p=>({
     lat:parseFloat(p.getAttribute("lat")),lon:parseFloat(p.getAttribute("lon")),
     ele:parseFloat(p.querySelector("ele")?.textContent||"0")||0,
     time:p.querySelector("time")?.textContent||null,
-    hr:parseInt(p.querySelector("extensions hr, TrackPointExtension hr, heartrate")?.textContent||"0")||null,
-    cad:parseInt(p.querySelector("extensions cad, cadence, TrackPointExtension cad")?.textContent||"0")||null,
+    hr:parseInt(p.querySelector("extensions hr,heartrate")?.textContent)||null,
   })).filter(p=>!isNaN(p.lat)&&!isNaN(p.lon));
-  if (pts.length<2) throw new Error("Not enough GPS points");
-  pts=pts.filter((p,i)=>i===0||p.lat!==pts[i-1].lat||p.lon!==pts[i-1].lon);
-
-  const hav=(a,b)=>{const R=6371000,dL=(b.lat-a.lat)*Math.PI/180,dl=(b.lon-a.lon)*Math.PI/180,x=Math.sin(dL/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dl/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));};
-
-  if (pts.some(p=>p.ele>0)){const k=[0.1,0.2,0.4,0.2,0.1],r=pts.map(p=>p.ele);for(let i=2;i<pts.length-2;i++)pts[i].ele=k.reduce((s,w,j)=>s+w*r[i-2+j],0);}
-
-  let totalDist=0,elevGain=0,elevLoss=0,pending=0;
-  const segs=[];
+  if(!pts.length)throw new Error("No track points found");
+  let dist=0,movingTime=0,elevGain=0,hrSum=0,hrCt=0;
+  const R=6371000;
   for(let i=1;i<pts.length;i++){
-    const dist=hav(pts[i-1],pts[i]),dt=pts[i].time&&pts[i-1].time?(new Date(pts[i].time)-new Date(pts[i-1].time))/1000:0;
-    pending+=pts[i].ele-pts[i-1].ele;
-    if(Math.abs(pending)>=3){if(pending>0)elevGain+=pending;else elevLoss+=Math.abs(pending);pending=0;}
-    totalDist+=dist;segs.push({dist,totalDist,dt,ele:pts[i].ele,speed:(dt>0&&dt<300)?dist/dt:0,hr:pts[i].hr});
+    const a=pts[i-1],b=pts[i];
+    const dLat=(b.lat-a.lat)*Math.PI/180,dLon=(b.lon-a.lon)*Math.PI/180;
+    const s=2*R*Math.asin(Math.sqrt(Math.sin(dLat/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLon/2)**2));
+    dist+=s;if(b.ele>a.ele)elevGain+=b.ele-a.ele;
+    if(b.time&&a.time){const dt=(new Date(b.time)-new Date(a.time))/1000;if(dt>0&&dt<300)movingTime+=dt;}
+    if(b.hr){hrSum+=b.hr;hrCt++;}
   }
-  const movingTime=segs.filter(s=>s.dt>0&&s.dt<120||s.speed>0.5).reduce((a,s)=>a+s.dt,0);
-  const totalTime=segs.reduce((a,s)=>a+s.dt,0);
-
-  const kmSplits=[];let bD=0,bT=0,bHR=[],kk=1;
-  for(const s of segs){bD+=s.dist;if(s.dt>0&&s.dt<120)bT+=s.dt;if(s.hr)bHR.push(s.hr);if(bD>=1000){kmSplits.push({km:kk,pace:bT/(bD/1000),hr:bHR.length?Math.round(bHR.reduce((a,b)=>a+b)/bHR.length):null});kk++;bD=0;bT=0;bHR=[];}}
-
-  const sp=Math.max(1,Math.floor(segs.length/100));
-  const elevProfile=segs.filter((_,i)=>i%sp===0).map(s=>({km:parseFloat((s.totalDist/1000).toFixed(2)),ele:Math.round(s.ele)}));
-  const ss=Math.max(1,Math.floor(segs.length/60));
-  const speedChart=segs.filter((_,i)=>i%ss===0&&segs[i].speed>0).map(s=>({km:parseFloat((s.totalDist/1000).toFixed(2)),pace:s.speed>0?parseFloat((1000/s.speed/60).toFixed(2)):null})).filter(p=>p.pace&&p.pace<20);
-
-  const hrVals=segs.map(s=>s.hr).filter(Boolean);
-  const avgHR=hrVals.length?Math.round(hrVals.reduce((a,b)=>a+b)/hrVals.length):null;
-  const actMaxHR=hrVals.length?Math.max(...hrVals):null;
-  const mafHR=getMafHR(hrProfile,actMaxHR);
-  const hrSampleStep=Math.max(1,Math.floor(segs.length/300));
-  const hrSamples=segs.filter((_,i)=>i%hrSampleStep===0).filter(s=>s.hr&&s.dt>0&&s.dt<120).map(s=>({hr:s.hr,sec:s.dt*hrSampleStep}));
-  const hrSegsAll=segs.filter(s=>s.hr&&s.dt>0&&s.dt<120);
-  const hrZones=hrSegsAll.length>0?computeZones(hrSegsAll.map(s=>({hr:s.hr,sec:s.dt})),mafHR):null;
-
-  const splitInsight=kmSplits.length>=2?(()=>{const fh=kmSplits.slice(0,Math.floor(kmSplits.length/2)),sh=kmSplits.slice(Math.floor(kmSplits.length/2)),af=fh.reduce((s,k)=>s+k.pace,0)/fh.length,as=sh.reduce((s,k)=>s+k.pace,0)/sh.length;const ap=kmSplits.reduce((s,k)=>s+k.pace,0)/kmSplits.length,cv=Math.sqrt(kmSplits.reduce((s,k)=>s+Math.pow(k.pace-ap,2),0)/kmSplits.length)/ap;return{splitType:as<af?"negative":as>af*1.03?"positive":"even",firstAvg:af,secondAvg:as,consistencyScore:Math.max(0,Math.round(100-cv*500))};})():null;
-
-  const cadVals=pts.map(p=>p.cad).filter(Boolean);
-  const avgCad=cadVals.length?Math.round(cadVals.reduce((a,b)=>a+b)/cadVals.length):null;
-
-  const BE={};
-  for(const [n,tgt] of Object.entries({"1km":1000,"5km":5000,"10km":10000,"HM":21097,"Marathon":42195})){if(totalDist<tgt*.95)continue;let best=null,lo=0,cd=0;for(let hi=0;hi<segs.length;hi++){cd+=segs[hi].dist;while(cd-segs[lo].dist>tgt&&lo<hi){cd-=segs[lo].dist;lo++;}if(Math.abs(cd-tgt)<tgt*.05){const t=segs.slice(lo,hi+1).filter(s=>s.dt<120).reduce((a,s)=>a+s.dt,0);if(!best||t<best)best=t;}}if(best)BE[n]=best;}
-
-  const rStep=Math.max(1,Math.floor(pts.length/300));
-  const route=pts.filter((_,i)=>i%rStep===0||i===pts.length-1).map(p=>({lat:p.lat,lon:p.lon}));
-
-  const firstPt=pts.find(p=>p.time),startUTC=firstPt?.time?new Date(firstPt.time):null;
-  const lastPt=[...pts].reverse().find(p=>p.time),endUTC=lastPt?.time?new Date(lastPt.time):null;
-
-  const avgPaceSec=movingTime>0&&totalDist>0?movingTime/(totalDist/1000):0;
-  let runClass="Easy";
-  if(totalDist>=16000)runClass="Long Run";
-  else if(avgPaceSec<330)runClass="Race/Interval";
-  else if(avgPaceSec<360)runClass="Tempo";
-  else if(avgPaceSec<420)runClass="Moderate";
-
-  const mafRef=hrProfile?.maxHROverride?Number(hrProfile.maxHROverride):hrProfile?.age?Math.round(180-Number(hrProfile.age)):actMaxHR&&actMaxHR>=130?actMaxHR:145;
-  const durationMin=movingTime/60;
-  let trainingLoad=0;
-  if(avgHR&&durationMin>0)trainingLoad=Math.min(100,Math.round(durationMin*(avgHR/mafRef)*1.1));
-  else if(durationMin>0){const pe=avgPaceSec>0?Math.max(0,Math.min(1,(600-avgPaceSec)/300)):0.5;trainingLoad=Math.min(100,Math.round(durationMin*0.6*(0.5+pe)));}
-  const loadLabel=trainingLoad<=40?"Easy":trainingLoad<=70?"Moderate":"Hard";
-  const loadColor=trainingLoad<=40?"#22c55e":trainingLoad<=70?"#f97316":"#ef4444";
-
-  return {
-    id:`gpx_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,
-    name:rawName,type:actType,runClass,
-    date:startUTC?startUTC.toISOString():new Date().toISOString(),
-    dateTs:startUTC?startUTC.getTime():Date.now(),
-    startTimeLocal:startUTC?startUTC.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}):null,
-    endTimeLocal:endUTC?endUTC.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}):null,
-    startDateLocal:startUTC?startUTC.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"}):null,
-    hasTimestamps:!!startUTC,distanceM:totalDist,distanceKm:parseFloat((totalDist/1000).toFixed(2)),
-    movingTimeSec:movingTime,totalTimeSec:totalTime,avgPaceSecKm:avgPaceSec,avgSpeedKmh:movingTime>0?parseFloat((totalDist/movingTime*3.6).toFixed(2)):0,
-    elevGainM:Math.round(elevGain),elevLossM:Math.round(elevLoss),avgHR,maxHR:actMaxHR,avgCad,
-    hrSamples,hrMaxUsed:mafHR,trainingLoad,loadLabel,loadColor,
-    pointCount:pts.length,kmSplits,splitInsight,elevProfile,speedChart,hrZones,bestEfforts:BE,route,
-    bounds:{minLat:Math.min(...pts.map(p=>p.lat)),maxLat:Math.max(...pts.map(p=>p.lat)),minLon:Math.min(...pts.map(p=>p.lon)),maxLon:Math.max(...pts.map(p=>p.lon))},
-    parsedAt:Date.now(),
+  const km=dist/1000,pace=km>0&&movingTime>0?Math.round(movingTime/km):0;
+  const dateTs=pts[0].time?new Date(pts[0].time).getTime():Date.now();
+  const mafHR=getMafHR(hrProfile,hrCt?Math.round(hrSum/hrCt):null);
+  return{...ACTIVITY_DEFAULTS,id:"gpx_"+dateTs+"_"+Math.random().toString(36).slice(2,6),
+    name,type:"Run",date:new Date(dateTs).toISOString().split("T")[0],dateTs,
+    distanceM:dist,distanceKm:parseFloat(km.toFixed(2)),movingTimeSec:Math.round(movingTime),
+    avgPaceSecKm:pace,elevGainM:Math.round(elevGain),
+    avgHR:hrCt?Math.round(hrSum/hrCt):null,maxHR:hrCt?Math.max(...pts.filter(p=>p.hr).map(p=>p.hr)):null,
+    hrSamples:pts.filter(p=>p.hr&&p.time).map((p,i,arr)=>({hr:p.hr,sec:i>0?(new Date(p.time)-new Date(arr[0].time))/1000:0})),
+    route:pts.filter((_,i)=>i%5===0).map(p=>({lat:p.lat,lon:p.lon})),
+    trainingLoad:Math.min(100,Math.round((movingTime/60)*0.6)),
+    parsedAt:Date.now(),hasTimestamps:!!pts[0].time,
+    runClass:pace>390?"Easy":pace>330?"Moderate":"Tempo",
   };
 }
 
-function buildAnalytics(acts, hrProfile) {
+function buildAnalytics(acts,hrProfile){
   const runs=acts.filter(a=>a.type==="Run"||a.type==="Walk"||a.type==="Hike");
-  if (!runs.length) return {insights:[],weekly:[],monthly:[],streak:0,prediction:null,consistency:0};
+  if(!runs.length)return{weekly:[],monthly:[],streak:0,prediction:null,consistency:0};
   const sorted=[...runs].sort((a,b)=>a.dateTs-b.dateTs);
   const weekOf=ts=>{const d=new Date(ts);d.setHours(0,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));return d.getTime();};
-  const monthOf=ts=>{const d=new Date(ts);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;};
-  const weekMap={};
-  sorted.forEach(r=>{const w=weekOf(r.dateTs);if(!weekMap[w])weekMap[w]={km:0,load:0,runs:[],days:new Set()};weekMap[w].km+=r.distanceKm;weekMap[w].load+=r.trainingLoad||0;weekMap[w].runs.push(r);weekMap[w].days.add(new Date(r.dateTs).toDateString());});
+  const monthOf=ts=>{const d=new Date(ts);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");};
+  const wkMap={};
+  sorted.forEach(r=>{const w=weekOf(r.dateTs);if(!wkMap[w])wkMap[w]={km:0,load:0,runs:[],days:new Set()};wkMap[w].km+=r.distanceKm;wkMap[w].load+=r.trainingLoad||0;wkMap[w].runs.push(r);wkMap[w].days.add(new Date(r.dateTs).toDateString());});
   const now=Date.now();
-  const weekly=Array.from({length:12},(_,i)=>{const wS=weekOf(now-(11-i)*7*86400000),d=new Date(wS),w=weekMap[wS]||{km:0,load:0,runs:[],days:new Set()};return{wStart:wS,label:`${d.getDate()}/${d.getMonth()+1}`,km:parseFloat(w.km.toFixed(1)),load:w.load,count:w.runs.length,days:w.days.size,runs:w.runs};});
-  const monthMap={};sorted.forEach(r=>{const m=monthOf(r.dateTs);if(!monthMap[m])monthMap[m]={km:0,runs:[],paces:[]};monthMap[m].km+=r.distanceKm;monthMap[m].runs.push(r);if(r.avgPaceSecKm)monthMap[m].paces.push(r.avgPaceSecKm);});
-  const monthKeys=[...new Set(sorted.map(r=>monthOf(r.dateTs)))].sort().slice(-6);
-  const monthly=monthKeys.map((m,i)=>{const mo=monthMap[m],prev=monthKeys[i-1]?monthMap[monthKeys[i-1]]:null,avgPace=mo.paces.length?mo.paces.reduce((a,b)=>a+b)/mo.paces.length:0,prevPace=prev?.paces.length?prev.paces.reduce((a,b)=>a+b)/prev.paces.length:0;return{month:m,km:parseFloat(mo.km.toFixed(1)),count:mo.runs.length,longest:Math.max(...mo.runs.map(r=>r.distanceKm)),avgPace,kmDelta:prev?parseFloat(((mo.km-prev.km)/prev.km*100).toFixed(1)):null,paceDelta:prevPace&&avgPace?parseFloat(((prevPace-avgPace)/prevPace*100).toFixed(1)):null};});
+  const weekly=Array.from({length:12},(_,i)=>{
+    const wS=weekOf(now-(11-i)*7*86400000),d=new Date(wS),w=wkMap[wS]||{km:0,load:0,runs:[],days:new Set()};
+    return{wStart:wS,label:d.getDate()+"/"+(d.getMonth()+1),km:parseFloat(w.km.toFixed(1)),load:w.load,count:w.runs.length,days:w.days.size,runs:w.runs};
+  });
+  const moMap={};sorted.forEach(r=>{const m=monthOf(r.dateTs);if(!moMap[m])moMap[m]={km:0,runs:[],paces:[]};moMap[m].km+=r.distanceKm;moMap[m].runs.push(r);if(r.avgPaceSecKm)moMap[m].paces.push(r.avgPaceSecKm);});
+  const moKeys=[...new Set(sorted.map(r=>monthOf(r.dateTs)))].sort().slice(-6);
+  const monthly=moKeys.map((m,i)=>{
+    const mo=moMap[m],pv=moKeys[i-1]?moMap[moKeys[i-1]]:null;
+    const ap=mo.paces.length?mo.paces.reduce((a,b)=>a+b)/mo.paces.length:0;
+    const pp=pv&&pv.paces.length?pv.paces.reduce((a,b)=>a+b)/pv.paces.length:0;
+    return{month:m,km:parseFloat(mo.km.toFixed(1)),count:mo.runs.length,
+      longest:Math.max(...mo.runs.map(r=>r.distanceKm)),avgPace:ap,
+      kmDelta:pv?parseFloat(((mo.km-pv.km)/pv.km*100).toFixed(1)):null,
+      paceDelta:pp&&ap?parseFloat(((pp-ap)/pp*100).toFixed(1)):null};
+  });
   const runDays=new Set(sorted.map(r=>new Date(r.dateTs).toDateString()));
   let streak=0;const today=new Date();today.setHours(0,0,0,0);
   for(let i=0;i<365;i++){const d=new Date(today);d.setDate(today.getDate()-i);if(runDays.has(d.toDateString()))streak++;else if(i>0)break;}
-  const recentWeeks=weekly.slice(-8);
-  const consistency=Math.round(recentWeeks.filter(w=>w.count>0).length/8*100);
-  const recentRuns=sorted.filter(r=>r.avgPaceSecKm>0&&r.distanceKm>=2).slice(-8);
+  const consistency=Math.round(weekly.slice(-8).filter(w=>w.count>0).length/8*100);
+  const rRuns=sorted.filter(r=>r.avgPaceSecKm>0&&r.distanceKm>=2).slice(-8);
   let prediction=null;
-  if(recentRuns.length>=2){const ws=recentRuns.map((_,i)=>i+1),tw=ws.reduce((a,b)=>a+b,0),wp=recentRuns.reduce((s,r,i)=>s+r.avgPaceSecKm*ws[i],0)/tw,cf=1+(1-consistency/100)*0.12,br=recentRuns[recentRuns.length-1],bT=br.avgPaceSecKm*br.distanceKm,bD=br.distanceKm,fmt=s=>{const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=Math.round(s%60);return h?`${h}:${m.toString().padStart(2,"0")}:${ss.toString().padStart(2,"0")}`:`${m}:${ss.toString().padStart(2,"0")}`;};prediction={"5K":fmt(bT*Math.pow(5/bD,1.06)*cf),"10K":fmt(bT*Math.pow(10/bD,1.06)*cf),"Half Marathon":fmt(bT*Math.pow(21.1/bD,1.06)*cf),"Avg Pace":`${fmtPace(wp)}/km`};}
-  return {weekly,monthly,streak,prediction,consistency,runDays};
+  if(rRuns.length>=2){
+    const ws=rRuns.map((_,i)=>i+1),tw=ws.reduce((a,b)=>a+b,0);
+    const wp=rRuns.reduce((s,r,i)=>s+r.avgPaceSecKm*ws[i],0)/tw;
+    const cf=1+(1-consistency/100)*0.12,br=rRuns[rRuns.length-1];
+    const bT=br.avgPaceSecKm*br.distanceKm,bD=br.distanceKm;
+    const fmt=s=>{const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=Math.round(s%60);
+      return h?(h+":"+String(m).padStart(2,"0")+":"+String(ss).padStart(2,"0")):(m+":"+String(ss).padStart(2,"0"));};
+    prediction={"5K":fmt(bT*Math.pow(5/bD,1.06)*cf),"10K":fmt(bT*Math.pow(10/bD,1.06)*cf),"Half":fmt(bT*Math.pow(21.1/bD,1.06)*cf),"Pace":fmtPace(wp)+"/km"};
+  }
+  return{weekly,monthly,streak,prediction,consistency,runDays};
+}
+
+const PR_CATS = [
+  {id:"5k",   label:"5K",             shortLabel:"5K",    icon:"⭐", exactKm:5.0,     tol:0.15, color:"#06b6d4"},
+  {id:"10k",  label:"10K",            shortLabel:"10K",   icon:"🏅", exactKm:10.0,    tol:0.2,  color:"#3b82f6"},
+  {id:"15k",  label:"15K",            shortLabel:"15K",   icon:"🎯", exactKm:15.0,    tol:0.25, color:"#22c55e"},
+  {id:"half", label:"Half Marathon",  shortLabel:"21.1K", icon:"🥈", exactKm:21.0975, tol:0.3,  color:"#a855f7"},
+  {id:"30k",  label:"30K",            shortLabel:"30K",   icon:"💪", exactKm:30.0,    tol:0.4,  color:"#f97316"},
+  {id:"full", label:"Marathon",       shortLabel:"42.2K", icon:"🏆", exactKm:42.195,  tol:0.5,  color:"#eab308"},
+  {id:"50k",  label:"50K",            shortLabel:"50K",   icon:"👑", exactKm:50.0,    tol:0.6,  color:"#ef4444"},
+];
+
+function computeRacePRs(acts) {
+  if (!Array.isArray(acts)) return {};
+  const runs = acts.filter(a =>
+    a && a.type==="Run" &&
+    typeof a.distanceKm==="number" && a.distanceKm>0 &&
+    typeof a.movingTimeSec==="number" && a.movingTimeSec>0
+  );
+  const result = {};
+  PR_CATS.forEach(cat => {
+    try {
+      const bucket = runs
+        .filter(r => Math.abs(r.distanceKm - cat.exactKm) <= cat.tol)
+        .sort((a,b) => {
+          if (a.movingTimeSec !== b.movingTimeSec) return a.movingTimeSec - b.movingTimeSec;
+          return (a.movingTimeSec/a.distanceKm) - (b.movingTimeSec/b.distanceKm);
+        });
+      const top3 = bucket.slice(0, 3).map((r, i) => ({
+        rank: i + 1,
+        id: r.id||("pr_"+i),
+        name: r.name||"Unnamed",
+        date: r.date||"",
+        dateTs: r.dateTs||0,
+        distanceKm: r.distanceKm,
+        movingTimeSec: r.movingTimeSec,
+        paceSecKm: Math.round(r.movingTimeSec / r.distanceKm),
+        stravaId: r.stravaId||null,
+      }));
+      result[cat.id] = { cat, best: top3[0]||null, top3, total: bucket.length };
+    } catch(e) {
+      result[cat.id] = { cat, best: null, top3: [], total: 0 };
+    }
+  });
+  return result;
+}
+
+function fmtRaceTime(sec) {
+  if (!sec || sec <= 0) return "—";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return h+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+  return m+":"+String(s).padStart(2,"0");
 }
 
 const BADGES_KEY = "runlytics_badges_v1";
@@ -442,13 +390,11 @@ function loadTasks() {
     });
   } catch(e) { return initTasks(); }
 }
-function initTasks() {
-  return DEFAULT_TASKS.map(t=>({...t,streak:0,completions:{},enabled:true}));
-}
+function initTasks() {return DEFAULT_TASKS.map(t=>({...t,streak:0,completions:{},enabled:true}));}
 function saveTasks(tasks) {
   try { localStorage.setItem(TASKS_KEY, JSON.stringify(tasks.map(t=>({id:t.id,streak:t.streak,completions:t.completions,enabled:t.enabled})))); } catch(e) {}
 }
-const todayKey = () => new Date().toISOString().split("T")[0]; // "2026-04-23"
+const todayKey = () => new Date().toISOString().split("T")[0];
 function getStreak(completions) {
   let s=0;
   const today=new Date(); today.setHours(0,0,0,0);
@@ -508,6 +454,51 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 `}</style>;
 
 const IC={good:"var(--gn)",positive:"var(--gn)",warning:"var(--yw)",danger:"var(--rd)",info:"var(--bl)",neutral:"var(--tx2)"};
+
+const PRDetailModal=({entry,onClose})=>{
+  if(!entry)return null;
+  const{cat,top3}=entry;
+  const RL=["🥇","🥈","🥉"];
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:260,background:"rgba(0,0,0,.8)",display:"flex",alignItems:"flex-end",justifyContent:"center"}}
+      onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="glass" style={{width:"100%",maxWidth:430,borderRadius:"20px 20px 0 0",padding:"20px 18px 40px",border:"1px solid var(--bd)",maxHeight:"80vh",overflowY:"auto"}}>
+        <div style={{width:36,height:4,borderRadius:2,background:"var(--bd2)",margin:"0 auto 14px"}}/>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+          <span style={{fontSize:"1.4rem"}}>{cat.icon}</span>
+          <div style={{flex:1,fontWeight:700,color:cat.color}}>{cat.label}</div>
+          <button className="btn b-gh" style={{padding:"5px 11px",fontSize:".76rem"}} onClick={onClose}>✕</button>
+        </div>
+        {top3.length===0
+          ?<div style={{textAlign:"center",padding:"24px 0",color:"var(--tx2)"}}>{"No records for "+cat.label}</div>
+          :top3.map((r,i)=>(
+            <div key={r.id} style={{borderRadius:12,marginBottom:10,padding:"12px 14px",border:"1px solid "+(i===0?cat.color+"50":"var(--bd)"),
+              background:i===0?cat.color+"08":"var(--s2)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:"1.3rem"}}>{RL[i]}</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:600,fontSize:".84rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</div>
+                  <div style={{fontSize:".68rem",color:"var(--tx2)",marginTop:2}}>{fmtDateS(r.date)+" · "+fmtKm(r.distanceKm)+" km"}</div>
+                </div>
+                <div style={{textAlign:"right",flexShrink:0}}>
+                  <div style={{fontWeight:800,color:i===0?cat.color:"var(--tx)",fontFamily:"monospace"}}>{fmtRaceTime(r.movingTimeSec)}</div>
+                  <div style={{fontSize:".7rem",color:"var(--tx2)"}}>{fmtPace(r.paceSecKm)+"/km"}</div>
+                </div>
+              </div>
+              {r.stravaId&&(
+                <a href={"https://www.strava.com/activities/"+r.stravaId} target="_blank"
+                  rel="noopener noreferrer"
+                  style={{display:"inline-block",marginTop:8,fontSize:".7rem",color:"#fc4c02",fontWeight:600,textDecoration:"none"}}>
+                  🟠 View on Strava
+                </a>
+              )}
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  );
+};
 const IC_BG={good:"rgba(34,197,94,.08)",positive:"rgba(34,197,94,.08)",warning:"rgba(234,179,8,.08)",danger:"rgba(239,68,68,.08)",info:"rgba(59,130,246,.08)",neutral:"rgba(255,255,255,.04)"};
 const IC_BD={good:"rgba(34,197,94,.22)",positive:"rgba(34,197,94,.22)",warning:"rgba(234,179,8,.22)",danger:"rgba(239,68,68,.22)",info:"rgba(59,130,246,.22)",neutral:"rgba(255,255,255,.1)"};
 
@@ -642,8 +633,7 @@ const Detail=({act,hrProfile,onClose,onDelete})=>{
                 ["Avg HR",act.avgHR?(act.avgHR+" bpm"):"—"],
                 ["Training Load",String(act.trainingLoad||0)]
               ].map(([l,v],i)=>(
-                <div key={l} style={{
-                  display:"flex",justifyContent:"space-between",padding:"9px 0",
+                <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",
                   borderBottom:i<3?"1px solid var(--bd)":"none"
                 }}>
                   <span style={{fontSize:".8rem",color:"var(--tx2)"}}>{l}</span>
@@ -725,7 +715,6 @@ const Upload=({acts,hrProfile,onAdd,onClearAll})=>{
     }));
     setQueue(res);
   },[acts,hrProfile]);
-
   const saveAll=()=>{
     const valid=queue.filter(q=>q.status==="preview"&&q.parsed);
     if(!valid.length)return;
@@ -923,7 +912,6 @@ const HomeTab=({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUploa
           </div>
         )}
       </div>
-
       <div className="a1" style={{marginBottom:14}}>
         <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:7}}>Today's Recommendation</div>
         <div style={{background:recBg,border:"1px solid "+recBd,borderRadius:12,padding:"13px 15px",display:"flex",alignItems:"center",gap:12}}>
@@ -934,7 +922,6 @@ const HomeTab=({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUploa
           </div>
         </div>
       </div>
-
       {lastRun?(
         <div className="card a2 tap" style={{padding:18,marginBottom:14,cursor:"pointer"}} onClick={()=>onSelectAct(lastRun)}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
@@ -974,12 +961,10 @@ const HomeTab=({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUploa
           <button className="btn b-or" style={{padding:"10px 22px",fontSize:".86rem"}} onClick={onUpload}>Upload GPX</button>
         </div>
       )}
-
       <div className="a3" style={{marginBottom:14}}>
         <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:7}}>Coach Insight</div>
         <CoachCard insight={insight}/>
       </div>
-
       <div className="card a3" style={{padding:16,marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
           <Ring pct={weekPct} size={62} color={weekPct>=1?"var(--gn)":"var(--or)"}>
@@ -999,7 +984,6 @@ const HomeTab=({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUploa
           <button className="tap" style={{background:"none",border:"none",color:"var(--tx3)",fontSize:".8rem"}} onClick={onEditGoals}>Edit</button>
         </div>
       </div>
-
       {todayTasks.length>0&&(
         <div className="card a3" style={{padding:16,marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
@@ -1030,25 +1014,19 @@ const HomeTab=({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUploa
   );
 };
 
-const StatsTab=({acts,analytics,onViewAll,onViewMonthly})=>{
+const StatsTab=({acts,analytics,onViewAll,onViewMonthly,onOpenPR})=>{
   const[range,setRange]=useState(8);
   const runs=acts.filter(a=>a.type==="Run"||a.type==="Walk");
   const totalKm=runs.reduce((s,a)=>s+a.distanceKm,0);
   const weeklyData=analytics.weekly.slice(-range);
-
-  // Simple overall PRs
+  const racePRs=useMemo(()=>computeRacePRs(acts),[acts]);
+  const hasAnyPR=PR_CATS.some(cat=>racePRs[cat.id]&&racePRs[cat.id].best);
   const overallPRs=runs.length?{
     longest:runs.reduce((b,r)=>r.distanceKm>b.distanceKm?r:b),
     fastest:runs.filter(r=>r.avgPaceSecKm>0).reduce((b,r)=>r.avgPaceSecKm<b.avgPaceSecKm?r:b,runs.find(r=>r.avgPaceSecKm>0)||runs[0])
   }:null;
-
-  // Race PRs — memoized, recomputed only when acts changes
-  const racePRs=useMemo(()=>computeRacePRs(acts),[acts]);
-  const hasAnyRacePR=racePRs.some(r=>r.record);
-
   return(
     <div style={{padding:"4px 0 32px"}}>
-      {/* Summary strip */}
       <div className="a0" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:18}}>
         {[
           {l:"Total km",v:parseFloat(totalKm.toFixed(0)).toLocaleString(),c:"var(--or)"},
@@ -1061,8 +1039,6 @@ const StatsTab=({acts,analytics,onViewAll,onViewMonthly})=>{
           </div>
         ))}
       </div>
-
-      {/* Weekly distance chart */}
       {weeklyData.length>1&&(
         <div className="card a1" style={{padding:16,marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
@@ -1092,99 +1068,65 @@ const StatsTab=({acts,analytics,onViewAll,onViewMonthly})=>{
           </ResponsiveContainer>
         </div>
       )}
-
-      {/* Race Personal Records */}
-      <div className="card a2" style={{padding:16,marginBottom:14}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-          <SH title="Race Personal Records 🏆"/>
-          {!hasAnyRacePR&&(
-            <span style={{fontSize:".68rem",color:"var(--tx3)"}}>Sync Strava or upload GPX</span>
-          )}
+      <div className="a2" style={{marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <SH title="Personal Records 🏆"/>
+          <span style={{fontSize:".68rem",color:"var(--tx3)"}}>Tap for Top 3</span>
         </div>
-        <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {racePRs.map((def,i)=>{
-            const r=def.record;
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          {PR_CATS.map(cat=>{
+            const entry=racePRs[cat.id];
+            const best=entry?entry.best:null;
+            const total=entry?entry.total:0;
+            const hasMore=total>1;
             return(
-              <div key={def.id} style={{
-                borderRadius:13,overflow:"hidden",
-                border:"1px solid "+(r?def.color+"35":"var(--bd)"),
-                background:r?def.color+"08":"transparent",
-              }}>
-                {/* Header row */}
-                <div style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",borderBottom:r?"1px solid "+def.color+"20":"none"}}>
-                  <div style={{width:36,height:36,borderRadius:10,background:r?def.color+"18":"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.2rem",flexShrink:0,filter:r?"none":"grayscale(1) brightness(.5)"}}>
-                    {def.icon}
+              <div key={cat.id}
+                className="tap"
+                style={{
+                  borderRadius:14,overflow:"hidden",border:"1.5px solid "+(best?cat.color+"45":"var(--bd)"),
+                  background:best?cat.color+"07":"var(--s2)",
+                  cursor:"pointer",
+                  transition:"transform .15s, box-shadow .15s",
+                }}
+                onClick={()=>entry&&onOpenPR(entry)}>
+                <div style={{padding:"12px 12px 8px",borderBottom:"1px solid "+(best?cat.color+"20":"var(--bd)")}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div>
+                      <div style={{fontSize:".6rem",fontWeight:700,color:best?cat.color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".08em",marginBottom:3}}>
+                        {cat.shortLabel}
+                      </div>
+                      <div style={{fontSize:"1.25rem",fontWeight:800,color:best?cat.color:"var(--tx3)",fontFamily:"monospace",lineHeight:1}}>
+                        {best?fmtRaceTime(best.movingTimeSec):"—"}
+                      </div>
+                    </div>
+                    <span style={{fontSize:"1.2rem",opacity:best?1:.35}}>{cat.icon}</span>
                   </div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:700,fontSize:".9rem",color:r?def.color:"var(--tx3)"}}>{def.label}</div>
-                    {r?(
-                      <div style={{fontSize:".68rem",color:"var(--tx2)",marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                        {r.name}
-                      </div>
-                    ):(
-                      <div style={{fontSize:".72rem",color:"var(--tx3)",marginTop:1}}>No record yet</div>
-                    )}
-                  </div>
-                  {r&&(
-                    <div style={{textAlign:"right",flexShrink:0}}>
-                      <div style={{fontSize:"1.15rem",fontWeight:800,color:def.color,lineHeight:1,fontFamily:"'Courier New',monospace"}}>
-                        {fmtRaceTime(r.projectedSec)}
-                      </div>
-                      <div style={{fontSize:".6rem",color:"var(--tx3)",marginTop:2}}>
-                        {r.trend==="improved"?"↑ PR improved":r.trend==="first"?"⭐ First record":""} 
-                      </div>
+                </div>
+                <div style={{padding:"8px 12px 10px"}}>
+                  {best?(
+                    <div>
+                      <div style={{fontSize:".72rem",fontWeight:600,color:"var(--tx)",marginBottom:3}}>{fmtPace(best.paceSecKm)+"/km"}</div>
+                      <div style={{fontSize:".62rem",color:"var(--tx3)"}}>{fmtDateS(best.date)}</div>
+                    </div>
+                  ):(
+                    <div style={{fontSize:".7rem",color:"var(--tx3)",lineHeight:1.4}}>No record yet</div>
+                  )}
+                  {hasMore&&(
+                    <div style={{marginTop:6,fontSize:".6rem",color:cat.color,fontWeight:600}}>
+                      {"+"+( total-1)+" more · View Top 3 →"}
                     </div>
                   )}
                 </div>
-
-                {/* Stats row */}
-                {r&&(
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:0,padding:"10px 14px"}}>
-                    {[
-                      {l:"Distance",v:fmtKm(r.distanceKm)+" km"},
-                      {l:"Time",v:fmtRaceTime(r.movingTimeSec)},
-                      {l:"Pace",v:fmtPace(r.paceSecKm)+"/km"},
-                      {l:"Date",v:fmtDateS(r.date)},
-                    ].map((s,j)=>(
-                      <div key={s.l} style={{borderLeft:j>0?"1px solid var(--bd)":"none",paddingLeft:j>0?10:0,paddingRight:j<3?10:0}}>
-                        <div style={{fontSize:".56rem",color:"var(--tx3)",marginBottom:3,textTransform:"uppercase",letterSpacing:".06em"}}>{s.l}</div>
-                        <div style={{fontSize:".8rem",fontWeight:600,color:"var(--tx)"}}>{s.v}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Strava link + effort count */}
-                {r&&(
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 14px 10px"}}>
-                    <span style={{fontSize:".65rem",color:"var(--tx3)"}}>
-                      {"From "+r.bucketCount+" run"+(r.bucketCount!==1?"s":"")}
-                    </span>
-                    {r.stravaId&&(
-                      <a
-                        href={"https://www.strava.com/activities/"+r.stravaId}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{fontSize:".68rem",color:"#fc4c02",fontWeight:600,textDecoration:"none",display:"flex",alignItems:"center",gap:4}}>
-                        🟠 View on Strava
-                      </a>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}
         </div>
-
-        {/* Explanation when no records */}
-        {!hasAnyRacePR&&runs.length>0&&(
-          <div style={{marginTop:12,padding:"10px 12px",borderRadius:10,background:"var(--s3)",fontSize:".76rem",color:"var(--tx2)",lineHeight:1.6}}>
-            Run distances need to fall within standard race ranges to qualify as a PR (e.g. 4.5–5.5km for 5K).
+        {!hasAnyPR&&acts.length>0&&(
+          <div style={{marginTop:12,padding:"12px 14px",borderRadius:11,background:"var(--s2)",fontSize:".78rem",color:"var(--tx2)",lineHeight:1.7}}>
+            {"Race PRs appear after you run distances close to standard race distances (5K, 10K, 21.1K, 42.2K etc). Sync Strava or upload a GPX from a race."}
           </div>
         )}
       </div>
-
-      {/* Overall PRs */}
       {overallPRs&&(
         <div className="card a3" style={{padding:16,marginBottom:14}}>
           <SH title="Overall Bests"/>
@@ -1202,8 +1144,6 @@ const StatsTab=({acts,analytics,onViewAll,onViewMonthly})=>{
           </div>
         </div>
       )}
-
-      {/* Quick links */}
       {runs.length>0&&(
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <button className="btn b-gh" style={{padding:"12px",fontSize:".8rem",borderRadius:13}} onClick={onViewAll}>{"🏃 All Runs ("+acts.length+")"}</button>
@@ -1219,7 +1159,6 @@ const StatsTab=({acts,analytics,onViewAll,onViewMonthly})=>{
     </div>
   );
 };
-
 const HRTab=({acts,hrProfile,onEditHR})=>{
   const mafHR=getMafHR(hrProfile,null);
   const runsWithHR=acts.filter(a=>a.avgHR&&a.distanceKm>0);
@@ -1341,7 +1280,8 @@ const TasksTab=({tasks,setTasks,hrProfile})=>{
               style={{padding:"14px 15px",borderColor:done?col+"30":"var(--bd)",background:done?col+"08":"var(--s1)",transition:"all .2s",cursor:"pointer"}}
               onClick={()=>toggle(task.id)}>
               <div style={{display:"flex",alignItems:"flex-start",gap:12}}>
-                <div style={{width:24,height:24,borderRadius:7,border:"2.5px solid "+(done?col:"var(--bd2)"),background:done?col:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1,transition:"all .15s"}}>
+                <div style={{width:24,height:24,borderRadius:7,flexShrink:0,marginTop:1,transition:"all .15s",border:"2.5px solid "+(done?col:"var(--bd2)"),background:done?col:"transparent",
+                  display:"flex",alignItems:"center",justifyContent:"center"}}>
                   {done&&<span style={{color:"#fff",fontSize:".65rem",fontWeight:700}}>✓</span>}
                 </div>
                 <div style={{flex:1,minWidth:0}}>
@@ -1403,7 +1343,8 @@ const AchievementsTab=({earnedBadges,acts,analytics})=>{
           <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:10}}>Latest Badges</div>
           <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:4}} className="scroll-x">
             {earned.slice(-5).reverse().map((b,i)=>(
-              <div key={b.id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"10px 9px",minWidth:68,borderRadius:12,flexShrink:0,background:b.color+"15",border:"1.5px solid "+b.color+"30",animation:"pop .4s "+(i*0.06)+"s both"}}>
+              <div key={b.id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"10px 9px",minWidth:68,borderRadius:12,flexShrink:0,
+                background:b.color+"15",border:"1.5px solid "+b.color+"30",animation:"pop .4s "+(i*0.06)+"s both"}}>
                 <span style={{fontSize:"1.7rem"}}>{b.icon}</span>
                 <div style={{fontSize:".58rem",fontWeight:700,color:b.color,textAlign:"center",lineHeight:1.3}}>{b.name}</div>
               </div>
@@ -1424,7 +1365,9 @@ const AchievementsTab=({earnedBadges,acts,analytics})=>{
             <div style={{display:"flex",flexDirection:"column",gap:7}}>
               {badges.map(b=>(
                 <div key={b.id} className="card2" style={{padding:"12px 13px",display:"flex",alignItems:"center",gap:12,opacity:b.earned?1:.45,borderColor:b.earned?b.color+"28":"var(--bd)",background:b.earned?b.color+"07":"var(--s2)"}}>
-                  <div style={{width:40,height:40,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",background:b.earned?b.color+"18":"var(--s3)",border:"1px solid "+(b.earned?b.color+"30":"var(--bd2)"),fontSize:"1.4rem",flexShrink:0,filter:b.earned?"none":"grayscale(1) brightness(.5)"}}>{b.icon}</div>
+                  <div style={{width:40,height:40,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",
+                    background:b.earned?b.color+"18":"var(--s3)",border:"1px solid "+(b.earned?b.color+"30":"var(--bd2)"),
+                    fontSize:"1.4rem",flexShrink:0,filter:b.earned?"none":"grayscale(1) brightness(.5)"}}>{b.icon}</div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontWeight:700,fontSize:".84rem",color:b.earned?b.color:"var(--tx2)",marginBottom:2}}>{b.name}</div>
                     <div style={{fontSize:".7rem",color:"var(--tx3)",lineHeight:1.4}}>{b.desc}</div>
@@ -1628,24 +1571,21 @@ export default function App(){
   const[feedbackRun,setFeedbackRun]=useState(null);
   const[stravaAuth,setStravaAuth]=useState(()=>loadStravaAuth());
   const[stravaSync,setStravaSync]=useState({loading:false,msg:""});
+  const[prDetail,setPrDetail]=useState(null);
   const scrollRef=useRef(null);
-
   useEffect(()=>{saveActs(acts);},[acts]);
   useEffect(()=>{if(scrollRef.current)scrollRef.current.scrollTo({top:0,behavior:"smooth"});},[tab]);
-
   const analytics=useMemo(()=>buildAnalytics(acts,hrProfile),[acts,hrProfile]);
   const mafHRGlobal=useMemo(()=>getMafHR(hrProfile,null),[hrProfile]);
   const earnedBadges=useMemo(()=>computeEarnedBadges(acts,analytics,mafHRGlobal),[acts,analytics,mafHRGlobal]);
   const newBadges=useMemo(()=>[...earnedBadges].filter(id=>!seenBadges.has(id)),[earnedBadges,seenBadges]);
   const hasUnseen=newBadges.length>0;
-
   useEffect(()=>{
     if(tab==="awards"&&hasUnseen){
       const next=new Set([...seenBadges,...earnedBadges]);
       setSeenBadges(next);saveSeenBadges(next);
     }
   },[tab]);
-
   const doStravaRef=useRef(null);
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);
@@ -1663,7 +1603,6 @@ export default function App(){
       })
       .catch(()=>setStravaSync({loading:false,msg:"Connection failed."}));
   },[]);
-
   const getStravaToken=useCallback(async auth=>{
     if(!auth)return null;
     if(auth.expires_at&&Date.now()/1000<auth.expires_at-300)return auth.access_token;
@@ -1676,7 +1615,6 @@ export default function App(){
       return fresh.access_token;
     }catch(e){return null;}
   },[]);
-
   const doStravaSync=useCallback(async authOverride=>{
     const auth=authOverride||stravaAuth;
     if(!auth){setStravaSync({loading:false,msg:"Not connected."});return;}
@@ -1699,11 +1637,8 @@ export default function App(){
       setStravaSync({loading:false,msg:"Synced "+mapped.length+" activities (+"+ added+" new) ✓"});
     }catch(e){setStravaSync({loading:false,msg:"Sync failed."});}
   },[stravaAuth,getStravaToken]);
-
   useEffect(()=>{doStravaRef.current=doStravaSync;},[doStravaSync]);
-
   useEffect(()=>{history.replaceState({_rl:"root"},"");history.pushState({_rl:"s"},"");},[]);
-
   const detRef=useRef(null),fbRef=useRef(null),setRef=useRef(null),arRef=useRef(null),monRef=useRef(null),upRef=useRef(null);
   useEffect(()=>{detRef.current=detail;},[detail]);
   useEffect(()=>{fbRef.current=feedbackRun;},[feedbackRun]);
@@ -1711,7 +1646,6 @@ export default function App(){
   useEffect(()=>{arRef.current=showAllRuns;},[showAllRuns]);
   useEffect(()=>{monRef.current=showMonthly;},[showMonthly]);
   useEffect(()=>{upRef.current=showUpload;},[showUpload]);
-
   useEffect(()=>{
     const h=()=>{
       if(fbRef.current){history.pushState({_rl:"s"},"");setFeedbackRun(null);return;}
@@ -1720,18 +1654,14 @@ export default function App(){
       if(arRef.current){history.pushState({_rl:"s"},"");setShowAllRuns(false);return;}
       if(monRef.current){history.pushState({_rl:"s"},"");setShowMonthly(false);return;}
       if(upRef.current){history.pushState({_rl:"s"},"");setShowUpload(false);return;}
-    };
-    window.addEventListener("popstate",h);
-    return()=>window.removeEventListener("popstate",h);
+    };window.addEventListener("popstate",h);return()=>window.removeEventListener("popstate",h);
   },[]);
-
   const openDetail=useCallback(act=>{history.pushState({_rl:"d"},"");setDetail(act);},[]);
   const openSettings=useCallback(()=>{history.pushState({_rl:"s"},"");setShowSettings(true);},[]);
   const openAllRuns=useCallback(()=>{history.pushState({_rl:"a"},"");setShowAllRuns(true);},[]);
   const openMonthly=useCallback(()=>{history.pushState({_rl:"m"},"");setShowMonthly(true);},[]);
   const openUpload=useCallback(()=>{history.pushState({_rl:"u"},"");setShowUpload(true);},[]);
   const back=useCallback(()=>history.back(),[]);
-
   const handleStravaConnect=useCallback(()=>{
     const clientId=window.__STRAVA_CLIENT_ID||"";
     if(!clientId){
@@ -1740,35 +1670,30 @@ export default function App(){
     }
     window.location.href="https://www.strava.com/oauth/authorize?client_id="+clientId+"&redirect_uri="+encodeURIComponent(window.location.origin+"/")+"&response_type=code&approval_prompt=auto&scope=activity:read_all";
   },[]);
-
   const addActs=useCallback(parsed=>{
     setActs(prev=>{const m=[...parsed,...prev];m.sort((a,b)=>b.dateTs-a.dateTs);return m;});
     if(parsed.length>0){const h=parsed.reduce((b,r)=>r.distanceKm>b.distanceKm?r:b,parsed[0]);setFeedbackRun(h);}
     if(upRef.current)history.back();
     setTab("home");
   },[]);
-
   const deleteAct=useCallback(id=>{setActs(p=>p.filter(a=>a.id!==id));if(detRef.current)history.back();},[]);
-
   const clearAll=()=>{if(!confirm("Delete all "+acts.length+" activities?"))return;setActs([]);saveActs([]);};
-
   const closeFeedback=useCallback(()=>{
     const next=new Set([...seenBadges,...earnedBadges]);
     setSeenBadges(next);saveSeenBadges(next);setFeedbackRun(null);
   },[earnedBadges,seenBadges]);
-
   const[splashOut,setSplashOut]=useState(false);
   useEffect(()=>{
     const t1=setTimeout(()=>setSplashOut(true),1400);
     const t2=setTimeout(()=>setShowSplash(false),1750);
     return()=>{clearTimeout(t1);clearTimeout(t2);};
   },[]);
-
   return(
     <div>
       <Styles/>
       {showSplash&&(
-        <div style={{position:"fixed",inset:0,zIndex:999,background:"var(--bg)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",opacity:splashOut?0:1,transition:"opacity .33s ease",pointerEvents:splashOut?"none":"auto"}}>
+        <div style={{position:"fixed",inset:0,zIndex:999,background:"var(--bg)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+          opacity:splashOut?0:1,transition:"opacity .33s ease",pointerEvents:splashOut?"none":"auto"}}>
           <div style={{width:64,height:64,borderRadius:18,background:"linear-gradient(135deg,#f97316,#c2410c)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"2rem",animation:"glow 2s infinite",marginBottom:18}}>🏃</div>
           <div style={{fontSize:"1.7rem",fontWeight:700,letterSpacing:".06em",marginBottom:7}}>RUNLYTICS</div>
           <div style={{fontSize:".88rem",color:"var(--tx2)"}}>Your personal running coach</div>
@@ -1780,6 +1705,7 @@ export default function App(){
         </div>
       )}
       {feedbackRun&&<FeedbackModal run={feedbackRun} mafHR={getMafHR(hrProfile,feedbackRun.maxHR)} newBadges={newBadges} onClose={closeFeedback}/>}
+      {prDetail&&<PRDetailModal entry={prDetail} onClose={()=>setPrDetail(null)}/>}
       {showAllRuns&&<AllRunsView acts={acts} hrProfile={hrProfile} onSelect={openDetail} onClose={back}/>}
       {showMonthly&&<MonthlyReport acts={acts} onClose={back}/>}
       {detail&&<Detail act={detail} hrProfile={hrProfile} onClose={back} onDelete={id=>deleteAct(id)}/>}
@@ -1822,7 +1748,7 @@ export default function App(){
                   onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns}
                   onViewMonthly={openMonthly} onEditGoals={openSettings}/>
               )}
-              {tab==="stats"&&<StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly}/>}
+              {tab==="stats"&&<StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={setPrDetail}/>}
               {tab==="hr"&&<HRTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings}/>}
               {tab==="tasks"&&<TasksTab tasks={tasks} setTasks={setTasks} hrProfile={hrProfile}/>}
               {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadges} acts={acts} analytics={analytics}/>}
