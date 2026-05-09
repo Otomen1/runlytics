@@ -584,26 +584,661 @@ const Ring=({pct=0,size=64,color="var(--or)",children})=>{
   );
 };
 
-const RouteMap=({route})=>{
+// ── Map street generation (pure function, no hooks) ────────────────
+function genMapStreets(W,H,seed){
+  const rng=n=>(((Math.sin(seed*.137+n*6.753)*98765)%1)+1)%1;
+  const bW=Math.max(30,Math.min(55,W/7)),bH=Math.max(30,Math.min(55,H/6));
+  const h=[],v=[];
+  for(let y=0;y<H+bH;y+=bH){const idx=Math.round(y/bH);h.push({y,major:idx%3===0,sec:idx%3===1});}
+  for(let x=0;x<W+bW;x+=bW){const idx=Math.round(x/bW);v.push({x,major:idx%3===0,sec:idx%3===1});}
+  const parks=[];
+  for(let i=0;i<3;i++){
+    const xi=Math.floor(rng(i*11+3)*(v.length-2)),yi=Math.floor(rng(i*11+4)*(h.length-2));
+    if(xi>=1&&yi>=1&&xi<v.length-1&&yi<h.length-1)
+      parks.push({x:v[xi].x+2,y:h[yi].y+2,w:Math.max(0,v[xi+1].x-v[xi].x-4),h:Math.max(0,h[yi+1].y-h[yi].y-4)});
+  }
+  return{h,v,parks};
+}
+
+// Web Mercator Y — accurate latitude-aware projection
+function mercY(lat){
+  const r=lat*Math.PI/180;
+  return-Math.log(Math.tan(Math.PI/4+r/2));
+}
+
+// Iterative Douglas-Peucker — no recursion depth risk on large GPX tracks
+function rdpSimplify(pts,eps){
+  if(pts.length<3)return pts;
+  const keep=new Set([0,pts.length-1]);
+  const stack=[[0,pts.length-1]];
+  while(stack.length){
+    const[s,e]=stack.pop();
+    if(e-s<2)continue;
+    const[a,z]=[pts[s],pts[e]];
+    const dx=z.x-a.x,dy=z.y-a.y,L=Math.hypot(dx,dy)||1e-9;
+    let maxD=0,maxI=s+1;
+    for(let i=s+1;i<e;i++){
+      const d=Math.abs(dy*(pts[i].x-a.x)-dx*(pts[i].y-a.y))/L;
+      if(d>maxD){maxD=d;maxI=i;}
+    }
+    if(maxD>eps){keep.add(maxI);stack.push([s,maxI],[maxI,e]);}
+  }
+  return pts.filter((_,i)=>keep.has(i));
+}
+
+// Haversine in km for tooltip cumulative distance
+function hvKm(a,b){
+  const R=6371,dLa=(b.lat-a.lat)*Math.PI/180,dLo=(b.lon-a.lon)*Math.PI/180;
+  const s=Math.sin(dLa/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLo/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));
+}
+
+const RouteMapSVG=({route,act})=>{
+  const[drawn,setDrawn]=useState(false);
+  const[hov,setHov]=useState(null);
+  const svgRef=useRef(null);
+  const canvasRef=useRef(null);
+
+  // Haversine cumulative distances for accurate hover km
+  const cumDist=useMemo(()=>{
+    if(!route||route.length<2)return[];
+    const R=6371000;let c=0;
+    return route.map((p,i)=>{
+      if(i>0){
+        const a=route[i-1],dLa=(p.lat-a.lat)*Math.PI/180,dLo=(p.lon-a.lon)*Math.PI/180;
+        const q=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.cos(a.lat*Math.PI/180)*Math.cos(p.lat*Math.PI/180)*Math.sin(dLo/2)*Math.sin(dLo/2);
+        c+=2*R*Math.asin(Math.sqrt(Math.max(0,q)));
+      }
+      return c;
+    });
+  },[route]);
+
+  // All map geometry in one memo — tiles, projection, sampled route
+  const map=useMemo(()=>{
+    if(!route||route.length<2)return null;
+    const W=360,H=280;
+    const lats=route.map(r=>r.lat),lons=route.map(r=>r.lon);
+    const minLat=Math.min(...lats),maxLat=Math.max(...lats);
+    const minLon=Math.min(...lons),maxLon=Math.max(...lons);
+    const lonR=maxLon-minLon||.01;
+    // Exact Web Mercator — same formula used by OSM/Google/Strava
+    const tyOf=lat=>(1-Math.log(Math.tan(lat*Math.PI/180)+1/Math.cos(lat*Math.PI/180))/Math.PI)/2;
+    const txOf=lon=>(lon+180)/360;
+    // Zoom so route spans ~3 tile-widths (fills ~75% of viewport)
+    const zoom=Math.max(10,Math.min(16,Math.round(Math.log2(1080/Math.max(lonR,.005)))));
+    const n=Math.pow(2,zoom);
+    // Tile grid with 1-tile padding for street context
+    const txMin=Math.floor(txOf(minLon)*n)-1,txMax=Math.floor(txOf(maxLon)*n)+1;
+    const tyMin=Math.floor(tyOf(maxLat)*n)-1,tyMax=Math.floor(tyOf(minLat)*n)+1;
+    const tW=txMax-txMin+1,tH=tyMax-tyMin+1;
+    // Scale tile grid to fill SVG viewport
+    const sc=Math.min(W/(tW*256),H/(tH*256));
+    const ox=(W-tW*256*sc)/2,oy=(H-tH*256*sc)/2;
+    // GPS → pixel — identical formula for both tiles and route overlay
+    const toSX=lon=>(txOf(lon)*n-txMin)*256*sc+ox;
+    const toSY=lat=>(tyOf(lat)*n-tyMin)*256*sc+oy;
+    // OSM tile list
+    const tiles=[];
+    for(let ty=tyMin;ty<=tyMax;ty++)
+      for(let tx=txMin;tx<=txMax;tx++)
+        tiles.push({k:ty+","+tx,
+          url:"https://tile.openstreetmap.org/"+zoom+"/"+tx+"/"+ty+".png",
+          x:(tx-txMin)*256*sc+ox,y:(ty-tyMin)*256*sc+oy,sz:256*sc});
+    // Adaptive sampling ≤600 pts
+    const MAX=600;
+    const sIdx=route.length<=MAX
+      ?Array.from({length:route.length},(_,i)=>i)
+      :Array.from({length:MAX},(_,i)=>Math.min(Math.round(i*(route.length-1)/(MAX-1)),route.length-1));
+    if(route.length>MAX&&sIdx[sIdx.length-1]!==route.length-1)sIdx.push(route.length-1);
+    const spts=sIdx.map(i=>({sx:toSX(route[i].lon),sy:toSY(route[i].lat),ri:i}));
+    const d=spts.map((p,i)=>(i===0?"M":"L")+p.sx.toFixed(1)+","+p.sy.toFixed(1)).join(" ");
+    const pLen=spts.reduce((t,p,i)=>i===0?0:t+Math.hypot(p.sx-spts[i-1].sx,p.sy-spts[i-1].sy),0);
+    const col=act&&act.avgPaceSecKm<270?"#22c55e":act&&act.avgPaceSecKm<360?"#f97316":"#f97316";
+    return{tiles,spts,d,pLen,col,s0:spts[0],sE:spts[spts.length-1],W,H};
+  },[route,act]);
+
+  // Load real map tiles into canvas (bypasses SVG img-src CSP restrictions)
+  useEffect(()=>{
+    if(!map||!canvasRef.current)return;
+    const canvas=canvasRef.current;
+    const ctx=canvas.getContext('2d');
+    ctx.fillStyle='#e8e4dc';
+    ctx.fillRect(0,0,map.W,map.H);
+    let active=true;
+    map.tiles.forEach(t=>{
+      const img=new Image();
+      img.crossOrigin='anonymous';
+      img.onload=()=>{if(active)ctx.drawImage(img,t.x,t.y,t.sz,t.sz);};
+      img.src=t.url;
+    });
+    return()=>{active=false;};
+  },[map]);
+
+  // Route draw animation
+  useEffect(()=>{const t=setTimeout(()=>setDrawn(true),150);return()=>clearTimeout(t);},[]);
+
+  if(!map)return null;
+  const{tiles,spts,d,pLen,col,s0,sE,W,H}=map;
+
+  const onMove=e=>{
+    if(!svgRef.current)return;
+    const rc=svgRef.current.getBoundingClientRect();
+    const mx=(e.clientX-rc.left)*W/rc.width,my=(e.clientY-rc.top)*H/rc.height;
+    let minD=Infinity,best=null;
+    for(const p of spts){const d2=Math.hypot(p.sx-mx,p.sy-my);if(d2<minD){minD=d2;best=p;}}
+    if(best&&minD<22){
+      const km=((cumDist[best.ri]||0)/1000).toFixed(2);
+      const ttx=Math.max(35,Math.min(W-35,best.sx));
+      const tty=best.sy>46?best.sy-14:best.sy+26;
+      setHov({x:best.sx,y:best.sy,ttx,tty,km});
+    }else setHov(null);
+  };
+
+  return(
+    <div style={{position:"relative",borderRadius:12,overflow:"hidden",border:"1px solid #b8b0a4",boxShadow:"0 2px 14px rgba(0,0,0,.2)"}}>
+      {/* Canvas receives real OSM tile images */}
+      <canvas ref={canvasRef} width={W} height={H} style={{display:"block",width:"100%"}}/>
+      {/* SVG overlay: route + markers + hover — rendered on top of tiles */}
+      <svg ref={svgRef} viewBox={"0 0 "+W+" "+H}
+        style={{position:"absolute",inset:0,width:"100%",height:"100%",cursor:"crosshair"}}
+        onMouseMove={onMove} onMouseLeave={()=>setHov(null)}>
+        <path d={d} fill="none" stroke={col} strokeWidth={9} strokeOpacity={0.25}
+          strokeLinecap="round" strokeLinejoin="round"/>
+        <path d={d} fill="none" stroke={col} strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round"
+          strokeDasharray={pLen.toFixed(0)} strokeDashoffset={drawn?"0":pLen.toFixed(0)}
+          style={{transition:"stroke-dashoffset 1.6s cubic-bezier(.4,0,.2,1)"}}/>
+        <path d={d} fill="none" stroke="transparent" strokeWidth={20}/>
+        <circle cx={s0.sx} cy={s0.sy} r={8} fill="#22c55e" stroke="#fff" strokeWidth={2.5}/>
+        <text x={s0.sx} y={s0.sy+4} textAnchor="middle" fontSize={7} fill="#fff" fontWeight="800">S</text>
+        <circle cx={sE.sx} cy={sE.sy} r={8} fill="#ef4444" stroke="#fff" strokeWidth={2.5}/>
+        <text x={sE.sx} y={sE.sy+4} textAnchor="middle" fontSize={7} fill="#fff" fontWeight="800">F</text>
+        {hov&&(
+          <g>
+            <circle cx={hov.x} cy={hov.y} r={5} fill="#fff" stroke={col} strokeWidth={2.5}/>
+            <rect x={hov.ttx-33} y={hov.tty-12} width={66} height={16} rx={8}
+              fill="rgba(0,0,0,.84)" stroke={col+"70"} strokeWidth={1}/>
+            <text x={hov.ttx} y={hov.tty} textAnchor="middle" fontSize={8.5} fill={col} fontWeight="700">
+              {hov.km+" km"}
+            </text>
+          </g>
+        )}
+        {act&&(
+          <g>
+            <rect x={W/2-56} y={H-24} width={112} height={18} rx={9} fill="rgba(0,0,0,.72)"/>
+            <text x={W/2} y={H-12} textAnchor="middle" fontSize={10} fill="#fff" fontWeight="700">
+              {fmtKm(act.distanceKm)+" km · "+fmtPace(act.avgPaceSecKm)+"/km"}
+            </text>
+          </g>
+        )}
+        <text x={W-5} y={H-3} textAnchor="end" fontSize={6} fill="rgba(0,0,0,.5)">© OpenStreetMap</text>
+      </svg>
+    </div>
+  );
+};
+
+
+// ── Share Activity Feature ────────────────────────────────────────────
+
+function drawRouteCanvas(ctx,route,rx,ry,rW,rH,lw){
+  if(!route||route.length<2)return;
+  const lats=route.map(r=>r.lat),lons=route.map(r=>r.lon);
+  const minLat=Math.min(...lats),maxLat=Math.max(...lats),minLon=Math.min(...lons),maxLon=Math.max(...lons);
+  const latR=maxLat-minLat||.001,lonR=maxLon-minLon||.001;
+  const asp=lonR/latR*Math.cos((minLat+maxLat)/2*Math.PI/180),pad=lw*3;
+  let vW=rW-2*pad,vH=rH-2*pad;
+  if(asp>vW/vH){vH=vW/asp;}else{vW=vH*asp;}
+  const ox=rx+(rW-vW)/2,oy=ry+(rH-vH)/2;
+  const X=lon=>ox+(lon-minLon)/lonR*vW,Y=lat=>oy+(maxLat-lat)/latR*vH;
+  const step=Math.max(1,Math.floor(route.length/250));
+  const pts=route.filter((_,i)=>i%step===0||i===route.length-1);
+  ctx.lineCap="round";ctx.lineJoin="round";
+  ctx.beginPath();ctx.strokeStyle="rgba(249,115,22,.22)";ctx.lineWidth=lw*3.5;
+  pts.forEach((p,i)=>i===0?ctx.moveTo(X(p.lon),Y(p.lat)):ctx.lineTo(X(p.lon),Y(p.lat)));
+  ctx.stroke();
+  ctx.beginPath();ctx.strokeStyle="#f97316";ctx.lineWidth=lw;
+  pts.forEach((p,i)=>i===0?ctx.moveTo(X(p.lon),Y(p.lat)):ctx.lineTo(X(p.lon),Y(p.lat)));
+  ctx.stroke();
+  const r=lw*1.8;
+  ctx.beginPath();ctx.fillStyle="#22c55e";ctx.arc(X(route[0].lon),Y(route[0].lat),r,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.fillStyle="#ef4444";ctx.arc(X(route[route.length-1].lon),Y(route[route.length-1].lat),r,0,Math.PI*2);ctx.fill();
+}
+
+function drawRunCard(ctx,act,tmpl,W,H){
+  const dist=fmtKm(act.distanceKm),pace=fmtPace(act.avgPaceSecKm)+"/km";
+  const s=act.movingTimeSec||0;
+  const dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
+  const date=fmtDate(act.date);
+  const tf=(sz,w)=>{ctx.font=(w||"700")+" "+Math.round(sz)+"px system-ui,sans-serif";};
+  const c=(v)=>{ctx.fillStyle=v;};
+  ctx.textBaseline="alphabetic";
+  if(tmpl==="orange"){
+    c("#f97316");ctx.fillRect(0,0,W,H);
+    tf(H*.026,"800");c("rgba(0,0,0,.45)");ctx.fillText("RUNLYTICS",W*.07,H*.068);
+    tf(W*.4,"900");c("#000");ctx.fillText(dist,W*.07,H*.42);
+    tf(H*.02,"800");c("rgba(0,0,0,.38)");ctx.fillText("KILOMETERS",W*.07,H*.475);
+    tf(H*.042,"800");c("#000");ctx.fillText(pace,W*.07,H*.59);ctx.fillText(dur,W*.52,H*.59);
+    tf(H*.017,"700");c("rgba(0,0,0,.38)");ctx.fillText("PACE",W*.07,H*.63);ctx.fillText("TIME",W*.52,H*.63);
+    tf(H*.017,"400");c("rgba(0,0,0,.3)");ctx.fillText(date,W*.07,H*.935);
+    return;
+  }
+  if(tmpl==="cinematic"){
+    const g=ctx.createLinearGradient(0,0,W,H);
+    g.addColorStop(0,"#06080f");g.addColorStop(.55,"#120720");g.addColorStop(1,"#060c12");
+    c(g);ctx.fillRect(0,0,W,H);
+    tf(H*.024,"800");c("rgba(249,115,22,.75)");ctx.fillText("RUNLYTICS",W*.07,H*.067);
+    ctx.textAlign="center";
+    tf(W*.38,"900");c("#fff");ctx.fillText(dist,W/2,H*.44);
+    tf(H*.018,"700");c("rgba(255,255,255,.33)");ctx.fillText("KILOMETERS",W/2,H*.488);
+    tf(H*.038,"700");c("rgba(255,255,255,.9)");
+    ctx.fillText(pace,W*.3,H*.6);ctx.fillText(dur,W*.7,H*.6);
+    tf(H*.015,"700");c("rgba(255,255,255,.3)");
+    ctx.fillText("PACE",W*.3,H*.633);ctx.fillText("TIME",W*.7,H*.633);
+    tf(H*.024,"400");c("rgba(255,255,255,.55)");ctx.fillText("Keep showing up.",W/2,H*.82);
+    tf(H*.019,"400");c("rgba(255,255,255,.3)");ctx.fillText("The results follow.",W/2,H*.855);
+    tf(H*.016,"400");c("rgba(255,255,255,.22)");ctx.fillText(date,W/2,H*.93);
+    ctx.textAlign="left";
+    return;
+  }
+  c("#08090f");ctx.fillRect(0,0,W,H);
+  tf(H*.023,"800");c("rgba(255,255,255,.4)");ctx.fillText("RUNLYTICS",W*.07,H*.065);
+  ctx.textAlign="right";tf(H*.016,"400");c("rgba(255,255,255,.25)");ctx.fillText(date,W*.93,H*.065);ctx.textAlign="left";
+  if(act.route&&act.route.length>2)drawRouteCanvas(ctx,act.route,W*.07,H*.12,W*.86,H*.38,5);
+  tf(W*.38,"900");c("#fff");ctx.fillText(dist,W*.07,H*.7);
+  tf(H*.018,"700");c("rgba(255,255,255,.28)");ctx.fillText("KILOMETERS",W*.07,H*.744);
+  tf(H*.04,"700");c("#f97316");ctx.fillText(pace,W*.07,H*.83);
+  c("rgba(255,255,255,.85)");ctx.fillText(dur,W*.52,H*.83);
+  tf(H*.015,"700");c("rgba(255,255,255,.22)");ctx.fillText("PACE",W*.07,H*.862);ctx.fillText("TIME",W*.52,H*.862);
+}
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);
+  ctx.quadraticCurveTo(x+w,y,x+w,y+r);ctx.lineTo(x+w,y+h-r);
+  ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);ctx.lineTo(x+r,y+h);
+  ctx.quadraticCurveTo(x,y+h,x,y+h-r);ctx.lineTo(x,y+r);
+  ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+}
+// Returns template-specific plain text for clipboard copy
+function getCardText(act,tmpl){
+  const dist=fmtKm(act.distanceKm);
+  const pace=fmtPace(act.avgPaceSecKm)+"/km";
+  const s=act.movingTimeSec||0;
+  const dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
+  const date=fmtDate(act.date);
+  const name=act.name?act.name+"\n":"";
+  const B="RUNLYTICS \u2022 runlytics.app";
+  if(tmpl==="orange")return(
+    name+dist+"\nKM\n\n\u23f1 "+pace+"  PACE\n\u23f0 "+dur+"  TIME\n\n"+date+"\n\n"+B
+  );
+  if(tmpl==="cinematic")return(
+    name+dist+"\nKM\n\n"+pace+"  PACE\n"+dur+"  TIME\n\n\u201cKeep showing up.\nThe results follow.\u201d\n\n\u2014 "+B
+  );
+  if(tmpl==="glass")return(
+    dist+"\nKM\n\n"+pace+"  PACE\n"+dur+"  TIME\n\n"+date+"\n\nrunlytics.app"
+  );
+  if(tmpl==="poster"){
+    const badge=act.distanceKm>=42?"\uD83C\uDFC6 Marathon":act.distanceKm>=21?"\uD83E\uDD48 Half Marathon":act.distanceKm>=10?"\uD83D\uDD25 10 KM":act.distanceKm>=5?"\u26A1 5 KM":"\uD83C\uDFC3 Activity";
+    return badge+"\n\n"+dist+"\nKM\n\n"+pace+"  PACE\n"+dur+"  TIME\n\n"+date+"\n\n"+B;
+  }
+  return name+dist+"\nKM\n\n"+pace+"  PACE\n"+dur+"  TIME\n\n"+date+"\n\n"+B;
+}
+
+function drawRunCardExtra(ctx,act,tmpl,W,H){
+  const dist=fmtKm(act.distanceKm),pace=fmtPace(act.avgPaceSecKm)+"/km";
+  const s=act.movingTimeSec||0,dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
+  const date=fmtDate(act.date);
+  const tf=(sz,w)=>{ctx.font=(w||"700")+" "+Math.round(sz)+"px system-ui,sans-serif";};
+  const c=(v)=>{ctx.fillStyle=v;};
+  ctx.textBaseline="alphabetic";
+  if(tmpl==="glass"){
+    // Background: deep navy gradient
+    const bg=ctx.createLinearGradient(0,0,W,H);
+    bg.addColorStop(0,"#0a0f1e");bg.addColorStop(.5,"#0d1428");bg.addColorStop(1,"#080c18");
+    c(bg);ctx.fillRect(0,0,W,H);
+    // Subtle noise dots for depth
+    ctx.save();ctx.globalAlpha=0.04;
+    for(let i=0;i<300;i++){ctx.fillStyle="#fff";ctx.fillRect(Math.random()*W,Math.random()*H,1.5,1.5);}
+    ctx.restore();
+    // Route behind glass if available
+    if(act.route&&act.route.length>2)drawRouteCanvas(ctx,act.route,0,H*.2,W,H*.5,4);
+    // Glass panel
+    ctx.save();
+    ctx.globalAlpha=0.13;c("#a8c4e8");
+    const gX=W*.08,gY=H*.25,gW=W*.84,gH=H*.46;
+    roundRect(ctx,gX,gY,gW,gH,W*.04);ctx.fill();
+    ctx.globalAlpha=0.22;ctx.strokeStyle="#a8d4ff";ctx.lineWidth=W*.002;
+    roundRect(ctx,gX,gY,gW,gH,W*.04);ctx.stroke();
+    ctx.restore();
+    // Inner glow top edge
+    const glow=ctx.createLinearGradient(gX,gY,gX,gY+H*.1);
+    glow.addColorStop(0,"rgba(180,210,255,.18)");glow.addColorStop(1,"rgba(0,0,0,0)");
+    c(glow);roundRect(ctx,gX,gY,gW,H*.1,W*.04);ctx.fill();
+    // Stats inside glass
+    ctx.textAlign="center";
+    tf(H*.022,"800");c("rgba(180,210,255,.6)");ctx.fillText("RUNLYTICS",W/2,gY+H*.05);
+    tf(W*.32,"900");c("#fff");ctx.fillText(dist,W/2,gY+H*.22);
+    tf(H*.017,"700");c("rgba(180,210,255,.5)");ctx.fillText("KILOMETERS",W/2,gY+H*.258);
+    // Divider
+    ctx.globalAlpha=0.2;ctx.strokeStyle="#a8d4ff";ctx.lineWidth=W*.001;
+    ctx.beginPath();ctx.moveTo(gX+gW*.15,gY+H*.3);ctx.lineTo(gX+gW*.85,gY+H*.3);ctx.stroke();
+    ctx.globalAlpha=1;
+    tf(H*.038,"700");c("rgba(255,255,255,.9)");
+    ctx.fillText(pace,W*.32,gY+H*.38);ctx.fillText(dur,W*.68,gY+H*.38);
+    tf(H*.015,"600");c("rgba(180,210,255,.45)");
+    ctx.fillText("PACE",W*.32,gY+H*.415);ctx.fillText("TIME",W*.68,gY+H*.415);
+    tf(H*.016,"400");c("rgba(180,210,255,.35)");ctx.fillText(date,W/2,gY+gH-H*.025);
+    ctx.textAlign="left";
+    return;
+  }
+  if(tmpl==="poster"){
+    // White base
+    c("#f8f7f4");ctx.fillRect(0,0,W,H);
+    // Top accent bar
+    const accent=ctx.createLinearGradient(0,0,W,0);
+    accent.addColorStop(0,"#f97316");accent.addColorStop(1,"#c2410c");
+    c(accent);ctx.fillRect(0,0,W,H*.008);
+    // RUNLYTICS header
+    tf(H*.024,"800");c("rgba(0,0,0,.35)");ctx.fillText("RUNLYTICS",W*.07,H*.067);
+    // BIB-style bold number region
+    const bigY=H*.18;
+    tf(W*.55,"900");c("#111");ctx.fillText(dist,W*.06,bigY+H*.26);
+    tf(H*.032,"800");c("rgba(0,0,0,.4)");ctx.fillText("KILOMETERS",W*.07,bigY+H*.3);
+    // Horizontal rule
+    c("rgba(0,0,0,.12)");ctx.fillRect(W*.07,bigY+H*.32,W*.86,W*.003);
+    // Achievement badge if Strava / notable
+    const badge=act.distanceKm>=42?"🏆 MARATHON":act.distanceKm>=21?"🥈 HALF MARATHON":act.distanceKm>=10?"🔥 10K":act.distanceKm>=5?"⚡ 5K":"🏃 ACTIVITY";
+    tf(H*.022,"800");c("#f97316");ctx.fillText(badge,W*.07,bigY+H*.37);
+    // Stats grid
+    const stats=[["PACE",pace],["TIME",dur]];
+    stats.forEach(([l,v],i)=>{
+      const sx=W*.07+i*(W*.42);
+      tf(H*.042,"800");c("#111");ctx.fillText(v,sx,bigY+H*.5);
+      tf(H*.017,"700");c("rgba(0,0,0,.35)");ctx.fillText(l,sx,bigY+H*.535);
+    });
+    // Route preview box
+    if(act.route&&act.route.length>2){
+      const rx=W*.07,ry=bigY+H*.57,rW=W*.86,rH=H*.27;
+      c("rgba(0,0,0,.05)");roundRect(ctx,rx,ry,rW,rH,W*.02);ctx.fill();
+      drawRouteCanvas(ctx,act.route,rx+W*.03,ry+H*.02,rW-W*.06,rH-H*.04,4);
+    }
+    // Date + bottom bar
+    tf(H*.016,"400");c("rgba(0,0,0,.3)");ctx.fillText(date,W*.07,H*.955);
+    c("#111");ctx.fillRect(0,H*.992,W,H*.008);
+  }
+}
+
+const MiniRoute=({route,W=160,H=110})=>{
   if(!route||route.length<2)return null;
   const lats=route.map(r=>r.lat),lons=route.map(r=>r.lon);
   const minLat=Math.min(...lats),maxLat=Math.max(...lats),minLon=Math.min(...lons),maxLon=Math.max(...lons);
   const latR=maxLat-minLat||.001,lonR=maxLon-minLon||.001;
-  const W=340,H=180,p=16;
-  const asp=lonR/latR*Math.cos((minLat+maxLat)/2*Math.PI/180);
-  let vW=W-2*p,vH=H-2*p;
+  const asp=lonR/latR*Math.cos((minLat+maxLat)/2*Math.PI/180),pad=14;
+  let vW=W-2*pad,vH=H-2*pad;
   if(asp>vW/vH){vH=vW/asp;}else{vW=vH*asp;}
-  const toX=lon=>p+(lon-minLon)/lonR*vW;
-  const toY=lat=>p+(maxLat-lat)/latR*vH;
-  const d=route.map((r,i)=>(i===0?"M":"L")+toX(r.lon).toFixed(1)+","+toY(r.lat).toFixed(1)).join(" ");
+  const ox=(W-vW)/2,oy=(H-vH)/2;
+  const X=lon=>ox+(lon-minLon)/lonR*vW,Y=lat=>oy+(maxLat-lat)/latR*vH;
+  const st=Math.max(1,Math.floor(route.length/100));
+  const pts=route.filter((_,i)=>i%st===0||i===route.length-1);
+  const d=pts.map((r,i)=>(i===0?"M":"L")+X(r.lon).toFixed(1)+","+Y(r.lat).toFixed(1)).join(" ");
   return(
-    <svg viewBox={"0 0 "+W+" "+H} style={{width:"100%",height:H,borderRadius:10,background:"var(--s3)"}}>
-      <path d={d} fill="none" stroke="var(--or)" strokeWidth="2.5" strokeLinecap="round"/>
-      <circle cx={toX(route[0].lon)} cy={toY(route[0].lat)} r="5" fill="var(--gn)"/>
-      <circle cx={toX(route[route.length-1].lon)} cy={toY(route[route.length-1].lat)} r="5" fill="var(--rd)"/>
+    <svg viewBox={"0 0 "+W+" "+H} style={{width:W,height:H,display:"block",overflow:"hidden"}}>
+      <defs><clipPath id={"rc"+W}><rect width={W} height={H}/></clipPath></defs>
+      <g clipPath={"url(#rc"+W+")"}>
+        <path d={d} fill="none" stroke="#f97316" strokeWidth={6} strokeOpacity={0.12} strokeLinecap="round" strokeLinejoin="round"/>
+        <path d={d} fill="none" stroke="#f97316" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"/>
+      </g>
+      <circle cx={X(route[0].lon)} cy={Y(route[0].lat)} r={3.5} fill="#22c55e" stroke="rgba(255,255,255,.6)" strokeWidth={1}/>
+      <circle cx={X(route[route.length-1].lon)} cy={Y(route[route.length-1].lat)} r={3.5} fill="#ef4444" stroke="rgba(255,255,255,.6)" strokeWidth={1}/>
     </svg>
   );
 };
+
+
+const ShareCard=({type,act,W=270,H=480})=>{
+  const dist=fmtKm(act.distanceKm),pace=fmtPace(act.avgPaceSecKm)+"/km";
+  const s=act.movingTimeSec||0,dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
+  const hasRoute=act.route&&act.route.length>2;
+  const f=n=>Math.round(n*W/270)+"px";
+  const Stat=({label,value,vc,dark})=>(
+    <div>
+      <div style={{fontSize:f(20),fontWeight:800,color:vc||(dark?"#000":"#fff"),lineHeight:1,letterSpacing:"-.01em"}}>{value}</div>
+      <div style={{fontSize:f(8),fontWeight:600,color:dark?"rgba(0,0,0,.35)":"rgba(255,255,255,.32)",letterSpacing:".12em",marginTop:4,textTransform:"uppercase"}}>{label}</div>
+    </div>
+  );
+  const baseAnim={animation:"fadeUp .32s ease both"};
+  if(type==="orange")return(
+    <div style={{width:W,height:H,borderRadius:18,background:"#f97316",padding:"32px 28px",display:"flex",flexDirection:"column",justifyContent:"space-between",boxShadow:"0 12px 40px rgba(249,115,22,.35)",flexShrink:0,...baseAnim}}>
+      <div style={{fontSize:f(9),fontWeight:800,color:"rgba(0,0,0,.35)",letterSpacing:".16em"}}>RUNLYTICS</div>
+      <div>
+        <div style={{fontSize:f(80),fontWeight:900,color:"#000",lineHeight:.85,letterSpacing:"-.03em"}}>{dist}</div>
+        <div style={{fontSize:f(11),fontWeight:700,color:"rgba(0,0,0,.35)",letterSpacing:".18em",marginTop:10}}>KM</div>
+      </div>
+      <div style={{display:"flex",gap:f(32)}}>
+        <Stat dark label="Pace" value={pace}/><Stat dark label="Time" value={dur}/>
+      </div>
+      <div style={{fontSize:f(9),color:"rgba(0,0,0,.3)",letterSpacing:".04em"}}>{fmtDate(act.date)}</div>
+    </div>
+  );
+  if(type==="cinematic")return(
+    <div style={{width:W,height:H,borderRadius:18,flexShrink:0,overflow:"hidden",
+      background:"linear-gradient(170deg,#080a12 0%,#0e0618 60%,#06090f 100%)",
+      padding:"32px 28px",display:"flex",flexDirection:"column",justifyContent:"space-between",
+      boxShadow:"0 12px 48px rgba(0,0,0,.7)",...baseAnim}}>
+      <div style={{fontSize:f(9),fontWeight:800,color:"rgba(249,115,22,.6)",letterSpacing:".16em"}}>RUNLYTICS</div>
+      <div style={{textAlign:"center",padding:"0 8px"}}>
+        <div style={{fontSize:f(68),fontWeight:900,color:"#fff",lineHeight:.85,letterSpacing:"-.03em"}}>{dist}</div>
+        <div style={{fontSize:f(10),fontWeight:600,color:"rgba(255,255,255,.25)",letterSpacing:".18em",marginTop:10}}>KM</div>
+        {hasRoute&&<div style={{margin:"20px auto 0",maxWidth:W*.7}}><MiniRoute route={act.route} W={Math.round(W*.72)} H={Math.round(W*.44)}/></div>}
+      </div>
+      <div>
+        <div style={{height:1,background:"linear-gradient(90deg,transparent,rgba(255,255,255,.1),transparent)",marginBottom:16}}/>
+        <div style={{display:"flex",justifyContent:"space-between",padding:"0 4px"}}>
+          <Stat label="Pace" value={pace}/><Stat label="Time" value={dur}/>
+        </div>
+        <div style={{marginTop:20,textAlign:"center"}}>
+          <div style={{fontSize:f(11),fontStyle:"italic",color:"rgba(255,255,255,.42)",lineHeight:1.7,letterSpacing:".01em"}}>Keep showing up.</div>
+          <div style={{fontSize:f(9),fontStyle:"italic",color:"rgba(255,255,255,.22)"}}>The results follow.</div>
+        </div>
+      </div>
+      <div style={{textAlign:"center",fontSize:f(8),color:"rgba(255,255,255,.2)",letterSpacing:".04em"}}>{fmtDate(act.date)}</div>
+    </div>
+  );
+  if(type==="glass")return(
+    <div style={{width:W,height:H,borderRadius:18,flexShrink:0,overflow:"hidden",
+      background:"linear-gradient(155deg,#0a0f1e 0%,#0d1428 50%,#080c18 100%)",
+      boxShadow:"0 12px 48px rgba(0,20,60,.8)",position:"relative",...baseAnim}}>
+      {hasRoute&&(
+        <div style={{position:"absolute",top:0,left:0,right:0,height:"52%",overflow:"hidden",
+          maskImage:"linear-gradient(to bottom,rgba(0,0,0,.35) 60%,transparent 100%)",
+          WebkitMaskImage:"linear-gradient(to bottom,rgba(0,0,0,.35) 60%,transparent 100%)"}}>
+          <MiniRoute route={act.route} W={W} H={Math.round(H*.52)}/>
+        </div>
+      )}
+      <div style={{position:"absolute",inset:0,padding:"28px 22px",display:"flex",flexDirection:"column",justifyContent:"space-between"}}>
+        <div style={{fontSize:f(9),fontWeight:800,color:"rgba(160,200,255,.45)",letterSpacing:".16em"}}>RUNLYTICS</div>
+        <div style={{backdropFilter:"blur(18px) saturate(1.3)",WebkitBackdropFilter:"blur(18px) saturate(1.3)",
+          background:"rgba(120,170,220,.08)",border:"1px solid rgba(180,220,255,.14)",
+          borderRadius:f(14),padding:"26px 22px",
+          boxShadow:"0 2px 20px rgba(0,10,40,.3),inset 0 1px 0 rgba(255,255,255,.09)"}}>
+          <div style={{textAlign:"center",marginBottom:18}}>
+            <div style={{fontSize:f(62),fontWeight:900,color:"#fff",lineHeight:.85,letterSpacing:"-.02em"}}>{dist}</div>
+            <div style={{fontSize:f(9),fontWeight:600,color:"rgba(160,200,255,.38)",letterSpacing:".18em",marginTop:10}}>KM</div>
+          </div>
+          <div style={{height:1,background:"linear-gradient(90deg,transparent,rgba(160,210,255,.15),transparent)",marginBottom:18}}/>
+          <div style={{display:"flex",justifyContent:"space-around"}}>
+            <Stat label="Pace" value={pace} vc="rgba(255,255,255,.9)"/><Stat label="Time" value={dur} vc="rgba(255,255,255,.9)"/>
+          </div>
+          <div style={{textAlign:"center",marginTop:14,fontSize:f(8),color:"rgba(160,200,255,.28)",letterSpacing:".04em"}}>{fmtDate(act.date)}</div>
+        </div>
+        <div style={{textAlign:"center",fontSize:f(7),color:"rgba(160,200,255,.2)",letterSpacing:".06em"}}>runlytics.app</div>
+      </div>
+    </div>
+  );
+  if(type==="poster"){
+    const badge=act.distanceKm>=42?"🏆 Marathon":act.distanceKm>=21?"🥈 Half Marathon":act.distanceKm>=10?"🔥 10 KM":act.distanceKm>=5?"⚡ 5 KM":"🏃 Activity";
+    return(
+      <div style={{width:W,height:H,borderRadius:18,flexShrink:0,overflow:"hidden",
+        background:"#f8f7f4",boxShadow:"0 12px 40px rgba(0,0,0,.2)",
+        display:"flex",flexDirection:"column",...baseAnim}}>
+        <div style={{height:3,background:"linear-gradient(90deg,#f97316,#c2410c)",flexShrink:0}}/>
+        <div style={{flex:1,padding:"24px 26px 20px",display:"flex",flexDirection:"column",justifyContent:"space-between"}}>
+          <div style={{fontSize:f(9),fontWeight:800,color:"rgba(0,0,0,.28)",letterSpacing:".16em"}}>RUNLYTICS</div>
+          <div>
+            <div style={{fontSize:f(80),fontWeight:900,color:"#0a0a0a",lineHeight:.85,letterSpacing:"-.04em"}}>{dist}</div>
+            <div style={{fontSize:f(11),fontWeight:700,color:"rgba(0,0,0,.32)",letterSpacing:".18em",marginTop:10}}>KM</div>
+            <div style={{width:"100%",height:1,background:"rgba(0,0,0,.08)",margin:"14px 0 10px"}}/>
+            <div style={{fontSize:f(11),fontWeight:700,color:"#f97316",letterSpacing:".04em"}}>{badge}</div>
+          </div>
+          <div style={{display:"flex",gap:f(28)}}>
+            <Stat dark label="Pace" value={pace}/><Stat dark label="Time" value={dur}/>
+          </div>
+          {hasRoute&&(
+            <div style={{background:"rgba(0,0,0,.04)",borderRadius:f(10),padding:"10px",overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <MiniRoute route={act.route} W={W-72} H={Math.round((W-72)*.55)}/>
+            </div>
+          )}
+          <div style={{fontSize:f(8),color:"rgba(0,0,0,.25)",letterSpacing:".04em"}}>{fmtDate(act.date)}</div>
+        </div>
+        <div style={{height:3,background:"rgba(0,0,0,.85)",flexShrink:0}}/>
+      </div>
+    );
+  }
+  return(
+    <div style={{width:W,height:H,borderRadius:18,flexShrink:0,
+      background:"#0c0e18",padding:"32px 28px",display:"flex",
+      flexDirection:"column",justifyContent:"space-between",
+      border:"1px solid rgba(255,255,255,.06)",boxShadow:"0 12px 48px rgba(0,0,0,.7)",...baseAnim}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div style={{fontSize:f(9),fontWeight:800,color:"rgba(255,255,255,.35)",letterSpacing:".16em"}}>RUNLYTICS</div>
+        <div style={{fontSize:f(8),color:"rgba(255,255,255,.2)",letterSpacing:".02em"}}>{fmtDate(act.date)}</div>
+      </div>
+      {hasRoute&&<div style={{display:"flex",justifyContent:"center",margin:"4px 0"}}><MiniRoute route={act.route} W={W-52} H={Math.round((W-52)*.58)}/></div>}
+      <div>
+        <div style={{fontSize:f(72),fontWeight:900,color:"#fff",lineHeight:.85,letterSpacing:"-.03em"}}>{dist}</div>
+        <div style={{fontSize:f(11),fontWeight:600,color:"rgba(255,255,255,.22)",letterSpacing:".18em",marginTop:10}}>KM</div>
+      </div>
+      <div>
+        <div style={{height:1,background:"linear-gradient(90deg,rgba(249,115,22,.3),rgba(249,115,22,.05))",marginBottom:16}}/>
+        <div style={{display:"flex",gap:f(28)}}>
+          <Stat label="Pace" value={pace} vc="#f97316"/><Stat label="Time" value={dur}/>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+const ShareModal=({act,onClose})=>{
+  const[idx,setIdx]=useState(0);
+  const[busy,setBusy]=useState(false);
+  const[copied,setCopied]=useState(false);
+  const copyText=()=>{
+    const text=getCardText(act,TMPL[idx]);
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);}).catch(()=>{});
+    }else{
+      try{
+        const ta=document.createElement("textarea");
+        ta.value=text;ta.style.position="fixed";ta.style.opacity="0";
+        document.body.appendChild(ta);ta.select();
+        document.execCommand("copy");document.body.removeChild(ta);
+        setCopied(true);setTimeout(()=>setCopied(false),2000);
+      }catch(e){}
+    }
+  };
+  const scrollRef=useRef(null);
+  const TMPL=["minimal","orange","cinematic","glass","poster"];
+  const LABELS=["Minimal Dark","Bold Orange","Cinematic","Glassmorphism","Race Poster"];
+  const scrollTo=i=>{
+    if(!scrollRef.current)return;
+    scrollRef.current.scrollTo({left:i*scrollRef.current.offsetWidth,behavior:"smooth"});
+    setIdx(i);
+  };
+  const onScroll=()=>{
+    if(!scrollRef.current)return;
+    const i=Math.round(scrollRef.current.scrollLeft/Math.max(1,scrollRef.current.offsetWidth));
+    setIdx(Math.max(0,Math.min(TMPL.length-1,i)));
+  };
+  const doExport=async(fmt)=>{
+    if(busy)return;
+    setBusy(fmt);
+    try{
+      const W=1080,H=1920;
+      const cv=document.createElement("canvas");
+      cv.width=W;cv.height=H;
+      const ctx=cv.getContext("2d");
+      if(TMPL[idx]==="glass"||TMPL[idx]==="poster"){drawRunCardExtra(ctx,act,TMPL[idx],W,H);}
+      else{drawRunCard(ctx,act,TMPL[idx],W,H);}
+      const isPng=fmt==="png";
+      cv.toBlob(blob=>{
+        if(!blob){setBusy(false);return;}
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement("a");
+        a.href=url;a.download="runlytics-"+TMPL[idx]+"."+(isPng?"png":"jpg");
+        document.body.appendChild(a);a.click();
+        setTimeout(()=>{try{document.body.removeChild(a);}catch(e){}URL.revokeObjectURL(url);},900);
+        setBusy(false);
+      },isPng?"image/png":"image/jpeg",isPng?undefined:0.92);
+    }catch(e){setBusy(false);}
+  };
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:420,background:"#000",display:"flex",flexDirection:"column",overscrollBehavior:"contain"}}>
+      <div style={{padding:"14px 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid rgba(255,255,255,.07)",flexShrink:0}}>
+        <button style={{background:"none",border:"none",color:"rgba(255,255,255,.5)",fontSize:"1.4rem",cursor:"pointer",lineHeight:1,padding:4}} onClick={onClose}>&#x2715;</button>
+        <div style={{fontWeight:700,color:"rgba(255,255,255,.88)",fontSize:".84rem",letterSpacing:".1em"}}>SHARE ACTIVITY</div>
+        <div style={{width:36}}/>
+      </div>
+      <div ref={scrollRef} onScroll={onScroll}
+        style={{flex:1,display:"flex",overflowX:"auto",scrollSnapType:"x mandatory",scrollbarWidth:"none",WebkitOverflowScrolling:"touch",alignItems:"center"}}>
+        {TMPL.map(t=>(
+          <div key={t} style={{minWidth:"100%",scrollSnapAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",padding:"12px 28px",boxSizing:"border-box"}}>
+            <ShareCard type={t} act={act}/>
+          </div>
+        ))}
+      </div>
+      <div style={{padding:"12px 20px 36px",borderTop:"1px solid rgba(255,255,255,.07)",flexShrink:0}}>
+        <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:6,marginBottom:12}}>
+          {TMPL.map((_,i)=>(
+            <div key={i} onClick={()=>scrollTo(i)}
+              style={{height:5,borderRadius:3,cursor:"pointer",transition:"all .3s ease",
+                width:i===idx?22:5,background:i===idx?"#f97316":"rgba(255,255,255,.16)"}}/>
+          ))}
+        </div>
+        <div style={{textAlign:"center",fontSize:".68rem",color:"rgba(255,255,255,.25)",marginBottom:16,letterSpacing:".1em"}}>
+          {LABELS[idx].toUpperCase()}
+        </div>
+        <button onClick={copyText}
+          style={{width:"100%",padding:"11px",borderRadius:10,border:"1px solid rgba(255,255,255,.12)",cursor:"pointer",
+            marginBottom:10,transition:"all .2s",
+            background:copied?"rgba(34,197,94,.15)":"rgba(255,255,255,.04)",
+            color:copied?"#22c55e":"rgba(255,255,255,.6)",
+            fontWeight:600,fontSize:".84rem",letterSpacing:".03em"}}>
+          {copied?"\u2713 Text Copied!":"\uD83D\uDCCB Copy Text"}
+        </button>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={()=>doExport("jpg")} disabled={!!busy}
+            style={{flex:2,padding:"13px 0",borderRadius:12,border:"none",cursor:busy?"wait":"pointer",
+              background:busy==="jpg"?"rgba(249,115,22,.4)":"#f97316",
+              color:busy==="jpg"?"rgba(255,255,255,.4)":"#fff",
+              fontWeight:700,fontSize:".9rem",transition:"background .2s",letterSpacing:".02em"}}>
+            {busy==="jpg"?"⏳ Saving...":"⬇ JPEG"}
+          </button>
+          <button onClick={()=>doExport("png")} disabled={!!busy}
+            style={{flex:1,padding:"13px 0",borderRadius:12,cursor:busy?"wait":"pointer",
+              background:busy==="png"?"rgba(255,255,255,.08)":"rgba(255,255,255,.05)",
+              color:busy==="png"?"rgba(255,255,255,.35)":"rgba(255,255,255,.65)",
+              fontWeight:600,fontSize:".88rem",transition:"background .2s",letterSpacing:".02em",
+              border:"1px solid rgba(255,255,255,.12)"}}>
+            {busy==="png"?"⏳":"PNG"}
+          </button>
+        </div>
+        <div style={{textAlign:"center",marginTop:10,fontSize:".62rem",color:"rgba(255,255,255,.15)",letterSpacing:".06em"}}>
+          1080 × 1920 · Story Format
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 
 const CoachCard=({insight})=>{
   const[open,setOpen]=useState(false);
@@ -632,7 +1267,7 @@ const CoachCard=({insight})=>{
   );
 };
 
-const Detail=({act,hrProfile,onClose,onDelete})=>{
+const Detail=({act,hrProfile,onClose,onDelete,onShare})=>{
   const[tab,setTab]=useState("overview");
   const col=ACT_CLR[act.type]||"#6b7280";
   const mafHR=getMafHR(hrProfile,act.maxHR);
@@ -698,6 +1333,15 @@ const Detail=({act,hrProfile,onClose,onDelete})=>{
                 </div>
               ))}
             </div>
+            {onShare&&(
+              <button className="btn" onClick={onShare}
+                style={{width:"100%",marginTop:12,padding:"13px",borderRadius:12,
+                  background:"linear-gradient(135deg,#f97316,#c2410c)",color:"#fff",
+                  fontWeight:700,fontSize:".92rem",border:"none",cursor:"pointer",
+                  letterSpacing:".03em",boxShadow:"0 4px 16px rgba(249,115,22,.35)"}}>
+                ✦ Share Activity
+              </button>
+            )}
           </div>
         )}
         {tab==="heartrate"&&(
@@ -741,11 +1385,28 @@ const Detail=({act,hrProfile,onClose,onDelete})=>{
           )
         )}
         {tab==="map"&&(
-          <div className="card" style={{padding:16}}>
-            {act.route&&act.route.length>2
-              ?<RouteMap route={act.route}/>
-              :<div style={{height:160,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--tx2)"}}>No GPS route</div>
-            }
+          <div>
+            {act.route&&act.route.length>2?(
+              <div>
+                <RouteMapSVG route={act.route} act={act}/>
+                <div className="card2" style={{padding:"12px 14px",marginTop:10,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:0}}>
+                  <div style={{paddingRight:10,borderRight:"1px solid var(--bd)"}}>
+                    <div style={{fontSize:".58rem",color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:3}}>Distance</div>
+                    <div style={{fontSize:".88rem",fontWeight:700,color:"var(--or)"}}>{fmtKm(act.distanceKm)+" km"}</div>
+                  </div>
+                  <div style={{padding:"0 10px",borderRight:"1px solid var(--bd)"}}>
+                    <div style={{fontSize:".58rem",color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:3}}>Pace</div>
+                    <div style={{fontSize:".88rem",fontWeight:700}}>{fmtPace(act.avgPaceSecKm)+"/km"}</div>
+                  </div>
+                  <div style={{paddingLeft:10}}>
+                    <div style={{fontSize:".58rem",color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".06em",marginBottom:3}}>Elevation</div>
+                    <div style={{fontSize:".88rem",fontWeight:700,color:"var(--gn)"}}>{"+"+Math.round(act.elevGainM||0)+"m"}</div>
+                  </div>
+                </div>
+              </div>
+            ):(
+              <div className="card" style={{padding:16,height:160,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--tx2)"}}>No GPS route</div>
+            )}
           </div>
         )}
       </div>
@@ -946,15 +1607,14 @@ const HomeTab=({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUploa
   const todayStr=todayKey();
   const todayTasks=tasks.filter(t=>t.enabled).slice(0,3);
   const todayDone=todayTasks.filter(t=>t.completions&&t.completions[todayStr]).length;
-  const recBg=IC_BG[rec.type]||"rgba(255,255,255,.04)";const recBd=IC_BD[rec.type]||"rgba(255,255,255,.1)";const recCol=IC[rec.type]||"var(--tx2)";
+  const recBg=IC_BG[rec.type]||"rgba(255,255,255,.04)";
+  const recBd=IC_BD[rec.type]||"rgba(255,255,255,.1)";
   return(
     <div style={{padding:"4px 0 32px"}}>
       <div className="a0" style={{marginBottom:20,paddingTop:4}}>
         <div style={{fontSize:".7rem",color:"var(--tx3)",marginBottom:3}}>{greet()}</div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-          <div style={{fontSize:"1.45rem",fontWeight:700,lineHeight:1.2}}>
-            {profile.name==="Runner"?"Welcome back 👋":"Welcome back, "+profile.name+" 👋"}
-          </div>
+          <div style={{fontSize:"1.45rem",fontWeight:700,lineHeight:1.2}}>{profile.name==="Runner"?"Welcome back 👋":"Welcome back, "+profile.name+" 👋"}</div>
           {analytics.streak>=2&&(
             <div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"8px 11px",borderRadius:12,background:"rgba(249,115,22,.1)",border:"1.5px solid rgba(249,115,22,.25)",flexShrink:0}}>
               <span style={{fontSize:"1.2rem"}}>🔥</span>
@@ -963,11 +1623,6 @@ const HomeTab=({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUploa
             </div>
           )}
         </div>
-        {analytics.streak===1&&(
-          <div style={{display:"inline-flex",alignItems:"center",gap:5,marginTop:8,padding:"3px 10px",borderRadius:20,background:"rgba(249,115,22,.1)",border:"1px solid rgba(249,115,22,.2)"}}>
-            <span>🔥</span><span style={{fontSize:".74rem",fontWeight:600,color:"var(--or)"}}>1 day streak — keep going!</span>
-          </div>
-        )}
       </div>
       <div className="a1" style={{marginBottom:14}}>
         <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:7}}>Today's Recommendation</div>
@@ -1003,10 +1658,7 @@ const HomeTab=({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUploa
           </div>
           {acts.length>1&&(
             <div style={{marginTop:10,textAlign:"center",fontSize:".7rem"}}>
-              <span className="tap" style={{color:"var(--or)",fontWeight:600}}
-                onClick={e=>{e.stopPropagation();onViewAll();}}>
-                {"View all "+acts.length+" runs →"}
-              </span>
+              <span className="tap" style={{color:"var(--or)",fontWeight:600}} onClick={e=>{e.stopPropagation();onViewAll();}}>{"View all "+acts.length+" runs →"}</span>
             </div>
           )}
         </div>
@@ -1047,26 +1699,19 @@ const HomeTab=({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUploa
             <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)"}}>Today's Habits</div>
             <span style={{fontSize:".7rem",color:"var(--tx2)"}}>{todayDone+"/"+todayTasks.length}</span>
           </div>
-          {todayTasks.map(t=>{
-            const done=!!(t.completions&&t.completions[todayStr]);
-            return(
-              <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-                <div style={{width:20,height:20,borderRadius:6,border:"2px solid "+(done?"var(--gn)":"var(--bd2)"),background:done?"var(--gn)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                  {done&&<span style={{fontSize:".6rem",color:"#fff",fontWeight:700}}>✓</span>}
-                </div>
-                <span style={{fontSize:".82rem",color:done?"var(--tx3)":"var(--tx)",textDecoration:done?"line-through":"none",flex:1}}>{t.title}</span>
-                {t.streak>0&&<span style={{fontSize:".7rem",color:"var(--or)"}}>{"🔥"+t.streak}</span>}
-              </div>
-            );
-          })}
-          <div className="pb" style={{marginTop:10}}>
-            <div className="pf" style={{width:(todayTasks.length>0?Math.round(todayDone/todayTasks.length*100):0)+"%",background:"var(--gn)"}}/>
-          </div>
+          {todayTasks.map(t=>{const done=!!(t.completions&&t.completions[todayStr]);return(
+            <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              <div style={{width:20,height:20,borderRadius:6,flexShrink:0,
+                border:"2px solid "+(done?"var(--gn)":"var(--bd2)"),background:done?"var(--gn)":"transparent",
+                display:"flex",alignItems:"center",justifyContent:"center"}}>{done&&<span style={{fontSize:".6rem",color:"#fff",fontWeight:700}}>✓</span>}</div>
+              <span style={{fontSize:".82rem",color:done?"var(--tx3)":"var(--tx)",textDecoration:done?"line-through":"none",flex:1}}>{t.title}</span>
+              {t.streak>0&&<span style={{fontSize:".7rem",color:"var(--or)"}}>{"🔥"+t.streak}</span>}
+            </div>
+          );})}
+          <div className="pb" style={{marginTop:10}}><div className="pf" style={{width:(todayTasks.length>0?Math.round(todayDone/todayTasks.length*100):0)+"%",background:"var(--gn)"}}/></div>
         </div>
       )}
-      {acts.length>0&&(
-        <button className="btn b-gh" style={{width:"100%",padding:"11px",fontSize:".82rem",borderRadius:13,marginTop:4}} onClick={onViewMonthly}>📅 Monthly Report</button>
-      )}
+      {acts.length>0&&<button className="btn b-gh" style={{width:"100%",padding:"11px",fontSize:".82rem",borderRadius:13,marginTop:4}} onClick={onViewMonthly}>📅 Monthly Report</button>}
     </div>
   );
 };
@@ -1374,132 +2019,107 @@ const TasksTab=({tasks,setTasks,hrProfile})=>{
 const AchievementsTab=({earnedBadges,acts,analytics,tierProgress,newTiers})=>{
   const[exp,setExp]=useState(null);
   const earned=BADGE_DEFS.filter(b=>earnedBadges.has(b.id));
-  const overallPct=Math.round(earned.length/BADGE_DEFS.length*100);
-  const grouped=useMemo(()=>{
-    const map={};
-    BADGE_CAT_ORDER.forEach(c=>{map[c]=BADGE_DEFS.filter(b=>b.cat===c).map(b=>Object.assign({},b,{earned:earnedBadges.has(b.id)}));});
-    return map;
-  },[earnedBadges]);
+  const pct=Math.round(earned.length/BADGE_DEFS.length*100);
   return(
     <div style={{padding:"4px 0 40px"}}>
-      <div className="a0" style={{marginBottom:18}}>
-        <div style={{display:"flex",alignItems:"center",gap:14}}>
-          <Ring pct={overallPct/100} size={62} color="var(--or)">
-            <span style={{fontSize:".56rem",fontWeight:700,color:"var(--or)"}}>{overallPct+"%"}</span>
-          </Ring>
-          <div>
-            <div style={{fontSize:"1.3rem",fontWeight:800,lineHeight:1}}>
-              <span style={{color:"var(--or)"}}>{earned.length}</span>
-              <span style={{fontSize:".82rem",color:"var(--tx2)",fontWeight:400}}>{" / "+BADGE_DEFS.length}</span>
-            </div>
-            <div style={{fontSize:".74rem",color:"var(--tx2)",marginTop:4}}>badges earned</div>
-            <div style={{fontSize:".68rem",color:"var(--tx3)",marginTop:2}}>{analytics.streak+"d · "+acts.length+" runs"}</div>
+      <div className="a0" style={{display:"flex",alignItems:"center",gap:14,marginBottom:18}}>
+        <Ring pct={pct/100} size={62} color="var(--or)">
+          <span style={{fontSize:".56rem",fontWeight:700,color:"var(--or)"}}>{pct+"%"}</span>
+        </Ring>
+        <div>
+          <div style={{fontSize:"1.3rem",fontWeight:800}}>
+            <span style={{color:"var(--or)"}}>{earned.length}</span>
+            <span style={{fontSize:".82rem",color:"var(--tx2)",fontWeight:400}}>{" / "+BADGE_DEFS.length}</span>
           </div>
+          <div style={{fontSize:".74rem",color:"var(--tx2)",marginTop:4}}>badges earned</div>
+          <div style={{fontSize:".68rem",color:"var(--tx3)",marginTop:2}}>{analytics.streak+"d · "+acts.length+" runs"}</div>
         </div>
       </div>
-
       <div className="a1" style={{marginBottom:16}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)"}}>Tier Progression</div>
           <div style={{fontSize:".6rem",color:"var(--tx3)"}}>Tap to expand</div>
         </div>
-        <div style={{display:"flex",flexDirection:"column",gap:9}}>
-          {(tierProgress||[]).map(tp=>{
-            const isExp=exp===tp.id;
-            const c=tp.current?tp.current.color:"#6b7280";
-            const isNew=newTiers&&newTiers.includes(tp.id);
-            return(
-              <div key={tp.id} className="card2 tap"
-                style={{overflow:"hidden",borderColor:tp.current?c+"30":"var(--bd)",background:tp.current?c+"06":"var(--s2)",cursor:"pointer"}}
-                onClick={()=>setExp(isExp?null:tp.id)}>
-                <div style={{padding:"12px 14px"}}>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <span style={{fontSize:"1.3rem",flexShrink:0}}>{tp.badge.icon}</span>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
-                        <div style={{display:"flex",alignItems:"center",gap:6}}>
-                          <span style={{fontWeight:700,fontSize:".86rem"}}>{tp.badge.name}</span>
-                          {isNew&&<span style={{fontSize:".58rem",background:"var(--or)",color:"#fff",padding:"1px 6px",borderRadius:8,fontWeight:700}}>NEW!</span>}
-                        </div>
-                        <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
-                          {tp.current
-                            ?<span style={{fontSize:".72rem",fontWeight:700,color:c}}>{tp.current.icon+" "+tp.current.label}</span>
-                            :<span style={{fontSize:".7rem",color:"var(--tx3)"}}>Not started</span>}
-                          <span style={{color:"var(--tx3)",fontSize:".7rem",transition:"transform .2s",display:"inline-block",transform:isExp?"rotate(180deg)":"none"}}>▾</span>
-                        </div>
+        {(tierProgress||[]).map(tp=>{
+          const isExp=exp===tp.id,c=tp.current?tp.current.color:"#6b7280";
+          const isNew=newTiers&&newTiers.includes(tp.id);
+          return(
+            <div key={tp.id} className="card2 tap" style={{marginBottom:9,overflow:"hidden",borderColor:tp.current?c+"30":"var(--bd)",background:tp.current?c+"06":"var(--s2)",cursor:"pointer"}}
+              onClick={()=>setExp(isExp?null:tp.id)}>
+              <div style={{padding:"12px 14px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <span style={{fontSize:"1.3rem",flexShrink:0}}>{tp.badge.icon}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontWeight:700,fontSize:".86rem"}}>{tp.badge.name}</span>
+                        {isNew&&<span style={{fontSize:".58rem",background:"var(--or)",color:"#fff",padding:"1px 6px",borderRadius:8,fontWeight:700}}>NEW!</span>}
                       </div>
-                      <div className="pb">
-                        <div className="pf" style={{width:tp.pct+"%",background:tp.current?c:"var(--tx3)"}}/>
+                      <div style={{display:"flex",alignItems:"center",gap:5,flexShrink:0}}>
+                        {tp.current?<span style={{fontSize:".72rem",fontWeight:700,color:c}}>{tp.current.icon+" "+tp.current.label}</span>:<span style={{fontSize:".7rem",color:"var(--tx3)"}}>Not started</span>}
+                        <span style={{color:"var(--tx3)",fontSize:".7rem",display:"inline-block",transform:isExp?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
                       </div>
-                      <div style={{display:"flex",justifyContent:"space-between",marginTop:5}}>
-                        <span style={{fontSize:".64rem",color:"var(--tx3)"}}>{tp.progress+" "+tp.badge.unit}</span>
-                        {tp.next
-                          ?<span style={{fontSize:".64rem",color:"var(--tx2)"}}>{"Next: "+tp.next.label+" ("+tp.next.req+" "+tp.badge.unit+")"}</span>
-                          :<span style={{fontSize:".64rem",color:c,fontWeight:700}}>👑 Elite!</span>}
-                      </div>
+                    </div>
+                    <div className="pb"><div className="pf" style={{width:tp.pct+"%",background:tp.current?c:"var(--tx3)"}}/></div>
+                    <div style={{display:"flex",justifyContent:"space-between",marginTop:5}}>
+                      <span style={{fontSize:".64rem",color:"var(--tx3)"}}>{tp.progress+" "+tp.badge.unit}</span>
+                      {tp.next?<span style={{fontSize:".64rem",color:"var(--tx2)"}}>{"Next: "+tp.next.label+" ("+tp.next.req+" "+tp.badge.unit+")"}</span>:<span style={{fontSize:".64rem",color:c,fontWeight:700}}>👑 Elite!</span>}
                     </div>
                   </div>
                 </div>
-                {isExp&&(
-                  <div style={{padding:"0 14px 12px",borderTop:"1px solid var(--bd)"}}>
-                    <div style={{fontSize:".6rem",color:"var(--tx3)",marginBottom:8,marginTop:10,textTransform:"uppercase",letterSpacing:".08em"}}>Full Ladder</div>
-                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                      {tp.badge.tiers.map(t=>{
-                        const done=tp.progress>=t.req;
-                        const isCurr=tp.current&&tp.current.level===t.level;
-                        const isNext=tp.next&&tp.next.level===t.level;
-                        return(
-                          <div key={t.level} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:8,opacity:done?1:isNext?0.8:0.4,
-                            background:isCurr?t.color+"18":isNext?"var(--s3)":"transparent",
-                            border:isCurr?"1px solid "+t.color+"35":isNext?"1px solid var(--bd2)":"1px solid transparent"}}>
-                            <span style={{fontSize:".85rem",flexShrink:0}}>{done?"✓":isNext?"▷":"○"}</span>
-                            <div style={{flex:1,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                              <span style={{fontSize:".74rem",fontWeight:isCurr||done?600:400,color:done?t.color:"var(--tx2)"}}>{t.icon+" "+t.label}</span>
-                              <span style={{fontSize:".68rem",color:"var(--tx3)"}}>{t.req+" "+tp.badge.unit}</span>
-                            </div>
-                            {isCurr&&<span style={{fontSize:".58rem",background:t.color,color:"#fff",padding:"1px 5px",borderRadius:6,fontWeight:700,flexShrink:0}}>NOW</span>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
-            );
-          })}
-        </div>
+              {isExp&&(
+                <div style={{padding:"0 14px 12px",borderTop:"1px solid var(--bd)"}}>
+                  <div style={{fontSize:".6rem",color:"var(--tx3)",marginBottom:8,marginTop:10,textTransform:"uppercase",letterSpacing:".08em"}}>Full Ladder</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {tp.badge.tiers.map(t=>{
+                      const done=tp.progress>=t.req,isCurr=tp.current&&tp.current.level===t.level,isNext=tp.next&&tp.next.level===t.level;
+                      return(
+                        <div key={t.level} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:8,
+                          opacity:done?1:isNext?.8:.4,background:isCurr?t.color+"18":isNext?"var(--s3)":"transparent",
+                          border:isCurr?"1px solid "+t.color+"35":isNext?"1px solid var(--bd2)":"1px solid transparent"}}>
+                          <span style={{fontSize:".85rem",flexShrink:0}}>{done?"✓":isNext?"▷":"○"}</span>
+                          <div style={{flex:1,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                            <span style={{fontSize:".74rem",fontWeight:isCurr||done?600:400,color:done?t.color:"var(--tx2)"}}>{t.icon+" "+t.label}</span>
+                            <span style={{fontSize:".68rem",color:"var(--tx3)"}}>{t.req+" "+tp.badge.unit}</span>
+                          </div>
+                          {isCurr&&<span style={{fontSize:".58rem",background:t.color,color:"#fff",padding:"1px 5px",borderRadius:6,fontWeight:700,flexShrink:0}}>NOW</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
-
       {earned.length>0&&(
         <div className="card a2" style={{padding:16,marginBottom:14}}>
           <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:10}}>Achievement Badges</div>
           <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:4}} className="scroll-x">
             {earned.slice(-6).reverse().map((b,i)=>(
-              <div key={b.id} style={{display:"flex",flexDirection:"column",alignItems:"center",
-                gap:5,padding:"10px 9px",minWidth:64,borderRadius:12,flexShrink:0,
-                background:b.color+"15",border:"1.5px solid "+b.color+"30",animation:"pop .4s "+(i*0.06)+"s both"}}>
+              <div key={b.id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,
+                padding:"10px 9px",minWidth:64,borderRadius:12,flexShrink:0,
+                background:b.color+"15",border:"1.5px solid "+b.color+"30",animation:"pop .4s "+(i*.06)+"s both"}}>
                 <span style={{fontSize:"1.6rem"}}>{b.icon}</span>
-                <div style={{fontSize:".56rem",fontWeight:700,color:b.color,textAlign:"center",lineHeight:1.3}}>{b.name}</div>
+                <div style={{fontSize:".56rem",fontWeight:700,color:b.color,textAlign:"center"}}>{b.name}</div>
               </div>
             ))}
           </div>
         </div>
       )}
-
-      {BADGE_DEFS.filter(b=>!earnedBadges.has(b.id)).length>0&&(
-        <div className="a3" style={{marginBottom:14}}>
-          <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:8}}>{"Locked ("+BADGE_DEFS.filter(b=>!earnedBadges.has(b.id)).length+")"}</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-            {BADGE_DEFS.filter(b=>!earnedBadges.has(b.id)).map(b=>(
-              <div key={b.id} style={{padding:"5px 9px",borderRadius:20,border:"1px solid var(--bd)",background:"var(--s2)",display:"flex",alignItems:"center",gap:5,opacity:.6}}>
-                <span style={{fontSize:".85rem",filter:"grayscale(1)"}}>{b.icon}</span>
-                <span style={{fontSize:".68rem",color:"var(--tx3)"}}>{b.name}</span>
-              </div>
-            ))}
-          </div>
+      <div className="a3" style={{marginBottom:14}}>
+        <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:8}}>{"Locked ("+BADGE_DEFS.filter(b=>!earnedBadges.has(b.id)).length+")"}</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+          {BADGE_DEFS.filter(b=>!earnedBadges.has(b.id)).map(b=>(
+            <div key={b.id} style={{padding:"5px 9px",borderRadius:20,border:"1px solid var(--bd)",background:"var(--s2)",display:"flex",alignItems:"center",gap:5,opacity:.6}}>
+              <span style={{fontSize:".85rem",filter:"grayscale(1)"}}>{b.icon}</span>
+              <span style={{fontSize:".68rem",color:"var(--tx3)"}}>{b.name}</span>
+            </div>
+          ))}
         </div>
-      )}
-
+      </div>
       {!acts.length&&(
         <div style={{textAlign:"center",padding:"48px 0",color:"var(--tx2)"}}>
           <div style={{fontSize:"3rem",marginBottom:12}}>🏅</div>
@@ -1511,28 +2131,122 @@ const AchievementsTab=({earnedBadges,acts,analytics,tierProgress,newTiers})=>{
   );
 };
 
+const MonthlyReport=({acts,goals,onClose})=>{
+  // Group activities by calendar month
+  const byMonth=useMemo(()=>{
+    const map={};
+    acts.forEach(a=>{
+      if(!["Run","Walk","Hike"].includes(a.type))return;
+      const d=new Date(a.dateTs);
+      const key=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+      if(!map[key])map[key]={key,label:d.toLocaleDateString("en-GB",{month:"long",year:"numeric"}),runs:[],km:0,timeSec:0,paces:[],hrs:[],elevGain:0};
+      const m=map[key];
+      m.runs.push(a);m.km+=a.distanceKm;m.timeSec+=a.movingTimeSec||0;
+      if(a.avgPaceSecKm)m.paces.push(a.avgPaceSecKm);
+      if(a.avgHR)m.hrs.push(a.avgHR);
+      m.elevGain+=a.elevGainM||0;
+    });
+    return Object.values(map).sort((a,b)=>b.key.localeCompare(a.key));
+  },[acts]);
 
-const MonthlyReport=({acts,onClose})=>(
-  <div style={{position:"fixed",inset:0,zIndex:220,background:"var(--bg)",display:"flex",flexDirection:"column"}}>
-    <div className="glass" style={{padding:"14px 18px 12px",borderBottom:"1px solid var(--bd)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-      <div style={{fontWeight:700,fontSize:"1.05rem"}}>Monthly Report</div>
-      <button className="btn b-gh" style={{padding:"6px 13px",fontSize:".8rem"}} onClick={onClose}>✕ Close</button>
-    </div>
-    <div style={{flex:1,padding:"24px 18px",textAlign:"center",color:"var(--tx2)"}}>
-      <div style={{fontSize:"2.5rem",marginBottom:12}}>📅</div>
-      <div style={{fontWeight:600,marginBottom:8}}>Monthly Reports</div>
-      <div style={{fontSize:".84rem",lineHeight:1.7,maxWidth:280,margin:"0 auto"}}>
-        Full monthly reports with stats, HR analysis and coach summaries are available in your live app at your Vercel URL.
+  if(!byMonth.length)return(
+    <div style={{position:"fixed",inset:0,zIndex:220,background:"var(--bg)",display:"flex",flexDirection:"column"}}>
+      <div className="glass" style={{padding:"14px 18px 12px",borderBottom:"1px solid var(--bd)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontWeight:700,fontSize:"1.05rem"}}>Monthly Report</div>
+        <button className="btn b-gh" style={{padding:"6px 13px",fontSize:".8rem"}} onClick={onClose}>✕ Close</button>
+      </div>
+      <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,color:"var(--tx2)"}}>
+        <span style={{fontSize:"3rem"}}>📅</span>
+        <div style={{fontWeight:600}}>No runs recorded yet</div>
+        <div style={{fontSize:".84rem"}}>Upload your first GPX to generate a report</div>
       </div>
     </div>
-  </div>
-);
+  );
 
-const SettingsPanel=({
-  acts,goals,hrProfile,profile,
-  onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onClose,
-  stravaAuth,stravaSync,onStravaConnect,onStravaSync,onStravaDisconnect
-})=>{
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:220,background:"var(--bg)",display:"flex",flexDirection:"column"}}>
+      <div className="glass" style={{padding:"14px 18px 12px",borderBottom:"1px solid var(--bd)",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+        <div>
+          <div style={{fontWeight:700,fontSize:"1.05rem"}}>Monthly Report</div>
+          <div style={{fontSize:".68rem",color:"var(--tx2)",marginTop:2}}>{byMonth.length+" month"+(byMonth.length!==1?"s":"")+" of data"}</div>
+        </div>
+        <button className="btn b-gh" style={{padding:"6px 13px",fontSize:".8rem"}} onClick={onClose}>✕ Close</button>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"16px 18px 40px"}}>
+        {byMonth.map((m,mi)=>{
+          const longest=m.runs.reduce((b,r)=>r.distanceKm>b.distanceKm?r:b,m.runs[0]);
+          const bestPace=m.paces.length?Math.min(...m.paces):null;
+          const avgHR=m.hrs.length?Math.round(m.hrs.reduce((s,h)=>s+h,0)/m.hrs.length):null;
+          const avgPace=m.paces.length?Math.round(m.paces.reduce((s,p)=>s+p,0)/m.paces.length):null;
+          const monthGoal=goals&&goals.monthly?goals.monthly:0;
+          const goalPct=monthGoal?Math.min(100,Math.round(m.km/monthGoal*100)):0;
+          const isCurrent=mi===0;
+          const totalH=Math.floor(m.timeSec/3600),totalM=Math.floor((m.timeSec%3600)/60);
+          const totalTime=(totalH>0?totalH+"h ":"")+totalM+"m";
+          return(
+            <div key={m.key} className={"card a"+Math.min(mi,3)} style={{marginBottom:16,padding:0,overflow:"hidden",border:isCurrent?"1px solid rgba(249,115,22,.3)":"1px solid var(--bd)"}}>
+              {/* Month header */}
+              <div style={{padding:"14px 16px 12px",background:isCurrent?"rgba(249,115,22,.07)":"var(--s2)",borderBottom:"1px solid var(--bd)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:".96rem",color:isCurrent?"var(--or)":"var(--tx)"}}>{m.label}</div>
+                  <div style={{fontSize:".68rem",color:"var(--tx2)",marginTop:2}}>{m.runs.length+" run"+(m.runs.length!==1?"s":"")}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:"1.4rem",fontWeight:800,color:isCurrent?"var(--or)":"var(--tx)",lineHeight:1}}>{fmtKm(m.km)}</div>
+                  <div style={{fontSize:".6rem",color:"var(--tx2)",letterSpacing:".08em"}}>KM TOTAL</div>
+                </div>
+              </div>
+              {/* Goal progress bar */}
+              {monthGoal>0&&(
+                <div style={{padding:"10px 16px 0"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                    <span style={{fontSize:".64rem",color:"var(--tx2)"}}>Monthly goal</span>
+                    <span style={{fontSize:".64rem",color:goalPct>=100?"var(--gn)":"var(--tx2)",fontWeight:600}}>{goalPct+"% of "+monthGoal+" km"}</span>
+                  </div>
+                  <div className="pb"><div className="pf" style={{width:goalPct+"%",background:goalPct>=100?"var(--gn)":"var(--or)"}}/></div>
+                </div>
+              )}
+              {/* Stats grid */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:1,background:"var(--bd)",margin:"10px 0 0",borderTop:"1px solid var(--bd)"}}>
+                {[
+                  {l:"Avg Pace",v:avgPace?fmtPace(avgPace)+"/km":"—"},
+                  {l:"Best Pace",v:bestPace?fmtPace(bestPace)+"/km":"—"},
+                  {l:"Total Time",v:totalTime||"—"},
+                  {l:"Longest",v:longest?fmtKm(longest.distanceKm)+" km":"—"},
+                  {l:"Elev Gain",v:"+"+Math.round(m.elevGain)+"m"},
+                  {l:"Avg HR",v:avgHR?(avgHR+" bpm"):"—"},
+                ].map(({l,v})=>(
+                  <div key={l} style={{background:"var(--bg)",padding:"11px 12px",textAlign:"center"}}>
+                    <div style={{fontSize:".86rem",fontWeight:700,marginBottom:3}}>{v}</div>
+                    <div style={{fontSize:".6rem",color:"var(--tx2)"}}>{l}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Top 3 runs */}
+              <div style={{padding:"10px 16px 14px"}}>
+                <div style={{fontSize:".6rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--tx3)",marginBottom:8}}>Runs this month</div>
+                {[...m.runs].sort((a,b)=>b.distanceKm-a.distanceKm).slice(0,3).map((r,i)=>(
+                  <div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:i<2?"1px solid var(--bd)":"none"}}>
+                    <div style={{minWidth:0,flex:1,paddingRight:10}}>
+                      <div style={{fontSize:".76rem",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</div>
+                      <div style={{fontSize:".64rem",color:"var(--tx2)",marginTop:1}}>{fmtDate(r.date)}</div>
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <div style={{fontSize:".82rem",fontWeight:700,color:"var(--or)"}}>{fmtKm(r.distanceKm)+" km"}</div>
+                      <div style={{fontSize:".64rem",color:"var(--tx2)"}}>{fmtPace(r.avgPaceSecKm)+"/km"}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const SettingsPanel=({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onClose,stravaAuth,stravaSync,onStravaConnect,onStravaSync,onStravaDisconnect})=>{
   const[view,setView]=useState("main");
   const[age,setAge]=useState(hrProfile.age||"");
   const[ov,setOv]=useState(hrProfile.maxHROverride||"");
@@ -1541,7 +2255,7 @@ const SettingsPanel=({
   const[mo,setMo]=useState(goals.monthly);
   const[nm,setNm]=useState(profile.name||"Runner");
   const ageNum=parseInt(age)||null;
-  const previewMaf=useOv&&parseInt(ov)?parseInt(ov):ageNum?180-ageNum:null;
+  const prevMaf=useOv&&parseInt(ov)?parseInt(ov):ageNum?180-ageNum:null;
   const backBtn=<button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.1rem"}} onClick={()=>setView("main")}>‹</button>;
   return(
     <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,.6)"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
@@ -1561,7 +2275,6 @@ const SettingsPanel=({
               </div>
             ))}
             <div className="card2" style={{padding:14,marginBottom:10,borderRadius:12}}>
-              <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:8}}>Library</div>
               {[["Activities",String(acts.length)],["Storage",Math.round(JSON.stringify(acts).length/1024)+" KB"]].map(([l,v])=>(
                 <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}>
                   <span style={{fontSize:".8rem",color:"var(--tx2)"}}>{l}</span>
@@ -1574,9 +2287,7 @@ const SettingsPanel=({
         )}
         {view==="profile"&&(
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}
-              <div style={{fontWeight:700,fontSize:"1.05rem"}}>Profile</div>
-            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}<div style={{fontWeight:700,fontSize:"1.05rem"}}>Profile</div></div>
             <label style={{fontSize:".76rem",fontWeight:600,display:"block",marginBottom:7}}>Your name</label>
             <input className="inp" value={nm} onChange={e=>setNm(e.target.value)} placeholder="e.g. Alex" style={{marginBottom:18}}/>
             <button className="btn b-or" style={{width:"100%",padding:"12px"}} onClick={()=>{onSaveProfile({name:nm||"Runner"});setView("main");}}>Save</button>
@@ -1584,9 +2295,7 @@ const SettingsPanel=({
         )}
         {view==="hr"&&(
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}
-              <div style={{fontWeight:700,fontSize:"1.05rem"}}>MAF HR Profile</div>
-            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}<div style={{fontWeight:700,fontSize:"1.05rem"}}>MAF HR Profile</div></div>
             <label style={{fontSize:".76rem",fontWeight:600,display:"block",marginBottom:7}}>Age · 180 − age formula</label>
             <input className="inp" type="number" min="10" max="100" placeholder="e.g. 32" value={age} onChange={e=>setAge(e.target.value)} style={{marginBottom:ageNum&&!useOv?6:14}}/>
             {ageNum&&!useOv&&<div style={{fontSize:".72rem",color:"var(--gn)",marginBottom:14}}>{"✓ MAF HR: "+(180-ageNum)+" bpm"}</div>}
@@ -1597,10 +2306,10 @@ const SettingsPanel=({
               <span style={{fontSize:".78rem",cursor:"pointer"}} onClick={()=>setUseOv(v=>!v)}>Custom MAF override</span>
             </div>
             {useOv&&<input className="inp" type="number" min="100" max="220" placeholder="e.g. 148" value={ov} onChange={e=>setOv(e.target.value)} style={{marginBottom:14}}/>}
-            {previewMaf&&(
+            {prevMaf&&(
               <div style={{marginBottom:16,padding:"12px",background:"rgba(249,115,22,.07)",border:"1px solid rgba(249,115,22,.2)",borderRadius:12}}>
-                <div style={{fontSize:".7rem",color:"var(--or)",fontWeight:600,marginBottom:7}}>{"MAF = "+previewMaf+" bpm"}</div>
-                {getMafZones(previewMaf).map(z=>(
+                <div style={{fontSize:".7rem",color:"var(--or)",fontWeight:600,marginBottom:7}}>{"MAF = "+prevMaf+" bpm"}</div>
+                {getMafZones(prevMaf).map(z=>(
                   <div key={z.zone} style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                     <div style={{width:7,height:7,borderRadius:"50%",background:z.color}}/>
                     <span style={{fontSize:".72rem",flex:1}}>{z.zone+" "+z.label}</span>
@@ -1617,9 +2326,7 @@ const SettingsPanel=({
         )}
         {view==="goals"&&(
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}
-              <div style={{fontWeight:700,fontSize:"1.05rem"}}>Distance Goals</div>
-            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}<div style={{fontWeight:700,fontSize:"1.05rem"}}>Distance Goals</div></div>
             {[["Weekly (km)",wk,setWk],["Monthly (km)",mo,setMo]].map(([l,v,sv])=>(
               <div key={l} style={{marginBottom:16}}>
                 <label style={{fontSize:".76rem",fontWeight:600,display:"block",marginBottom:7}}>{l}</label>
@@ -1631,17 +2338,12 @@ const SettingsPanel=({
         )}
         {view==="strava"&&(
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>{backBtn}
-              <div style={{fontWeight:700,fontSize:"1.05rem"}}>Strava Sync</div>
-            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>{backBtn}<div style={{fontWeight:700,fontSize:"1.05rem"}}>Strava Sync</div></div>
             {stravaAuth?(
               <div>
                 <div style={{padding:"12px 14px",borderRadius:12,background:"rgba(34,197,94,.1)",border:"1px solid rgba(34,197,94,.2)",marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
                   <div style={{width:36,height:36,borderRadius:"50%",background:"#fc4c02",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.1rem",flexShrink:0}}>🟠</div>
-                  <div>
-                    <div style={{fontWeight:700,color:"var(--gn)"}}>✓ Connected to Strava</div>
-                    <div style={{fontSize:".74rem",color:"var(--tx2)"}}>{stravaAuth.athlete&&stravaAuth.athlete.firstname||"Athlete"}</div>
-                  </div>
+                  <div><div style={{fontWeight:700,color:"var(--gn)"}}>✓ Connected</div><div style={{fontSize:".74rem",color:"var(--tx2)"}}>{stravaAuth.athlete&&stravaAuth.athlete.firstname||"Athlete"}</div></div>
                 </div>
                 <button className="btn b-or" style={{width:"100%",padding:"12px",marginBottom:10}} onClick={onStravaSync} disabled={stravaSync&&stravaSync.loading}>{stravaSync&&stravaSync.loading?"⏳ Syncing…":"🔄 Sync from Strava"}</button>
                 {stravaSync&&stravaSync.msg&&<div style={{fontSize:".74rem",color:"var(--tx2)",textAlign:"center",padding:"7px",background:"var(--s3)",borderRadius:9,marginBottom:10}}>{stravaSync.msg}</div>}
@@ -1652,7 +2354,7 @@ const SettingsPanel=({
                 <div style={{textAlign:"center",padding:"16px 0 20px"}}>
                   <div style={{fontSize:"2.5rem",marginBottom:10}}>🟠</div>
                   <div style={{fontWeight:700,marginBottom:8}}>Connect Strava</div>
-                  <div style={{fontSize:".8rem",color:"var(--tx2)",lineHeight:1.7,marginBottom:20}}>Import your runs automatically. No GPX uploads needed.</div>
+                  <div style={{fontSize:".8rem",color:"var(--tx2)",lineHeight:1.7,marginBottom:20}}>Import your runs automatically.</div>
                 </div>
                 <button className="btn b-or" style={{width:"100%",padding:"13px",marginBottom:10}} onClick={onStravaConnect}>🟠 Connect with Strava</button>
                 {stravaSync&&stravaSync.msg&&<div style={{fontSize:".74rem",color:"var(--rd)",textAlign:"center",marginTop:8}}>{stravaSync.msg}</div>}
@@ -1683,6 +2385,7 @@ export default function App(){
   const[tab,setTab]=useState(()=>{try{return localStorage.getItem(TAB_KEY)||"home";}catch(e){return"home";}});
   const setTabPersist=useCallback(t=>{setTab(t);try{localStorage.setItem(TAB_KEY,t);}catch(e){}},[]);
   const[detail,setDetail]=useState(null);
+  const[shareAct,setShareAct]=useState(null);
   const[showSettings,setShowSettings]=useState(false);
   const[showUpload,setShowUpload]=useState(false);
   const[showSplash,setShowSplash]=useState(true);
@@ -1713,20 +2416,15 @@ export default function App(){
   },[tab]);
   const doStravaRef=useRef(null);
   useEffect(()=>{
-    const params=new URLSearchParams(window.location.search);
-    const code=params.get("code");
+    const params=new URLSearchParams(window.location.search),code=params.get("code");
     if(!code)return;
     window.history.replaceState({},"",window.location.pathname);
     setStravaSync({loading:true,msg:"Connecting to Strava…"});
-    fetch("/api/strava-token?code="+code)
-      .then(r=>r.json())
-      .then(data=>{
-        if(!data.access_token){setStravaSync({loading:false,msg:"Connection failed."});return;}
-        saveStravaAuth(data);setStravaAuth(data);
-        setStravaSync({loading:false,msg:"Connected ✓"});
-        if(doStravaRef.current)doStravaRef.current(data);
-      })
-      .catch(()=>setStravaSync({loading:false,msg:"Connection failed."}));
+    fetch("/api/strava-token?code="+code).then(r=>r.json()).then(data=>{
+      if(!data.access_token){setStravaSync({loading:false,msg:"Connection failed."});return;}
+      saveStravaAuth(data);setStravaAuth(data);setStravaSync({loading:false,msg:"Connected ✓"});
+      if(doStravaRef.current)doStravaRef.current(data);
+    }).catch(()=>setStravaSync({loading:false,msg:"Connection failed."}));
   },[]);
   const getStravaToken=useCallback(async auth=>{
     if(!auth)return null;
@@ -1748,42 +2446,22 @@ export default function App(){
     const now=Date.now();
     if(isSyncingRef.current)return;
     if(!authOverride&&now-lastSyncRef.current<10000)return;
-    isSyncingRef.current=true;
-    lastSyncRef.current=now;
+    isSyncingRef.current=true;lastSyncRef.current=now;
     if(!silent)setStravaSync({loading:true,msg:"Syncing…"});
     else setStravaSync(s=>({...s,loading:true}));
     const token=await getStravaToken(auth);
-    if(!token){
-      isSyncingRef.current=false;
-      setStravaSync({loading:false,msg:"Session expired — reconnect Strava."});
-      return;
-    }
+    if(!token){isSyncingRef.current=false;setStravaSync({loading:false,msg:"Session expired — reconnect Strava."});return;}
     try{
       const res=await fetch("https://www.strava.com/api/v3/athlete/activities?per_page=30&page=1",{headers:{Authorization:"Bearer "+token}});
       const data=await res.json();
       if(!Array.isArray(data)){setStravaSync({loading:false,msg:"Sync error."});return;}
-      const mapped=data
-        .filter(a=>["Run","Walk","Hike","TrailRun","VirtualRun"].includes(a.sport_type||a.type))
-        .map(mapStravaActivity);
+      const mapped=data.filter(a=>["Run","Walk","Hike","TrailRun","VirtualRun"].includes(a.sport_type||a.type)).map(mapStravaActivity);
       let added=0;
-      setActs(prev=>{
-        const ids=new Set(prev.map(a=>a.id));
-        const fresh=mapped.filter(a=>!ids.has(a.id));
-        added=fresh.length;
-        if(!fresh.length)return prev;
-        return [...fresh,...prev].sort((a,b)=>b.dateTs-a.dateTs);
-      });
-      if(silent&&added===0){
-        setStravaSync(s=>({...s,loading:false}));
-      }else{
-        setStravaSync({loading:false,msg:added>0?"+"+ added+" new activit"+(added===1?"y":"ies")+" synced ✓":"Up to date ✓"});
-        if(added===0)setTimeout(()=>setStravaSync(s=>({...s,msg:""})),3000);
-      }
-    }catch(e){
-      setStravaSync({loading:false,msg:"Sync failed."});
-    }finally{
-      isSyncingRef.current=false;
-    }
+      setActs(prev=>{const ids=new Set(prev.map(a=>a.id));const fresh=mapped.filter(a=>!ids.has(a.id));added=fresh.length;if(!fresh.length)return prev;return [...fresh,...prev].sort((a,b)=>b.dateTs-a.dateTs);});
+      if(silent&&added===0){setStravaSync(s=>({...s,loading:false}));}
+      else{setStravaSync({loading:false,msg:added>0?"+"+added+" new activit"+(added===1?"y":"ies")+" synced ✓":"Up to date ✓"});if(added===0)setTimeout(()=>setStravaSync(s=>({...s,msg:""})),3000);}
+    }catch(e){setStravaSync({loading:false,msg:"Sync failed."});}
+    finally{isSyncingRef.current=false;}
   },[stravaAuth,getStravaToken]);
   useEffect(()=>{doStravaRef.current=doStravaSync;},[doStravaSync]);
   useEffect(()=>{if(stravaAuth)doStravaSync(null,true);},[]);
@@ -1879,8 +2557,9 @@ export default function App(){
         onOpenRun={id=>{const act=acts.find(a=>a.id===id);if(act){setPrDetail(null);openDetail(act);}}}
       />}
       {showAllRuns&&<AllRunsView acts={acts} hrProfile={hrProfile} onSelect={openDetail} onClose={back}/>}
-      {showMonthly&&<MonthlyReport acts={acts} onClose={back}/>}
-      {detail&&<Detail act={detail} hrProfile={hrProfile} onClose={back} onDelete={id=>deleteAct(id)}/>}
+      {showMonthly&&<MonthlyReport acts={acts} goals={goals} onClose={back}/>}
+      {detail&&<Detail act={detail} hrProfile={hrProfile} onClose={back} onDelete={id=>deleteAct(id)} onShare={()=>setShareAct(detail)}/>}
+      {shareAct&&<ShareModal act={shareAct} onClose={()=>setShareAct(null)}/>}
       {showSettings&&(
         <SettingsPanel
           acts={acts} goals={goals} hrProfile={hrProfile} profile={profile}
