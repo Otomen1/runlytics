@@ -850,6 +850,31 @@ function drawRouteCanvas(ctx,route,rx,ry,rW,rH,lw){
   ctx.beginPath();ctx.fillStyle="#ef4444";ctx.arc(X(route[route.length-1].lon),Y(route[route.length-1].lat),r,0,Math.PI*2);ctx.fill();
 }
 
+function drawTextOverlay(ctx,act,W,H){
+  ctx.clearRect(0,0,W,H);
+  const dist=fmtKm(act.distanceKm),pace=fmtPace(act.avgPaceSecKm)+"/km";
+  const s=act.movingTimeSec||0,dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
+  const date=fmtDate(act.date);
+  const tf=(sz,w)=>{ctx.font=(w||"700")+" "+Math.round(sz)+"px system-ui,sans-serif";};
+  const sh=()=>{ctx.shadowColor="rgba(0,0,0,.65)";ctx.shadowBlur=18;ctx.shadowOffsetX=0;ctx.shadowOffsetY=2;};
+  const nsh=()=>{ctx.shadowColor="transparent";ctx.shadowBlur=0;ctx.shadowOffsetX=0;ctx.shadowOffsetY=0;};
+  ctx.textBaseline="alphabetic";
+  // Branding + date
+  sh();tf(H*.022,"800");ctx.fillStyle="rgba(255,255,255,.75)";ctx.fillText("RUNLYTICS",W*.07,H*.068);
+  ctx.textAlign="right";tf(H*.018,"400");ctx.fillStyle="rgba(255,255,255,.5)";ctx.fillText(date,W*.93,H*.068);ctx.textAlign="left";
+  // Route preview (if available)
+  nsh();
+  if(act.route&&act.route.length>2)drawRouteCanvas(ctx,act.route,W*.07,H*.11,W*.86,H*.32,6);
+  // Distance hero
+  sh();tf(W*.38,"900");ctx.fillStyle="#f97316";ctx.fillText(dist,W*.07,H*.66);
+  nsh();tf(H*.022,"600");ctx.fillStyle="rgba(255,255,255,.45)";ctx.fillText("KM",W*.07,H*.70);
+  // Divider
+  ctx.globalAlpha=0.25;ctx.fillStyle="#fff";ctx.fillRect(W*.07,H*.74,W*.86,W*.002);ctx.globalAlpha=1;
+  // Pace + Time
+  sh();tf(H*.048,"700");ctx.fillStyle="#fff";ctx.fillText(pace,W*.07,H*.82);ctx.fillText(dur,W*.52,H*.82);
+  nsh();tf(H*.018,"600");ctx.fillStyle="rgba(255,255,255,.45)";ctx.fillText("PACE",W*.07,H*.855);ctx.fillText("TIME",W*.52,H*.855);
+}
+
 function drawRunCard(ctx,act,tmpl,W,H){
   const dist=fmtKm(act.distanceKm),pace=fmtPace(act.avgPaceSecKm)+"/km";
   const s=act.movingTimeSec||0;
@@ -1403,27 +1428,21 @@ const ShareModal=({act,onClose})=>{
       const cv=document.createElement("canvas");
       cv.width=W;cv.height=H;
       const ctx=cv.getContext("2d");
-      const t=TMPL[idx];
-      if(mode==="custom"){
-        let loadedImg=null;
-        if(bgImg){loadedImg=await new Promise(res=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>res(null);i.src=bgImg;});}
-        drawCustomCard(ctx,act,t,W,H,bgPreset,loadedImg);
-      }else if(t==="glass"||t==="poster"){drawRunCardExtra(ctx,act,t,W,H);}
-      else{drawRunCard(ctx,act,t,W,H);}
+      drawTextOverlay(ctx,act,W,H);
+      const blobFn=res=>cv.toBlob(res,"image/png");
       if(navigator.clipboard&&window.ClipboardItem){
-        await navigator.clipboard.write([new ClipboardItem({"image/png":new Promise(res=>cv.toBlob(res,"image/png"))})]);
+        await navigator.clipboard.write([new ClipboardItem({"image/png":new Promise(blobFn)})]);
         setCopied(true);setTimeout(()=>setCopied(false),2500);
       }else{
-        // Fallback: auto-download for browsers without ClipboardItem
-        cv.toBlob(blob=>{
+        blobFn(blob=>{
           if(!blob)return;
           const url=URL.createObjectURL(blob);
           const a=document.createElement("a");
-          a.href=url;a.download="runlytics-"+t+".png";
+          a.href=url;a.download="runlytics-overlay.png";
           document.body.appendChild(a);a.click();
           setTimeout(()=>{try{document.body.removeChild(a);}catch(e){}URL.revokeObjectURL(url);},900);
           setCopied(true);setTimeout(()=>setCopied(false),2500);
-        },"image/png");
+        });
       }
     }catch(e){setCopied(false);}
     finally{setCopying(false);}
