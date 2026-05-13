@@ -734,10 +734,18 @@ const RouteMapSVG=({route,act})=>{
   // All map geometry in one memo — tiles, projection, sampled route
   const map=useMemo(()=>{
     if(!route||route.length<2)return null;
+    // Filter invalid coordinates before any math
+    const clean=route.filter(p=>p&&isFinite(p.lat)&&isFinite(p.lon)
+      &&p.lat>=-90&&p.lat<=90&&p.lon>=-180&&p.lon<=180);
+    if(clean.length<2)return null;
     const W=360,H=280;
-    const lats=route.map(r=>r.lat),lons=route.map(r=>r.lon);
-    const minLat=Math.min(...lats),maxLat=Math.max(...lats);
-    const minLon=Math.min(...lons),maxLon=Math.max(...lons);
+    // Safe min/max — spread crashes Safari on routes >~10k points
+    let minLat=clean[0].lat,maxLat=clean[0].lat,minLon=clean[0].lon,maxLon=clean[0].lon;
+    for(let i=1;i<clean.length;i++){
+      const p=clean[i];
+      if(p.lat<minLat)minLat=p.lat;if(p.lat>maxLat)maxLat=p.lat;
+      if(p.lon<minLon)minLon=p.lon;if(p.lon>maxLon)maxLon=p.lon;
+    }
     const lonR=maxLon-minLon||.01;
     // Exact Web Mercator — same formula used by OSM/Google/Strava
     const tyOf=lat=>(1-Math.log(Math.tan(lat*Math.PI/180)+1/Math.cos(lat*Math.PI/180))/Math.PI)/2;
@@ -749,6 +757,7 @@ const RouteMapSVG=({route,act})=>{
     const txMin=Math.floor(txOf(minLon)*n)-1,txMax=Math.floor(txOf(maxLon)*n)+1;
     const tyMin=Math.floor(tyOf(maxLat)*n)-1,tyMax=Math.floor(tyOf(minLat)*n)+1;
     const tW=txMax-txMin+1,tH=tyMax-tyMin+1;
+    if(tW<=0||tH<=0)return null;
     // Scale tile grid to fill SVG viewport
     const sc=Math.min(W/(tW*256),H/(tH*256));
     const ox=(W-tW*256*sc)/2,oy=(H-tH*256*sc)/2;
@@ -764,11 +773,13 @@ const RouteMapSVG=({route,act})=>{
           x:(tx-txMin)*256*sc+ox,y:(ty-tyMin)*256*sc+oy,sz:256*sc});
     // Adaptive sampling ≤600 pts
     const MAX=600;
-    const sIdx=route.length<=MAX
-      ?Array.from({length:route.length},(_,i)=>i)
-      :Array.from({length:MAX},(_,i)=>Math.min(Math.round(i*(route.length-1)/(MAX-1)),route.length-1));
-    if(route.length>MAX&&sIdx[sIdx.length-1]!==route.length-1)sIdx.push(route.length-1);
-    const spts=sIdx.map(i=>({sx:toSX(route[i].lon),sy:toSY(route[i].lat),ri:i}));
+    const sIdx=clean.length<=MAX
+      ?Array.from({length:clean.length},(_,i)=>i)
+      :Array.from({length:MAX},(_,i)=>Math.min(Math.round(i*(clean.length-1)/(MAX-1)),clean.length-1));
+    if(clean.length>MAX&&sIdx[sIdx.length-1]!==clean.length-1)sIdx.push(clean.length-1);
+    const spts=sIdx.map(i=>({sx:toSX(clean[i].lon),sy:toSY(clean[i].lat),ri:i}));
+    // Guard against NaN pixel coords (e.g. extreme latitudes > ~85°)
+    if(spts.some(p=>!isFinite(p.sx)||!isFinite(p.sy)))return null;
     const d=spts.map((p,i)=>(i===0?"M":"L")+p.sx.toFixed(1)+","+p.sy.toFixed(1)).join(" ");
     const pLen=spts.reduce((t,p,i)=>i===0?0:t+Math.hypot(p.sx-spts[i-1].sx,p.sy-spts[i-1].sy),0);
     const col=act&&act.avgPaceSecKm<270?"#22c55e":act&&act.avgPaceSecKm<360?"#f97316":"#f97316";
@@ -858,27 +869,47 @@ const RouteMapSVG=({route,act})=>{
 // ── Share Activity Feature ────────────────────────────────────────────
 
 function drawRouteCanvas(ctx,route,rx,ry,rW,rH,lw){
-  if(!route||route.length<2)return;
-  const lats=route.map(r=>r.lat),lons=route.map(r=>r.lon);
-  const minLat=Math.min(...lats),maxLat=Math.max(...lats),minLon=Math.min(...lons),maxLon=Math.max(...lons);
+  if(!Array.isArray(route)||route.length<2)return;
+  // Filter invalid coordinates before any math
+  const valid=route.filter(p=>p&&isFinite(p.lat)&&isFinite(p.lon)
+    &&p.lat>=-90&&p.lat<=90&&p.lon>=-180&&p.lon<=180);
+  if(valid.length<2)return;
+  // Safe min/max — avoid spread which crashes on large arrays in Safari
+  let minLat=valid[0].lat,maxLat=valid[0].lat,minLon=valid[0].lon,maxLon=valid[0].lon;
+  for(let i=1;i<valid.length;i++){
+    const p=valid[i];
+    if(p.lat<minLat)minLat=p.lat;if(p.lat>maxLat)maxLat=p.lat;
+    if(p.lon<minLon)minLon=p.lon;if(p.lon>maxLon)maxLon=p.lon;
+  }
   const latR=maxLat-minLat||.001,lonR=maxLon-minLon||.001;
-  const asp=lonR/latR*Math.cos((minLat+maxLat)/2*Math.PI/180),pad=lw*3;
+  const asp=lonR/latR*Math.cos((minLat+maxLat)/2*Math.PI/180);
+  const pad=Math.max(lw*2.5,4);
   let vW=rW-2*pad,vH=rH-2*pad;
+  if(vW<=0||vH<=0)return; // degenerate region
   if(asp>vW/vH){vH=vW/asp;}else{vW=vH*asp;}
+  if(vW<=0||vH<=0)return;
   const ox=rx+(rW-vW)/2,oy=ry+(rH-vH)/2;
-  const X=lon=>ox+(lon-minLon)/lonR*vW,Y=lat=>oy+(maxLat-lat)/latR*vH;
-  const step=Math.max(1,Math.floor(route.length/250));
-  const pts=route.filter((_,i)=>i%step===0||i===route.length-1);
+  const X=lon=>ox+(lon-minLon)/lonR*vW;
+  const Y=lat=>oy+(maxLat-lat)/latR*vH;
+  // Adaptive sampling — always start+end
+  const step=Math.max(1,Math.floor(valid.length/300));
+  const pts=valid.filter((_,i)=>i%step===0);
+  if(pts[pts.length-1]!==valid[valid.length-1])pts.push(valid[valid.length-1]);
+  // Reset shadow so route isn't blurred by any prior text shadow
+  ctx.shadowColor="transparent";ctx.shadowBlur=0;
   ctx.lineCap="round";ctx.lineJoin="round";
-  ctx.beginPath();ctx.strokeStyle="rgba(249,115,22,.22)";ctx.lineWidth=lw*3.5;
+  // Glow pass
+  ctx.beginPath();ctx.strokeStyle="rgba(249,115,22,.18)";ctx.lineWidth=lw*3.5;
   pts.forEach((p,i)=>i===0?ctx.moveTo(X(p.lon),Y(p.lat)):ctx.lineTo(X(p.lon),Y(p.lat)));
   ctx.stroke();
+  // Main line
   ctx.beginPath();ctx.strokeStyle="#f97316";ctx.lineWidth=lw;
   pts.forEach((p,i)=>i===0?ctx.moveTo(X(p.lon),Y(p.lat)):ctx.lineTo(X(p.lon),Y(p.lat)));
   ctx.stroke();
-  const r=lw*1.8;
-  ctx.beginPath();ctx.fillStyle="#22c55e";ctx.arc(X(route[0].lon),Y(route[0].lat),r,0,Math.PI*2);ctx.fill();
-  ctx.beginPath();ctx.fillStyle="#ef4444";ctx.arc(X(route[route.length-1].lon),Y(route[route.length-1].lat),r,0,Math.PI*2);ctx.fill();
+  // Markers
+  const mr=Math.max(lw*1.6,3);
+  ctx.beginPath();ctx.fillStyle="#22c55e";ctx.arc(X(valid[0].lon),Y(valid[0].lat),mr,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.fillStyle="#ef4444";ctx.arc(X(valid[valid.length-1].lon),Y(valid[valid.length-1].lat),mr,0,Math.PI*2);ctx.fill();
 }
 
 function drawTextOverlay(ctx,act,W,H){
@@ -911,58 +942,72 @@ function drawRunCard(ctx,act,tmpl,W,H){
   const s=act.movingTimeSec||0,dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
   const date=fmtDate(act.date);
   const tf=(sz,w)=>{ctx.font=(w||"700")+" "+Math.round(sz)+"px system-ui,sans-serif";};
+  const tm=(sz,w)=>{ctx.font=(w||"700")+" "+Math.round(sz)+"px monospace,sans-serif";};
   const c=(v)=>{ctx.fillStyle=v;};
   ctx.textBaseline="alphabetic";ctx.textAlign="left";
 
+  // T1 — EDITORIAL MINIMAL (light cream, top-anchored, route corner art)
+  if(tmpl==="minimal"){
+    c("#f6f3ee");ctx.fillRect(0,0,W,H);
+    if(act.route&&act.route.length>2){
+      ctx.save();ctx.globalAlpha=0.28;
+      drawRouteCanvas(ctx,act.route,W*.38,H*.48,W*.56,H*.46,3);
+      ctx.restore();
+    }
+    tf(H*.016,"400");c("rgba(0,0,0,.22)");ctx.fillText("RUNLYTICS",W*.07,H*.065);
+    tf(W*.46,"900");c("#0a0a0a");ctx.fillText(dist,W*.07,H*.32);
+    tf(H*.018,"400");c("rgba(0,0,0,.22)");ctx.fillText("KILOMETERS",W*.07,H*.362);
+    ctx.globalAlpha=0.12;c("#0a0a0a");ctx.fillRect(W*.07,H*.72,W*.86,H*.001);ctx.globalAlpha=1;
+    tm(H*.034,"700");c("#0a0a0a");ctx.fillText(pace,W*.07,H*.782);ctx.fillText(dur,W*.5,H*.782);
+    tf(H*.013,"400");c("rgba(0,0,0,.28)");ctx.fillText("PACE",W*.07,H*.808);ctx.fillText("TIME",W*.5,H*.808);
+    tf(H*.013,"400");c("rgba(0,0,0,.2)");ctx.fillText(date,W*.07,H*.94);
+    return;
+  }
+
+  // T2 — ROUTE ART (pure dark, centered route hero, stats as whisper)
   if(tmpl==="orange"){
-    c("#f97316");ctx.fillRect(0,0,W,H);
-    // Watermark KM
-    tf(W*1.3,"900");c("rgba(0,0,0,.055)");ctx.fillText("KM",W*.15,H*.96);
-    // Branding
-    tf(H*.018,"800");c("rgba(0,0,0,.28)");ctx.fillText("RUNLYTICS",W*.07,H*.068);
-    // Bottom-anchored stats
-    tf(W*.47,"900");c("#000");ctx.fillText(dist,W*.07,H*.74);
-    tf(H*.016,"600");c("rgba(0,0,0,.25)");ctx.fillText("KM",W*.07,H*.775);
-    tf(H*.038,"800");c("#000");ctx.fillText(pace,W*.07,H*.87);ctx.fillText(dur,W*.52,H*.87);
-    tf(H*.014,"600");c("rgba(0,0,0,.28)");ctx.fillText("PACE",W*.07,H*.896);ctx.fillText("TIME",W*.52,H*.896);
-    tf(H*.014,"400");c("rgba(0,0,0,.22)");ctx.fillText(date,W*.07,H*.94);
+    c("#050507");ctx.fillRect(0,0,W,H);
+    if(act.route&&act.route.length>2){
+      drawRouteCanvas(ctx,act.route,W*.06,H*.07,W*.88,H*.68,5);
+    }else{
+      ctx.save();ctx.globalAlpha=0.15;ctx.strokeStyle="#f97316";ctx.lineWidth=W*.004;
+      ctx.beginPath();ctx.arc(W/2,H*.38,W*.22,0,Math.PI*2);ctx.stroke();
+      ctx.restore();
+    }
+    tf(H*.016,"400");c("rgba(255,255,255,.2)");ctx.fillText("RUNLYTICS",W*.07,H*.065);
+    ctx.textAlign="right";tf(H*.018,"700");c("rgba(249,115,22,.5)");ctx.fillText(dist+" km",W*.93,H*.065);ctx.textAlign="left";
+    ctx.globalAlpha=0.06;c("#fff");ctx.fillRect(W*.07,H*.818,W*.86,H*.001);ctx.globalAlpha=1;
+    tf(H*.016,"400");c("rgba(255,255,255,.38)");ctx.fillText(pace,W*.07,H*.862);
+    ctx.textAlign="right";ctx.fillText(dur,W*.93,H*.862);ctx.textAlign="left";
+    tf(H*.013,"400");c("rgba(255,255,255,.14)");
+    ctx.textAlign="center";ctx.fillText(date,W/2,H*.93);ctx.textAlign="left";
     return;
   }
-  if(tmpl==="cinematic"){
-    const g=ctx.createLinearGradient(0,0,W*.4,H);
-    g.addColorStop(0,"#040508");g.addColorStop(.6,"#090312");g.addColorStop(1,"#04060a");
-    c(g);ctx.fillRect(0,0,W,H);
-    if(act.route&&act.route.length>2)drawRouteCanvas(ctx,act.route,0,0,W,H*.58,5);
-    // Dark fade over route
-    const ov=ctx.createLinearGradient(0,0,0,H*.65);
-    ov.addColorStop(0,"rgba(4,5,8,.0)");ov.addColorStop(1,"rgba(4,5,8,.95)");
-    c(ov);ctx.fillRect(0,0,W,H*.65);
-    tf(H*.018,"800");c("rgba(249,115,22,.45)");ctx.fillText("RUNLYTICS",W*.07,H*.068);
-    tf(W*.45,"900");c("#fff");ctx.fillText(dist,W*.07,H*.76);
-    tf(H*.016,"600");c("rgba(255,255,255,.18)");ctx.fillText("KM",W*.07,H*.795);
-    tf(H*.036,"700");c("rgba(255,255,255,.9)");ctx.fillText(pace,W*.07,H*.868);ctx.fillText(dur,W*.52,H*.868);
-    tf(H*.013,"600");c("rgba(255,255,255,.22)");ctx.fillText("PACE",W*.07,H*.892);ctx.fillText("TIME",W*.52,H*.892);
-    ctx.globalAlpha=0.08;c("#fff");ctx.fillRect(W*.07,H*.912,W*.86,W*.002);ctx.globalAlpha=1;
-    tf(H*.017,"400");c("rgba(255,255,255,.35)");ctx.fillText("Keep showing up.",W*.07,H*.938);
-    tf(H*.014,"400");c("rgba(255,255,255,.2)");ctx.fillText("The results follow.",W*.07,H*.958);
-    return;
+
+  // T3 — ATHLETIC POSTER (cream bg, KM watermark, black stats rail)
+  c("#ede8e0");ctx.fillRect(0,0,W,H);
+  // KM watermark
+  tf(W*1.4,"900");c("rgba(0,0,0,.04)");ctx.fillText("KM",W*.1,H*.98);
+  tf(H*.016,"400");c("rgba(0,0,0,.22)");ctx.fillText("RUNLYTICS",W*.07,H*.065);
+  tf(W*.44,"900");c("#0a0a0a");ctx.fillText(dist,W*.07,H*.34);
+  tf(H*.018,"400");c("rgba(0,0,0,.22)");ctx.fillText("KILOMETERS",W*.07,H*.382);
+  // Small route
+  if(act.route&&act.route.length>2){
+    ctx.save();ctx.globalAlpha=0.6;
+    drawRouteCanvas(ctx,act.route,W*.07,H*.43,W*.42,H*.22,3);
+    ctx.restore();
   }
-  // Minimal
-  c("#09090f");ctx.fillRect(0,0,W,H);
-  if(act.route&&act.route.length>2)drawRouteCanvas(ctx,act.route,0,0,W,H*.62,5);
-  const fd=ctx.createLinearGradient(0,0,0,H*.68);
-  fd.addColorStop(0,"rgba(9,9,15,.0)");fd.addColorStop(1,"rgba(9,9,15,.98)");
-  c(fd);ctx.fillRect(0,0,W,H*.68);
-  tf(H*.018,"800");c("rgba(255,255,255,.25)");ctx.fillText("RUNLYTICS",W*.07,H*.065);
-  ctx.textAlign="right";tf(H*.014,"400");c("rgba(255,255,255,.16)");ctx.fillText(date,W*.93,H*.065);ctx.textAlign="left";
-  tf(W*.46,"900");c("#fff");ctx.fillText(dist,W*.07,H*.76);
-  tf(H*.016,"600");c("rgba(255,255,255,.18)");ctx.fillText("KM",W*.07,H*.795);
-  ctx.globalAlpha=0.35;ctx.strokeStyle="#f97316";ctx.lineWidth=W*.002;
-  ctx.beginPath();ctx.moveTo(W*.07,H*.824);ctx.lineTo(W*.6,H*.824);ctx.stroke();ctx.globalAlpha=1;
-  tf(H*.038,"700");c("#f97316");ctx.fillText(pace,W*.07,H*.868);
-  c("rgba(255,255,255,.85)");ctx.fillText(dur,W*.52,H*.868);
-  tf(H*.013,"600");c("rgba(255,255,255,.22)");ctx.fillText("PACE",W*.07,H*.892);ctx.fillText("TIME",W*.52,H*.892);
+  // Black strip at bottom
+  const stripY=H*.72;
+  c("#0a0a0a");ctx.fillRect(0,stripY,W,H-stripY);
+  const mid=(H-stripY)/2;
+  tm(H*.036,"800");c("#fff");ctx.fillText(pace,W*.08,stripY+mid*1.1);
+  ctx.textAlign="right";ctx.fillText(dur,W*.92,stripY+mid*1.1);ctx.textAlign="left";
+  tf(H*.013,"400");c("rgba(255,255,255,.32)");ctx.fillText("PACE",W*.08,stripY+mid*1.55);
+  ctx.textAlign="right";ctx.fillText("TIME",W*.92,stripY+mid*1.55);ctx.textAlign="left";
+  tf(H*.012,"400");c("rgba(255,255,255,.2)");ctx.textAlign="center";ctx.fillText(date,W/2,H*.965);ctx.textAlign="left";
 }
+
 function roundRect(ctx,x,y,w,h,r){
   ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);
   ctx.quadraticCurveTo(x+w,y,x+w,y+r);ctx.lineTo(x+w,y+h-r);
@@ -1056,143 +1101,130 @@ function drawRunCardExtra(ctx,act,tmpl,W,H){
   const s=act.movingTimeSec||0,dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
   const date=fmtDate(act.date);
   const tf=(sz,w)=>{ctx.font=(w||"700")+" "+Math.round(sz)+"px system-ui,sans-serif";};
+  const tm=(sz,w)=>{ctx.font=(w||"700")+" "+Math.round(sz)+"px monospace,sans-serif";};
   const c=(v)=>{ctx.fillStyle=v;};
   ctx.textBaseline="alphabetic";ctx.textAlign="left";
+
+  // T4 — AMOLED NIGHT (pure black, orange radial glow, centered distance)
   if(tmpl==="glass"){
-    const bg=ctx.createLinearGradient(0,0,W*.4,H);
-    bg.addColorStop(0,"#060b16");bg.addColorStop(1,"#0a1020");
-    c(bg);ctx.fillRect(0,0,W,H);
-    // Route fills upper 70%
-    if(act.route&&act.route.length>2)drawRouteCanvas(ctx,act.route,0,0,W,H*.68,5);
-    // Gradient fade over route
-    const fd=ctx.createLinearGradient(0,H*.25,0,H*.72);
-    fd.addColorStop(0,"rgba(6,11,22,.0)");fd.addColorStop(1,"rgba(6,11,22,.98)");
-    c(fd);ctx.fillRect(0,H*.25,W,H*.47);
-    // Branding
-    tf(H*.018,"800");c("rgba(140,190,255,.3)");ctx.fillText("RUNLYTICS",W*.07,H*.065);
-    // Frosted panel at bottom — simulate with semi-opaque fill
-    const panelY=H*.68;
-    ctx.save();ctx.globalAlpha=0.88;
-    const pg=ctx.createLinearGradient(0,panelY,0,H);
-    pg.addColorStop(0,"rgba(8,16,42,.6)");pg.addColorStop(1,"rgba(8,16,42,.95)");
-    c(pg);ctx.fillRect(0,panelY,W,H-panelY);
-    ctx.restore();
-    ctx.globalAlpha=0.12;ctx.strokeStyle="rgba(140,190,255,.6)";ctx.lineWidth=W*.001;
-    ctx.beginPath();ctx.moveTo(0,panelY);ctx.lineTo(W,panelY);ctx.stroke();ctx.globalAlpha=1;
-    // Stats
-    tf(W*.44,"900");c("#fff");ctx.fillText(dist,W*.07,H*.84);
-    tf(H*.016,"600");c("rgba(140,190,255,.32)");ctx.fillText("KM",W*.07,H*.875);
-    tf(H*.038,"700");c("rgba(255,255,255,.9)");ctx.fillText(pace,W*.07,H*.934);ctx.fillText(dur,W*.52,H*.934);
-    tf(H*.013,"600");c("rgba(140,190,255,.3)");ctx.fillText("PACE",W*.07,H*.957);ctx.fillText("TIME",W*.52,H*.957);
-    tf(H*.013,"400");c("rgba(140,190,255,.22)");ctx.fillText(date,W*.07,H*.977);
+    c("#000000");ctx.fillRect(0,0,W,H);
+    // Radial orange glow
+    const grd=ctx.createRadialGradient(W/2,H*.3,0,W/2,H*.3,W*.5);
+    grd.addColorStop(0,"rgba(249,115,22,.22)");grd.addColorStop(1,"rgba(249,115,22,0)");
+    c(grd);ctx.fillRect(0,0,W,H);
+    // Route texture
+    if(act.route&&act.route.length>2){
+      ctx.save();ctx.globalAlpha=0.1;
+      drawRouteCanvas(ctx,act.route,0,H*.28,W,H*.4,4);
+      ctx.restore();
+    }
+    tf(H*.016,"400");c("rgba(255,255,255,.18)");ctx.fillText("RUNLYTICS",W*.07,H*.065);
+    // Centered distance
+    tf(W*.5,"900");c("#fff");
+    const dm=ctx.measureText(dist);ctx.fillText(dist,(W-dm.width)/2,H*.46);
+    tf(H*.016,"400");c("rgba(249,115,22,.5)");
+    const km=ctx.measureText("KM");ctx.fillText("KM",(W-km.width)/2,H*.506);
+    // Single-row stats centered
+    ctx.globalAlpha=0.06;c("#fff");ctx.fillRect(W*.07,H*.75,W*.86,H*.001);ctx.globalAlpha=1;
+    tm(H*.028,"700");c("rgba(255,255,255,.65)");
+    const pw=ctx.measureText(pace).width,dw2=ctx.measureText(dur).width,gap=W*.06;
+    const totalW=pw+gap+dw2,startX=(W-totalW)/2;
+    ctx.fillText(pace,startX,H*.815);
+    c("rgba(249,115,22,.5)");tf(H*.016);
+    ctx.fillText("·",startX+pw+gap*.4,H*.815);
+    tm(H*.028,"700");c("rgba(255,255,255,.65)");ctx.fillText(dur,startX+pw+gap,H*.815);
+    tf(H*.013,"400");c("rgba(255,255,255,.16)");ctx.textAlign="center";ctx.fillText(date,W/2,H*.91);ctx.textAlign="left";
     return;
   }
+
+  // T5 — GLASS WIDGET (dark indigo, floating frosted card, stacked stats)
   if(tmpl==="poster"){
-    c("#0a0a0a");ctx.fillRect(0,0,W,H);
-    // Left accent stripe
-    const stripe=ctx.createLinearGradient(0,0,0,H);
-    stripe.addColorStop(0,"#f97316");stripe.addColorStop(1,"#c2410c");
-    c(stripe);ctx.fillRect(0,0,W*.004,H);
-    // Branding
-    tf(H*.018,"800");c("rgba(255,255,255,.2)");ctx.fillText("RUNLYTICS",W*.07,H*.065);
-    // Hero number — lower anchor
-    tf(W*.46,"900");c("#fff");ctx.fillText(dist,W*.07,H*.74);
-    tf(H*.016,"600");c("rgba(255,255,255,.18)");ctx.fillText("KM",W*.07,H*.775);
-    c("rgba(255,255,255,.07)");ctx.fillRect(W*.07,H*.8,W*.86,W*.002);
-    const badge=act.distanceKm>=42?"Marathon":act.distanceKm>=21?"Half Marathon":act.distanceKm>=10?"10K":act.distanceKm>=5?"5K":"Activity";
-    tf(H*.02,"700");c("#f97316");ctx.fillText(badge,W*.07,H*.832);
-    tf(H*.038,"700");c("rgba(255,255,255,.88)");ctx.fillText(pace,W*.07,H*.888);ctx.fillText(dur,W*.52,H*.888);
-    tf(H*.013,"600");c("rgba(255,255,255,.22)");ctx.fillText("PACE",W*.07,H*.912);ctx.fillText("TIME",W*.52,H*.912);
-    if(act.route&&act.route.length>2)drawRouteCanvas(ctx,act.route,W*.07,H*.93,W*.86,H*.055,3);
-    tf(H*.013,"400");c("rgba(255,255,255,.18)");ctx.fillText(date,W*.07,H*.975);
+    const bg=ctx.createLinearGradient(0,0,W*.4,H);
+    bg.addColorStop(0,"#080d1e");bg.addColorStop(.6,"#0d1428");bg.addColorStop(1,"#060b18");
+    c(bg);ctx.fillRect(0,0,W,H);
+    // Route texture
+    if(act.route&&act.route.length>2){
+      ctx.save();ctx.globalAlpha=0.16;
+      drawRouteCanvas(ctx,act.route,0,H*.25,W,H*.5,4);
+      ctx.restore();
+    }
+    // Glass card panel (simulated with semi-transparent fill)
+    const cX=W*.06,cY=H*.22,cW=W*.88,cH=H*.56;
+    ctx.save();ctx.globalAlpha=0.08;c("#fff");roundRect(ctx,cX,cY,cW,cH,W*.035);ctx.fill();
+    ctx.globalAlpha=0.12;ctx.strokeStyle="rgba(255,255,255,.5)";ctx.lineWidth=W*.002;
+    roundRect(ctx,cX,cY,cW,cH,W*.035);ctx.stroke();
+    ctx.restore();
+    // Inner glow top
+    const ig=ctx.createLinearGradient(cX,cY,cX,cY+cH*.12);
+    ig.addColorStop(0,"rgba(255,255,255,.06)");ig.addColorStop(1,"rgba(255,255,255,0)");
+    c(ig);roundRect(ctx,cX,cY,cW,cH*.12,W*.035);ctx.fill();
+    // Stats inside card
+    ctx.textAlign="center";
+    tf(H*.016,"700");c("rgba(255,255,255,.32)");ctx.fillText("RUNLYTICS",W/2,cY+cH*.1);
+    tf(W*.38,"900");c("#fff");ctx.fillText(dist,W/2,cY+cH*.44);
+    tf(H*.015,"400");c("rgba(255,255,255,.22)");ctx.fillText("KM",W/2,cY+cH*.5);
+    // Divider
+    ctx.globalAlpha=0.1;c("#fff");ctx.fillRect(cX+cW*.1,cY+cH*.56,cW*.8,H*.001);ctx.globalAlpha=1;
+    // Pace + time
+    tm(H*.032,"800");c("rgba(255,255,255,.9)");
+    ctx.fillText(pace,cX+cW*.27,cY+cH*.74);ctx.fillText(dur,cX+cW*.73,cY+cH*.74);
+    tf(H*.013,"400");c("rgba(255,255,255,.26)");
+    ctx.fillText("PACE",cX+cW*.27,cY+cH*.8);ctx.fillText("TIME",cX+cW*.73,cY+cH*.8);
+    tf(H*.013,"400");c("rgba(255,255,255,.18)");ctx.fillText(date,W/2,cY+cH*.93);
+    ctx.textAlign="left";
   }
 }
 
-const PRESET_BGS=[
-  {id:"night",  label:"Night",  css:"linear-gradient(155deg,#0f0c29,#302b63,#24243e)", stops:["#0f0c29","#302b63","#24243e"]},
-  {id:"sunrise",label:"Sunrise",css:"linear-gradient(155deg,#1a0533,#8b1a4a 45%,#fc4a1a 80%,#f7971e)",stops:["#1a0533","#8b1a4a","#fc4a1a","#f7971e"]},
-  {id:"forest", label:"Forest", css:"linear-gradient(155deg,#0f2027,#203a43,#2c5364)", stops:["#0f2027","#203a43","#2c5364"]},
-  {id:"storm",  label:"Storm",  css:"linear-gradient(155deg,#141e30,#243b55)",          stops:["#141e30","#243b55"]},
-  {id:"ember",  label:"Ember",  css:"linear-gradient(155deg,#0d0d0d,#3d1200)",          stops:["#0d0d0d","#3d1200"]},
-  {id:"dusk",   label:"Dusk",   css:"linear-gradient(155deg,#2d1b69,#11998e)",          stops:["#2d1b69","#11998e"]},
-];
-
-function drawBg(ctx,W,H,preset,loadedImg){
-  if(loadedImg){
-    const scale=Math.max(W/loadedImg.width,H/loadedImg.height);
-    const dw=loadedImg.width*scale,dh=loadedImg.height*scale;
-    ctx.drawImage(loadedImg,(W-dw)/2,(H-dh)/2,dw,dh);
-  }else{
-    const bg=PRESET_BGS.find(p=>p.id===preset)||PRESET_BGS[0];
-    const g=ctx.createLinearGradient(0,0,W*.6,H);
-    bg.stops.forEach((c,i)=>g.addColorStop(i/Math.max(bg.stops.length-1,1),c));
-    ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-  }
-}
-
-const BgPicker=({preset,bgImg,onPreset,onUpload,onClearImg})=>{
-  const fileRef=useRef(null);
-  const handleFile=e=>{
-    const f=e.target&&e.target.files&&e.target.files[0];
-    if(!f)return;
-    const r=new FileReader();
-    r.onload=ev=>{if(ev.target&&ev.target.result)onUpload(ev.target.result);};
-    r.readAsDataURL(f);
-  };
-  return(
-    <div style={{padding:"10px 16px 12px",borderTop:"1px solid rgba(255,255,255,.07)"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-        <div style={{fontSize:".62rem",color:"rgba(255,255,255,.3)",letterSpacing:".1em"}}>BACKGROUND</div>
-        {bgImg&&(
-          <button onClick={onClearImg}
-            style={{background:"none",border:"none",color:"rgba(255,255,255,.4)",fontSize:".72rem",cursor:"pointer",padding:"2px 6px"}}>
-            ✕ Clear photo
-          </button>
-        )}
-      </div>
-      <div style={{display:"flex",gap:7,alignItems:"center"}}>
-        {PRESET_BGS.map(p=>(
-          <div key={p.id} onClick={()=>onPreset(p.id)}
-            style={{flex:1,height:32,borderRadius:8,background:p.css,cursor:"pointer",flexShrink:0,
-              outline:(!bgImg&&preset===p.id)?"2px solid #f97316":"2px solid transparent",
-              outlineOffset:2,transition:"outline .15s"}}/>
-        ))}
-        <div onClick={()=>fileRef.current&&fileRef.current.click()}
-          style={{width:32,height:32,borderRadius:8,flexShrink:0,cursor:"pointer",
-            background:bgImg?"#f97316":"rgba(255,255,255,.08)",
-            border:"2px dashed "+(bgImg?"#f97316":"rgba(255,255,255,.22)"),
-            display:"flex",alignItems:"center",justifyContent:"center",fontSize:".9rem"}}>
-          {bgImg?"✔":"📷"}
-        </div>
-      </div>
-      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" style={{display:"none"}} onChange={handleFile}/>
-    </div>
-  );
-};
-
-
+let _mrIdx=0; // module-level counter — unique ID per MiniRoute instance
 const MiniRoute=({route,W=160,H=110})=>{
-  if(!route||route.length<2)return null;
-  const lats=route.map(r=>r.lat),lons=route.map(r=>r.lon);
-  const minLat=Math.min(...lats),maxLat=Math.max(...lats),minLon=Math.min(...lons),maxLon=Math.max(...lons);
+  // Hooks FIRST — before any early return (Rules of Hooks)
+  const uid=useRef(null);
+  if(uid.current===null)uid.current="mr"+(_mrIdx++);
+  const clipId=uid.current;
+
+  // Validate + filter route points
+  const valid=Array.isArray(route)
+    ?route.filter(p=>p&&isFinite(p.lat)&&isFinite(p.lon)&&p.lat>=-90&&p.lat<=90&&p.lon>=-180&&p.lon<=180)
+    :[];
+  if(valid.length<2)return null;
+
+  // Safe min/max — avoid spread on large arrays (crashes Safari with >10k points)
+  let minLat=valid[0].lat,maxLat=valid[0].lat,minLon=valid[0].lon,maxLon=valid[0].lon;
+  for(let i=1;i<valid.length;i++){
+    const p=valid[i];
+    if(p.lat<minLat)minLat=p.lat;if(p.lat>maxLat)maxLat=p.lat;
+    if(p.lon<minLon)minLon=p.lon;if(p.lon>maxLon)maxLon=p.lon;
+  }
+
   const latR=maxLat-minLat||.001,lonR=maxLon-minLon||.001;
-  const asp=lonR/latR*Math.cos((minLat+maxLat)/2*Math.PI/180),pad=14;
+  // Mercator-corrected aspect ratio for the bounding box
+  const asp=lonR/latR*Math.cos((minLat+maxLat)/2*Math.PI/180);
+  const pad=Math.max(10,Math.round(Math.min(W,H)*.06));
   let vW=W-2*pad,vH=H-2*pad;
+  if(vW<=0||vH<=0)return null; // degenerate dimensions
   if(asp>vW/vH){vH=vW/asp;}else{vW=vH*asp;}
+  if(vW<=0||vH<=0)return null;
   const ox=(W-vW)/2,oy=(H-vH)/2;
-  const X=lon=>ox+(lon-minLon)/lonR*vW,Y=lat=>oy+(maxLat-lat)/latR*vH;
-  const st=Math.max(1,Math.floor(route.length/100));
-  const pts=route.filter((_,i)=>i%st===0||i===route.length-1);
+  const X=lon=>ox+(lon-minLon)/lonR*vW;
+  const Y=lat=>oy+(maxLat-lat)/latR*vH;
+
+  // Adaptive sampling — always include first and last point
+  const MAX=120;
+  const st=Math.max(1,Math.floor(valid.length/MAX));
+  const pts=valid.filter((_,i)=>i%st===0);
+  if(pts.length<2||pts[pts.length-1]!==valid[valid.length-1])pts.push(valid[valid.length-1]);
+
   const d=pts.map((r,i)=>(i===0?"M":"L")+X(r.lon).toFixed(1)+","+Y(r.lat).toFixed(1)).join(" ");
+  const r0=valid[0],rN=valid[valid.length-1];
   return(
     <svg viewBox={"0 0 "+W+" "+H} style={{width:W,height:H,display:"block",overflow:"hidden"}}>
-      <defs><clipPath id={"rc"+W}><rect width={W} height={H}/></clipPath></defs>
-      <g clipPath={"url(#rc"+W+")"}>
-        <path d={d} fill="none" stroke="#f97316" strokeWidth={6} strokeOpacity={0.12} strokeLinecap="round" strokeLinejoin="round"/>
-        <path d={d} fill="none" stroke="#f97316" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"/>
+      <defs><clipPath id={clipId}><rect width={W} height={H}/></clipPath></defs>
+      <g clipPath={"url(#"+clipId+")"}>
+        <path d={d} fill="none" stroke="#f97316" strokeWidth={Math.max(4,W*.025)} strokeOpacity={0.14} strokeLinecap="round" strokeLinejoin="round"/>
+        <path d={d} fill="none" stroke="#f97316" strokeWidth={Math.max(1.2,W*.006)} strokeLinecap="round" strokeLinejoin="round"/>
       </g>
-      <circle cx={X(route[0].lon)} cy={Y(route[0].lat)} r={3.5} fill="#22c55e" stroke="rgba(255,255,255,.6)" strokeWidth={1}/>
-      <circle cx={X(route[route.length-1].lon)} cy={Y(route[route.length-1].lat)} r={3.5} fill="#ef4444" stroke="rgba(255,255,255,.6)" strokeWidth={1}/>
+      <circle cx={X(r0.lon)} cy={Y(r0.lat)} r={Math.max(2.5,W*.012)} fill="#22c55e" stroke="rgba(0,0,0,.25)" strokeWidth={1}/>
+      <circle cx={X(rN.lon)} cy={Y(rN.lat)} r={Math.max(2.5,W*.012)} fill="#ef4444" stroke="rgba(0,0,0,.25)" strokeWidth={1}/>
     </svg>
   );
 };
@@ -1203,146 +1235,183 @@ const ShareCard=({type,act,W=270,H=480,bg="night",bgImg=null})=>{
   const s=act.movingTimeSec||0,dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
   const hasRoute=act.route&&act.route.length>2;
   const f=n=>Math.round(n*W/270)+"px";
-  // Subtle stat label — used across all templates
-  const Lbl=({t,dark})=>(
-    <div style={{fontSize:f(7),fontWeight:600,letterSpacing:".12em",marginTop:4,
-      color:dark?"rgba(0,0,0,.28)":"rgba(255,255,255,.22)",textTransform:"uppercase"}}>{t}</div>
-  );
-  const StatPair=({dark})=>(
-    <div style={{display:"flex",gap:f(28)}}>
-      <div>
-        <div style={{fontSize:f(21),fontWeight:800,color:dark?"#000":"#fff",letterSpacing:"-.01em",lineHeight:1}}>{pace}</div>
-        <Lbl t="Pace" dark={dark}/>
-      </div>
-      <div>
-        <div style={{fontSize:f(21),fontWeight:800,color:dark?"#000":"#fff",letterSpacing:"-.01em",lineHeight:1}}>{dur}</div>
-        <Lbl t="Time" dark={dark}/>
-      </div>
-    </div>
-  );
   const baseAnim={animation:"fadeUp .32s ease both"};
   const baseShell={width:W,height:H,borderRadius:18,flexShrink:0,overflow:"hidden",position:"relative"};
 
-  // ── MINIMAL ─────────────────────────────────────────────────────
+  // ── T1 EDITORIAL MINIMAL — light cream, top-anchored, route as corner art ──
   if(type==="minimal")return(
-    <div style={{...baseShell,background:"#09090f",...baseAnim}}>
+    <div style={{...baseShell,background:"#f6f3ee",...baseAnim}}>
       {hasRoute&&(
-        <div style={{position:"absolute",top:0,left:0,right:0,height:"64%",overflow:"hidden",
-          maskImage:"linear-gradient(to bottom,rgba(0,0,0,.55) 30%,transparent 100%)",
-          WebkitMaskImage:"linear-gradient(to bottom,rgba(0,0,0,.55) 30%,transparent 100%)"}}>
-          <MiniRoute route={act.route} W={W} H={Math.round(H*.64)}/>
+        <div style={{position:"absolute",bottom:0,right:0,width:"62%",height:"52%",overflow:"hidden",
+          maskImage:"linear-gradient(to top-left,rgba(0,0,0,.3) 20%,transparent 70%)",
+          WebkitMaskImage:"linear-gradient(to top-left,rgba(0,0,0,.3) 20%,transparent 70%)"}}>
+          <MiniRoute route={act.route} W={Math.round(W*.62)} H={Math.round(H*.52)}/>
         </div>
       )}
-      <div style={{position:"absolute",top:f(22),left:f(24),fontSize:f(7),fontWeight:800,color:"rgba(255,255,255,.25)",letterSpacing:".18em"}}>RUNLYTICS</div>
-      <div style={{position:"absolute",top:f(22),right:f(24),fontSize:f(7),color:"rgba(255,255,255,.16)"}}>{fmtDate(act.date)}</div>
-      <div style={{position:"absolute",bottom:f(32),left:f(24),right:f(24)}}>
-        <div style={{fontSize:f(94),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
-        <div style={{fontSize:f(8),color:"rgba(255,255,255,.18)",letterSpacing:".2em",marginTop:f(8),marginBottom:f(22)}}>KM</div>
-        <div style={{height:1,background:"linear-gradient(90deg,rgba(249,115,22,.5),rgba(249,115,22,.05))",marginBottom:f(16)}}/>
-        <StatPair/>
+      <div style={{position:"absolute",top:f(28),left:f(28),right:f(60)}}>
+        <div style={{fontSize:f(6),color:"rgba(0,0,0,.25)",letterSpacing:".2em",marginBottom:f(28)}}>RUNLYTICS</div>
+        <div style={{fontSize:f(88),fontWeight:900,color:"#0a0a0a",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
+        <div style={{fontSize:f(8),color:"rgba(0,0,0,.22)",letterSpacing:".22em",marginTop:f(10)}}>KILOMETERS</div>
+      </div>
+      <div style={{position:"absolute",bottom:f(28),left:f(28),right:f(28)}}>
+        <div style={{height:.5,background:"rgba(0,0,0,.1)",marginBottom:f(14)}}/>
+        <div style={{display:"flex",gap:f(28)}}>
+          <div>
+            <div style={{fontSize:f(15),fontWeight:700,color:"#0a0a0a",fontFamily:"monospace"}}>{pace}</div>
+            <div style={{fontSize:f(6),color:"rgba(0,0,0,.3)",letterSpacing:".14em",marginTop:3}}>PACE</div>
+          </div>
+          <div>
+            <div style={{fontSize:f(15),fontWeight:700,color:"#0a0a0a",fontFamily:"monospace"}}>{dur}</div>
+            <div style={{fontSize:f(6),color:"rgba(0,0,0,.3)",letterSpacing:".14em",marginTop:3}}>TIME</div>
+          </div>
+        </div>
+        <div style={{fontSize:f(6),color:"rgba(0,0,0,.2)",marginTop:f(14),letterSpacing:".06em"}}>{fmtDate(act.date)}</div>
       </div>
     </div>
   );
 
-  // ── ORANGE ──────────────────────────────────────────────────────
+  // ── T2 ROUTE ART — route as hero, stats as whisper, pure dark ──────────────
   if(type==="orange")return(
-    <div style={{...baseShell,background:"#f97316",boxShadow:"0 12px 40px rgba(249,115,22,.3)",...baseAnim}}>
-      <div style={{position:"absolute",bottom:-f(10),right:-f(4),fontSize:f(200),fontWeight:900,
-        color:"rgba(0,0,0,.055)",lineHeight:1,letterSpacing:"-.06em",userSelect:"none",pointerEvents:"none"}}>
-        KM
+    <div style={{...baseShell,background:"#050507",...baseAnim}}>
+      {hasRoute?(
+        <div style={{position:"absolute",top:"7%",left:"50%",transform:"translateX(-50%)",
+          width:"88%",height:"68%",overflow:"hidden"}}>
+          <MiniRoute route={act.route} W={Math.round(W*.88)} H={Math.round(H*.68)}/>
+        </div>
+      ):(
+        <div style={{position:"absolute",top:"20%",left:"50%",transform:"translateX(-50%)",
+          width:f(120),height:f(120),borderRadius:"50%",
+          border:"1px solid rgba(249,115,22,.18)",opacity:.6}}/>
+      )}
+      <div style={{position:"absolute",top:f(22),left:f(22)}}>
+        <div style={{fontSize:f(6),color:"rgba(255,255,255,.2)",letterSpacing:".18em"}}>RUNLYTICS</div>
       </div>
-      <div style={{position:"absolute",top:f(26),left:f(26),fontSize:f(7),fontWeight:800,color:"rgba(0,0,0,.28)",letterSpacing:".2em"}}>RUNLYTICS</div>
-      <div style={{position:"absolute",bottom:f(32),left:f(26),right:f(26)}}>
-        <div style={{fontSize:f(96),fontWeight:900,color:"#000",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
-        <div style={{fontSize:f(8),color:"rgba(0,0,0,.25)",letterSpacing:".2em",marginTop:f(8),marginBottom:f(28)}}>KM</div>
-        <StatPair dark/>
-        <div style={{fontSize:f(7),color:"rgba(0,0,0,.22)",marginTop:f(18),letterSpacing:".04em"}}>{fmtDate(act.date)}</div>
+      <div style={{position:"absolute",top:f(22),right:f(22),textAlign:"right"}}>
+        <div style={{fontSize:f(8),fontWeight:700,color:"rgba(249,115,22,.5)",letterSpacing:"-.01em"}}>{dist}</div>
+        <div style={{fontSize:f(5),color:"rgba(255,255,255,.15)",letterSpacing:".14em"}}>KM</div>
+      </div>
+      <div style={{position:"absolute",bottom:f(22),left:f(22),right:f(22)}}>
+        <div style={{height:1,background:"rgba(255,255,255,.05)",marginBottom:f(14)}}/>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontSize:f(7),color:"rgba(255,255,255,.38)",letterSpacing:".1em"}}>{pace}</div>
+          <div style={{width:3,height:3,borderRadius:"50%",background:"rgba(249,115,22,.45)",flexShrink:0}}/>
+          <div style={{fontSize:f(7),color:"rgba(255,255,255,.38)",letterSpacing:".1em"}}>{dur}</div>
+        </div>
+        <div style={{textAlign:"center",marginTop:f(10),fontSize:f(6),color:"rgba(255,255,255,.14)",letterSpacing:".08em"}}>{fmtDate(act.date)}</div>
       </div>
     </div>
   );
 
-  // ── CINEMATIC ───────────────────────────────────────────────────
+  // ── T3 ATHLETIC POSTER — cream bg, watermark, black stats rail ─────────────
   if(type==="cinematic")return(
-    <div style={{...baseShell,background:"linear-gradient(190deg,#040508 0%,#090312 60%,#04060a 100%)",...baseAnim}}>
+    <div style={{...baseShell,background:"#ede8e0",...baseAnim}}>
+      <div style={{position:"absolute",bottom:"-8%",right:"-10%",fontSize:f(200),fontWeight:900,
+        color:"rgba(0,0,0,.045)",lineHeight:1,letterSpacing:"-.1em",userSelect:"none",pointerEvents:"none"}}>KM</div>
+      <div style={{position:"absolute",top:f(28),left:f(26),right:f(26)}}>
+        <div style={{fontSize:f(6),color:"rgba(0,0,0,.25)",letterSpacing:".2em",marginBottom:f(22)}}>RUNLYTICS</div>
+        <div style={{fontSize:f(86),fontWeight:900,color:"#0a0a0a",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
+        <div style={{fontSize:f(8),color:"rgba(0,0,0,.22)",letterSpacing:".22em",marginTop:f(10)}}>KILOMETERS</div>
+      </div>
       {hasRoute&&(
-        <div style={{position:"absolute",top:0,left:0,right:0,height:"60%",overflow:"hidden",
-          maskImage:"linear-gradient(to bottom,rgba(0,0,0,.6) 30%,transparent 100%)",
-          WebkitMaskImage:"linear-gradient(to bottom,rgba(0,0,0,.6) 30%,transparent 100%)"}}>
-          <MiniRoute route={act.route} W={W} H={Math.round(H*.6)}/>
+        <div style={{position:"absolute",top:"54%",left:f(26)}}>
+          <MiniRoute route={act.route} W={Math.round(W*.45)} H={Math.round(W*.32)}/>
         </div>
       )}
-      <div style={{position:"absolute",top:f(26),left:f(26),fontSize:f(7),fontWeight:800,color:"rgba(249,115,22,.45)",letterSpacing:".18em"}}>RUNLYTICS</div>
-      <div style={{position:"absolute",bottom:f(32),left:f(26),right:f(26)}}>
-        <div style={{fontSize:f(92),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.04em",
-          textShadow:"0 0 "+f(60)+" rgba(249,115,22,.15)"}}>{dist}</div>
-        <div style={{fontSize:f(8),color:"rgba(255,255,255,.18)",letterSpacing:".2em",marginTop:f(8),marginBottom:f(22)}}>KM</div>
-        <StatPair/>
-        <div style={{marginTop:f(20),paddingTop:f(18),borderTop:"1px solid rgba(255,255,255,.07)"}}>
-          <div style={{fontSize:f(11),fontStyle:"italic",color:"rgba(255,255,255,.35)",lineHeight:1.6}}>Keep showing up.</div>
-          <div style={{fontSize:f(8),fontStyle:"italic",color:"rgba(255,255,255,.18)",marginTop:2}}>The results follow.</div>
+      <div style={{position:"absolute",bottom:0,left:0,right:0,background:"#0a0a0a",
+        padding:f(16)+" "+f(24)+" "+f(22)}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div>
+            <div style={{fontSize:f(17),fontWeight:800,color:"#fff",lineHeight:1,fontFamily:"monospace"}}>{pace}</div>
+            <div style={{fontSize:f(6),color:"rgba(255,255,255,.32)",letterSpacing:".14em",marginTop:4}}>PACE</div>
+          </div>
+          <div style={{width:1,height:28,background:"rgba(255,255,255,.1)"}}/>
+          <div>
+            <div style={{fontSize:f(17),fontWeight:800,color:"#fff",lineHeight:1,fontFamily:"monospace"}}>{dur}</div>
+            <div style={{fontSize:f(6),color:"rgba(255,255,255,.32)",letterSpacing:".14em",marginTop:4}}>TIME</div>
+          </div>
+          <div style={{width:1,height:28,background:"rgba(255,255,255,.1)"}}/>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:f(6),color:"rgba(255,255,255,.32)",letterSpacing:".08em"}}>{fmtDate(act.date)}</div>
+            <div style={{fontSize:f(5),color:"rgba(255,255,255,.18)",letterSpacing:".14em",marginTop:3}}>RUNLYTICS</div>
+          </div>
         </div>
       </div>
     </div>
   );
 
-  // ── GLASS ───────────────────────────────────────────────────────
+  // ── T4 AMOLED NIGHT — pure black, orange radial glow, centered distance ─────
   if(type==="glass")return(
-    <div style={{...baseShell,background:"linear-gradient(155deg,#060b16 0%,#0a1020 100%)",...baseAnim}}>
+    <div style={{...baseShell,background:"#000000",...baseAnim}}>
+      <div style={{position:"absolute",top:"28%",left:"50%",transform:"translate(-50%,-50%)",
+        width:f(200),height:f(200),borderRadius:"50%",pointerEvents:"none",
+        background:"radial-gradient(circle,rgba(249,115,22,.18) 0%,rgba(249,115,22,0) 70%)"}}/>
       {hasRoute&&(
-        <div style={{position:"absolute",top:0,left:0,right:0,height:"72%",overflow:"hidden",
-          maskImage:"linear-gradient(to bottom,rgba(0,0,0,.45) 20%,transparent 85%)",
-          WebkitMaskImage:"linear-gradient(to bottom,rgba(0,0,0,.45) 20%,transparent 85%)"}}>
-          <MiniRoute route={act.route} W={W} H={Math.round(H*.72)}/>
+        <div style={{position:"absolute",inset:0,opacity:.12,
+          maskImage:"linear-gradient(to bottom,transparent 30%,rgba(0,0,0,.7) 55%,transparent 80%)",
+          WebkitMaskImage:"linear-gradient(to bottom,transparent 30%,rgba(0,0,0,.7) 55%,transparent 80%)"}}>
+          <MiniRoute route={act.route} W={W} H={H}/>
         </div>
       )}
-      <div style={{position:"absolute",top:f(24),left:f(22),fontSize:f(7),fontWeight:800,color:"rgba(140,190,255,.3)",letterSpacing:".18em"}}>RUNLYTICS</div>
-      <div style={{position:"absolute",bottom:0,left:0,right:0,
-        backdropFilter:"blur(32px) saturate(1.8)",WebkitBackdropFilter:"blur(32px) saturate(1.8)",
-        background:"linear-gradient(to top,rgba(8,16,42,.9) 0%,rgba(8,16,42,.5) 100%)",
-        borderTop:"1px solid rgba(140,190,255,.1)",padding:f(24)+" "+f(22)+" "+f(28)}}>
-        <div style={{fontSize:f(86),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.03em"}}>{dist}</div>
-        <div style={{fontSize:f(8),color:"rgba(140,190,255,.3)",letterSpacing:".2em",marginTop:f(8),marginBottom:f(20)}}>KM</div>
-        <div style={{display:"flex",justifyContent:"space-between",paddingRight:f(8)}}>
-          <div>
-            <div style={{fontSize:f(21),fontWeight:800,color:"rgba(255,255,255,.92)",lineHeight:1}}>{pace}</div>
-            <Lbl t="Pace"/>
-          </div>
-          <div>
-            <div style={{fontSize:f(21),fontWeight:800,color:"rgba(255,255,255,.92)",lineHeight:1}}>{dur}</div>
-            <Lbl t="Time"/>
-          </div>
+      <div style={{position:"absolute",top:f(24),left:f(24),fontSize:f(6),fontWeight:700,
+        color:"rgba(255,255,255,.18)",letterSpacing:".18em"}}>RUNLYTICS</div>
+      <div style={{position:"absolute",top:0,left:0,right:0,height:"65%",display:"flex",
+        flexDirection:"column",alignItems:"center",justifyContent:"center",paddingTop:f(20)}}>
+        <div style={{fontSize:f(100),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
+        <div style={{fontSize:f(7),color:"rgba(249,115,22,.5)",letterSpacing:".24em",marginTop:f(12)}}>KM</div>
+      </div>
+      <div style={{position:"absolute",bottom:f(30),left:f(24),right:f(24)}}>
+        <div style={{height:1,background:"rgba(255,255,255,.05)",marginBottom:f(16)}}/>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:f(14)}}>
+          <span style={{fontSize:f(13),fontWeight:700,color:"rgba(255,255,255,.65)",fontFamily:"monospace"}}>{pace}</span>
+          <span style={{width:3,height:3,borderRadius:"50%",background:"rgba(249,115,22,.5)",flexShrink:0,display:"inline-block"}}/>
+          <span style={{fontSize:f(13),fontWeight:700,color:"rgba(255,255,255,.65)",fontFamily:"monospace"}}>{dur}</span>
         </div>
-        <div style={{marginTop:f(14),fontSize:f(7),color:"rgba(140,190,255,.22)",letterSpacing:".04em"}}>{fmtDate(act.date)}</div>
+        <div style={{textAlign:"center",marginTop:f(10),fontSize:f(6),color:"rgba(255,255,255,.16)",letterSpacing:".08em"}}>{fmtDate(act.date)}</div>
       </div>
     </div>
   );
 
-  // ── POSTER ──────────────────────────────────────────────────────
-  if(type==="poster"){
-    const badge=act.distanceKm>=42?"Marathon":act.distanceKm>=21?"Half Marathon":act.distanceKm>=10?"10K":act.distanceKm>=5?"5K":"Activity";
-    return(
-      <div style={{...baseShell,background:"#0a0a0a",...baseAnim}}>
-        <div style={{position:"absolute",top:0,left:0,bottom:0,width:3,
-          background:"linear-gradient(to bottom,#f97316,#c2410c)"}}/>
-        <div style={{position:"absolute",top:f(26),left:f(22),fontSize:f(7),fontWeight:800,color:"rgba(255,255,255,.2)",letterSpacing:".2em"}}>RUNLYTICS</div>
-        <div style={{position:"absolute",bottom:f(28),left:f(22),right:f(22)}}>
-          <div style={{fontSize:f(90),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
-          <div style={{fontSize:f(8),color:"rgba(255,255,255,.18)",letterSpacing:".2em",marginTop:f(8)}}>KM</div>
-          <div style={{height:1,background:"rgba(255,255,255,.07)",margin:f(16)+" 0"}}/>
-          <div style={{fontSize:f(10),fontWeight:700,color:"#f97316",letterSpacing:".04em",marginBottom:f(18)}}>{badge}</div>
-          <StatPair/>
-          {hasRoute&&(
-            <div style={{marginTop:f(18),opacity:.7}}>
-              <MiniRoute route={act.route} W={W-44} H={Math.round((W-44)*.45)}/>
-            </div>
-          )}
-          <div style={{marginTop:f(16),fontSize:f(7),color:"rgba(255,255,255,.18)",letterSpacing:".04em"}}>{fmtDate(act.date)}</div>
+  // ── T5 GLASS WIDGET — dark indigo, floating frosted card, stacked stats ─────
+  if(type==="poster")return(
+    <div style={{...baseShell,background:"linear-gradient(170deg,#080d1e 0%,#0d1428 60%,#060b18 100%)",...baseAnim}}>
+      {hasRoute&&(
+        <div style={{position:"absolute",inset:0,opacity:.18,
+          maskImage:"linear-gradient(to bottom,transparent 15%,rgba(0,0,0,.75) 45%,transparent 85%)",
+          WebkitMaskImage:"linear-gradient(to bottom,transparent 15%,rgba(0,0,0,.75) 45%,transparent 85%)"}}>
+          <MiniRoute route={act.route} W={W} H={H}/>
         </div>
+      )}
+      <div style={{position:"absolute",top:"50%",left:f(20),right:f(20),transform:"translateY(-50%)",
+        backdropFilter:"blur(24px) saturate(1.5)",WebkitBackdropFilter:"blur(24px) saturate(1.5)",
+        background:"rgba(255,255,255,.07)",borderRadius:f(16),
+        border:"1px solid rgba(255,255,255,.11)",
+        boxShadow:"0 8px 32px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.09)"}}>
+        <div style={{padding:f(26)+" "+f(22)+" "+f(22),textAlign:"center"}}>
+          <div style={{fontSize:f(6),fontWeight:700,color:"rgba(255,255,255,.35)",
+            letterSpacing:".2em",marginBottom:f(18)}}>RUNLYTICS</div>
+          <div style={{fontSize:f(74),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.03em"}}>{dist}</div>
+          <div style={{fontSize:f(7),color:"rgba(255,255,255,.25)",letterSpacing:".22em",marginTop:f(10)}}>KM</div>
+        </div>
+        <div style={{height:1,background:"linear-gradient(90deg,transparent,rgba(255,255,255,.1),transparent)",
+          marginLeft:f(16),marginRight:f(16)}}/>
+        <div style={{padding:f(18)+" "+f(22)+" "+f(22),display:"flex",justifyContent:"space-around",alignItems:"center"}}>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:f(16),fontWeight:800,color:"rgba(255,255,255,.9)",fontFamily:"monospace"}}>{pace}</div>
+            <div style={{fontSize:f(6),color:"rgba(255,255,255,.28)",letterSpacing:".14em",marginTop:f(5)}}>PACE</div>
+          </div>
+          <div style={{width:1,height:28,background:"rgba(255,255,255,.08)"}}/>
+          <div style={{textAlign:"center"}}>
+            <div style={{fontSize:f(16),fontWeight:800,color:"rgba(255,255,255,.9)",fontFamily:"monospace"}}>{dur}</div>
+            <div style={{fontSize:f(6),color:"rgba(255,255,255,.28)",letterSpacing:".14em",marginTop:f(5)}}>TIME</div>
+          </div>
+        </div>
+        <div style={{textAlign:"center",paddingBottom:f(18),fontSize:f(6),
+          color:"rgba(255,255,255,.18)",letterSpacing:".06em"}}>{fmtDate(act.date)}</div>
       </div>
-    );
-  }
+    </div>
+  );
 
-  // ── CUSTOM BG TEMPLATES ─────────────────────────────────────────
+  // ── CUSTOM BG TEMPLATES (unchanged) ─────────────────────────────────────────
   if(type==="photo-overlay"||type==="glass-story"||type==="cinematic-motion"){
     const bgStyle=bgImg
       ?{backgroundImage:"url("+bgImg+")",backgroundSize:"cover",backgroundPosition:"center"}
@@ -1358,8 +1427,14 @@ const ShareCard=({type,act,W=270,H=480,bg="night",bgImg=null})=>{
           <div style={{fontSize:f(80),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.03em"}}>{dist}</div>
           <div style={{fontSize:f(8),color:"rgba(255,255,255,.38)",letterSpacing:".2em",marginTop:f(8),marginBottom:f(20)}}>KM</div>
           <div style={{display:"flex",gap:f(28),marginBottom:hasRoute?f(14):0}}>
-            <div><div style={{fontSize:f(20),fontWeight:800,color:"#fff",lineHeight:1}}>{pace}</div><Lbl t="Pace"/></div>
-            <div><div style={{fontSize:f(20),fontWeight:800,color:"#fff",lineHeight:1}}>{dur}</div><Lbl t="Time"/></div>
+            <div>
+              <div style={{fontSize:f(20),fontWeight:800,color:"#fff",lineHeight:1}}>{pace}</div>
+              <div style={{fontSize:f(6),color:"rgba(255,255,255,.3)",letterSpacing:".14em",marginTop:3}}>PACE</div>
+            </div>
+            <div>
+              <div style={{fontSize:f(20),fontWeight:800,color:"#fff",lineHeight:1}}>{dur}</div>
+              <div style={{fontSize:f(6),color:"rgba(255,255,255,.3)",letterSpacing:".14em",marginTop:3}}>TIME</div>
+            </div>
           </div>
           {hasRoute&&<MiniRoute route={act.route} W={W-44} H={Math.round((W-44)*.42)}/>}
           <div style={{marginTop:f(12),fontSize:f(7),color:"rgba(255,255,255,.28)"}}>{fmtDate(act.date)}</div>
@@ -1372,7 +1447,16 @@ const ShareCard=({type,act,W=270,H=480,bg="night",bgImg=null})=>{
         <div style={{position:"absolute",bottom:f(32),left:f(26),right:f(26)}}>
           <div style={{fontSize:f(90),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.04em",textShadow:"0 4px 24px rgba(0,0,0,.6)"}}>{dist}</div>
           <div style={{fontSize:f(8),color:"rgba(255,255,255,.38)",letterSpacing:".2em",marginTop:f(8),marginBottom:f(20)}}>KM</div>
-          <StatPair/>
+          <div style={{display:"flex",gap:f(28)}}>
+            <div>
+              <div style={{fontSize:f(21),fontWeight:800,color:"#fff",lineHeight:1}}>{pace}</div>
+              <div style={{fontSize:f(7),color:"rgba(255,255,255,.28)",letterSpacing:".12em",marginTop:4}}>PACE</div>
+            </div>
+            <div>
+              <div style={{fontSize:f(21),fontWeight:800,color:"#fff",lineHeight:1}}>{dur}</div>
+              <div style={{fontSize:f(7),color:"rgba(255,255,255,.28)",letterSpacing:".12em",marginTop:4}}>TIME</div>
+            </div>
+          </div>
           <div style={{marginTop:f(20),paddingTop:f(18),borderTop:"1px solid rgba(255,255,255,.12)"}}>
             <div style={{fontSize:f(11),fontStyle:"italic",color:"rgba(255,255,255,.5)"}}>Keep showing up.</div>
             <div style={{fontSize:f(9),fontStyle:"italic",color:"rgba(255,255,255,.28)",marginTop:2}}>The results follow.</div>
@@ -1390,22 +1474,42 @@ const ShareCard=({type,act,W=270,H=480,bg="night",bgImg=null})=>{
           <div style={{fontSize:f(8),color:"rgba(255,255,255,.42)",letterSpacing:".2em",marginTop:f(8)}}>KM</div>
           {hasRoute&&<div style={{margin:f(16)+" 0"}}><MiniRoute route={act.route} W={W-52} H={Math.round((W-52)*.45)}/></div>}
           <div style={{height:1,background:"rgba(255,255,255,.2)",marginBottom:f(14)}}/>
-          <StatPair/>
+          <div style={{display:"flex",gap:f(28)}}>
+            <div>
+              <div style={{fontSize:f(21),fontWeight:800,color:"#fff",lineHeight:1}}>{pace}</div>
+              <div style={{fontSize:f(7),color:"rgba(255,255,255,.28)",letterSpacing:".12em",marginTop:4}}>PACE</div>
+            </div>
+            <div>
+              <div style={{fontSize:f(21),fontWeight:800,color:"#fff",lineHeight:1}}>{dur}</div>
+              <div style={{fontSize:f(7),color:"rgba(255,255,255,.28)",letterSpacing:".12em",marginTop:4}}>TIME</div>
+            </div>
+          </div>
           <div style={{marginTop:f(12),fontSize:f(7),color:"rgba(255,255,255,.35)",letterSpacing:".04em"}}>{fmtDate(act.date)}</div>
         </div>
       </div>
     );
   }
 
-  // ── MINIMAL FALLBACK ────────────────────────────────────────────
+  // ── FALLBACK ──────────────────────────────────────────────────────────────
   return(
-    <div style={{...baseShell,background:"#09090f",...baseAnim}}>
-      <div style={{position:"absolute",top:f(22),left:f(24),fontSize:f(7),fontWeight:800,color:"rgba(255,255,255,.25)",letterSpacing:".18em"}}>RUNLYTICS</div>
-      <div style={{position:"absolute",bottom:f(32),left:f(24),right:f(24)}}>
-        <div style={{fontSize:f(94),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
-        <div style={{fontSize:f(8),color:"rgba(255,255,255,.18)",letterSpacing:".2em",marginTop:f(8),marginBottom:f(22)}}>KM</div>
-        <div style={{height:1,background:"linear-gradient(90deg,rgba(249,115,22,.4),transparent)",marginBottom:f(16)}}/>
-        <StatPair/>
+    <div style={{...baseShell,background:"#f6f3ee",...baseAnim}}>
+      <div style={{position:"absolute",top:f(28),left:f(28)}}>
+        <div style={{fontSize:f(6),color:"rgba(0,0,0,.25)",letterSpacing:".2em",marginBottom:f(24)}}>RUNLYTICS</div>
+        <div style={{fontSize:f(88),fontWeight:900,color:"#0a0a0a",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
+        <div style={{fontSize:f(8),color:"rgba(0,0,0,.22)",letterSpacing:".22em",marginTop:f(10)}}>KILOMETERS</div>
+      </div>
+      <div style={{position:"absolute",bottom:f(28),left:f(28),right:f(28)}}>
+        <div style={{height:.5,background:"rgba(0,0,0,.1)",marginBottom:f(14)}}/>
+        <div style={{display:"flex",gap:f(28)}}>
+          <div>
+            <div style={{fontSize:f(15),fontWeight:700,color:"#0a0a0a",fontFamily:"monospace"}}>{pace}</div>
+            <div style={{fontSize:f(6),color:"rgba(0,0,0,.3)",letterSpacing:".14em",marginTop:3}}>PACE</div>
+          </div>
+          <div>
+            <div style={{fontSize:f(15),fontWeight:700,color:"#0a0a0a",fontFamily:"monospace"}}>{dur}</div>
+            <div style={{fontSize:f(6),color:"rgba(0,0,0,.3)",letterSpacing:".14em",marginTop:3}}>TIME</div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1422,7 +1526,7 @@ const ShareModal=({act,onClose})=>{
   const scrollRef=useRef(null);
 
   const TMPL_STD=["minimal","orange","cinematic","glass","poster"];
-  const TMPL_STD_LABELS=["Minimal Dark","Bold Orange","Cinematic","Glassmorphism","Race Poster"];
+  const TMPL_STD_LABELS=["Editorial","Route Art","Athletic Poster","Night Mode","Glass Widget"];
   const TMPL_CUS=["photo-overlay","glass-story","cinematic-motion"];
   const TMPL_CUS_LABELS=["Photo Overlay","Glass Story","Cinematic Motion"];
   const TMPL=mode==="custom"?TMPL_CUS:TMPL_STD;
