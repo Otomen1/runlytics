@@ -30,10 +30,20 @@ const ACTIVITY_DEFAULTS = {
 function migrateActivity(raw) {
   if (!raw||typeof raw!=="object") return null;
   const m = {...ACTIVITY_DEFAULTS,...raw};
-  if (!m.id) m.id = `migrated_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+  if (!m.id) m.id = "migrated_"+Date.now()+"_"+Math.random().toString(36).slice(2,7);
   if (!m.dateTs||isNaN(m.dateTs)) m.dateTs = raw.date ? new Date(raw.date).getTime() : Date.now();
+  if (isNaN(m.dateTs)) m.dateTs = Date.now();
   if (!m.distanceKm&&m.distanceM) m.distanceKm = parseFloat((m.distanceM/1000).toFixed(2));
+  // Sanitize all numeric fields — prevent NaN from corrupting analytics
+  const numFields=["distanceKm","distanceM","movingTimeSec","avgPaceSecKm","elevGainM","trainingLoad","avgHR","maxHR","avgCad"];
+  numFields.forEach(k=>{ if(m[k]!==null&&(isNaN(m[k])||!isFinite(m[k])))m[k]=null; });
+  if(!m.distanceKm||m.distanceKm<0)m.distanceKm=0;
+  if(!m.movingTimeSec||m.movingTimeSec<0)m.movingTimeSec=0;
+  // Sanitize arrays
   ["kmSplits","elevProfile","speedChart","route"].forEach(k=>{ if(!Array.isArray(m[k])) m[k]=[]; });
+  // hrSamples: validate each sample
+  if(!Array.isArray(m.hrSamples))m.hrSamples=[];
+  m.hrSamples=m.hrSamples.filter(s=>s&&typeof s==="object"&&s.hr>=30&&s.hr<=240&&s.sec>=0&&isFinite(s.sec));
   return m;
 }
 
@@ -142,14 +152,14 @@ function getMafZones(mafHR) {
 }
 
 function computeZones(hrSamples, mafHR) {
-  if (!hrSamples?.length||!mafHR) return null;
-  const valid = hrSamples.filter(x=>x.hr>0&&x.sec>0);
+  if (!hrSamples?.length||!mafHR||isNaN(mafHR)) return null;
+  const valid = hrSamples.filter(x=>x&&x.hr>=30&&x.hr<=240&&x.sec>0&&isFinite(x.sec));
   if (!valid.length) return null;
   const totalSec = valid.reduce((s,x)=>s+x.sec,0);
-  if (!totalSec) return null;
+  if (!totalSec||!isFinite(totalSec)) return null;
   const defs = getMafZones(mafHR);
   const secs = defs.map(z=>valid.reduce((a,x)=>(x.hr>=z.lo&&x.hr<z.hi?a+x.sec:a),0));
-  const rawP = secs.map(s=>s/totalSec*100);
+  const rawP = secs.map(s=>isFinite(s)?s/totalSec*100:0);
   const fl   = rawP.map(Math.floor);
   const rem  = 100-fl.reduce((a,b)=>a+b,0);
   rawP.map((p,i)=>({i,f:p-Math.floor(p)})).sort((a,b)=>b.f-a.f).slice(0,rem).forEach(({i})=>fl[i]++);
@@ -211,35 +221,72 @@ function getRunFeedback(run, mafHR) {
 }
 
 function parseGPX(xmlText, fileName, hrProfile=null) {
+  if(typeof xmlText!=="string"||!xmlText.trim())throw new Error("Empty or invalid file content");
   const doc=new DOMParser().parseFromString(xmlText,"application/xml");
-  if(doc.querySelector("parsererror"))throw new Error("Invalid GPX file");
+  if(doc.querySelector("parsererror"))throw new Error("Invalid GPX file — could not be parsed");
   const name=(doc.querySelector("trk > name")||doc.querySelector("name"))?.textContent?.trim()||fileName.replace(/\.gpx$/i,"");
-  const pts=Array.from(doc.querySelectorAll("trkpt")).map(p=>({
-    lat:parseFloat(p.getAttribute("lat")),lon:parseFloat(p.getAttribute("lon")),
-    ele:parseFloat(p.querySelector("ele")?.textContent||"0")||0,
-    time:p.querySelector("time")?.textContent||null,
-    hr:parseInt(p.querySelector("extensions hr,heartrate")?.textContent)||null,
-  })).filter(p=>!isNaN(p.lat)&&!isNaN(p.lon));
-  if(!pts.length)throw new Error("No track points found");
+
+  // ── Validate + sanitize each track point ──────────────────────────
+  const rawPts=Array.from(doc.querySelectorAll("trkpt"));
+  if(!rawPts.length)throw new Error("No track points found in GPX file");
+
+  const pts=rawPts.map(p=>{
+    const lat=parseFloat(p.getAttribute("lat"));
+    const lon=parseFloat(p.getAttribute("lon"));
+    // Reject invalid coordinates
+    if(isNaN(lat)||isNaN(lon))return null;
+    if(lat<-90||lat>90||lon<-180||lon>180)return null;
+    const eleRaw=parseFloat(p.querySelector("ele")?.textContent||"0");
+    const ele=isNaN(eleRaw)?0:Math.max(-500,eleRaw); // allow below sea level, cap at -500m
+    const time=p.querySelector("time")?.textContent||null;
+    // Validate timestamp if present
+    const timeOk=time?!isNaN(new Date(time).getTime()):true;
+    const hrRaw=parseInt(p.querySelector("extensions hr,heartrate")?.textContent)||null;
+    // Reject impossible HR values
+    const hr=(hrRaw!==null&&hrRaw>=30&&hrRaw<=240)?hrRaw:null;
+    return{lat,lon,ele,time:timeOk?time:null,hr};
+  }).filter(Boolean);
+
+  if(pts.length<2)throw new Error("GPX file has too few valid track points (minimum 2 required)");
+
   let dist=0,movingTime=0,elevGain=0,hrSum=0,hrCt=0;
   const R=6371000;
   for(let i=1;i<pts.length;i++){
     const a=pts[i-1],b=pts[i];
     const dLat=(b.lat-a.lat)*Math.PI/180,dLon=(b.lon-a.lon)*Math.PI/180;
-    const s=2*R*Math.asin(Math.sqrt(Math.sin(dLat/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLon/2)**2));
-    dist+=s;if(b.ele>a.ele)elevGain+=b.ele-a.ele;
-    if(b.time&&a.time){const dt=(new Date(b.time)-new Date(a.time))/1000;if(dt>0&&dt<300)movingTime+=dt;}
+    const sinLat=Math.sin(dLat/2),sinLon=Math.sin(dLon/2);
+    const h=sinLat*sinLat+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*sinLon*sinLon;
+    const s=2*R*Math.asin(Math.sqrt(Math.min(1,Math.max(0,h)))); // clamp for floating point safety
+    if(!isNaN(s))dist+=s;
+    if(b.ele>a.ele&&!isNaN(b.ele-a.ele))elevGain+=b.ele-a.ele;
+    if(b.time&&a.time){
+      const dt=(new Date(b.time)-new Date(a.time))/1000;
+      if(dt>0&&dt<300)movingTime+=dt; // skip gaps >5min (paused/stopped)
+    }
     if(b.hr){hrSum+=b.hr;hrCt++;}
   }
-  const km=dist/1000,pace=km>0&&movingTime>0?Math.round(movingTime/km):0;
+
+  if(dist===0)throw new Error("GPX file contains no valid distance data");
+
+  const km=dist/1000;
+  const pace=km>0&&movingTime>0?Math.round(movingTime/km):0;
   const dateTs=pts[0].time?new Date(pts[0].time).getTime():Date.now();
   const mafHR=getMafHR(hrProfile,hrCt?Math.round(hrSum/hrCt):null);
-  return{...ACTIVITY_DEFAULTS,id:"gpx_"+dateTs+"_"+Math.random().toString(36).slice(2,6),
+
+  // ── FIX: HR sample timing — sec = elapsed from PREVIOUS sample, not first ──
+  const hrSamples=pts.filter(p=>p.hr&&p.time).map((p,i,arr)=>({
+    hr:p.hr,
+    sec:i>0?(new Date(p.time)-new Date(arr[i-1].time))/1000:0,
+  })).filter(s=>s.sec>=0&&s.sec<600); // reject impossible inter-sample gaps
+
+  return{...ACTIVITY_DEFAULTS,
+    id:"gpx_"+dateTs+"_"+Math.random().toString(36).slice(2,6),
     name,type:"Run",date:new Date(dateTs).toISOString().split("T")[0],dateTs,
     distanceM:dist,distanceKm:parseFloat(km.toFixed(2)),movingTimeSec:Math.round(movingTime),
     avgPaceSecKm:pace,elevGainM:Math.round(elevGain),
-    avgHR:hrCt?Math.round(hrSum/hrCt):null,maxHR:hrCt?Math.max(...pts.filter(p=>p.hr).map(p=>p.hr)):null,
-    hrSamples:pts.filter(p=>p.hr&&p.time).map((p,i,arr)=>({hr:p.hr,sec:i>0?(new Date(p.time)-new Date(arr[0].time))/1000:0})),
+    avgHR:hrCt?Math.round(hrSum/hrCt):null,
+    maxHR:hrCt?Math.max(...pts.filter(p=>p.hr).map(p=>p.hr)):null,
+    hrSamples,
     route:pts.filter((_,i)=>i%5===0).map(p=>({lat:p.lat,lon:p.lon})),
     trainingLoad:Math.min(100,Math.round((movingTime/60)*0.6)),
     parsedAt:Date.now(),hasTimestamps:!!pts[0].time,
@@ -267,9 +314,9 @@ function buildAnalytics(acts,hrProfile){
     const ap=mo.paces.length?mo.paces.reduce((a,b)=>a+b)/mo.paces.length:0;
     const pp=pv&&pv.paces.length?pv.paces.reduce((a,b)=>a+b)/pv.paces.length:0;
     return{month:m,km:parseFloat(mo.km.toFixed(1)),count:mo.runs.length,
-      longest:Math.max(...mo.runs.map(r=>r.distanceKm)),avgPace:ap,
-      kmDelta:pv?parseFloat(((mo.km-pv.km)/pv.km*100).toFixed(1)):null,
-      paceDelta:pp&&ap?parseFloat(((pp-ap)/pp*100).toFixed(1)):null};
+      longest:mo.runs.length?Math.max(...mo.runs.map(r=>r.distanceKm||0)):0,avgPace:ap,
+      kmDelta:pv&&pv.km>0?parseFloat(((mo.km-pv.km)/pv.km*100).toFixed(1)):null,
+      paceDelta:pp&&ap&&pp>0?parseFloat(((pp-ap)/pp*100).toFixed(1)):null};
   });
   const runDays=new Set(sorted.map(r=>new Date(r.dateTs).toDateString()));
   let streak=0;const today=new Date();today.setHours(0,0,0,0);
@@ -881,6 +928,62 @@ function getCardText(act,tmpl){
   return name+dist+"\nKM\n\n"+pace+"  PACE\n"+dur+"  TIME\n\n"+date+"\n\n"+B;
 }
 
+function drawCustomCard(ctx,act,tmpl,W,H,bg,loadedImg){
+  drawBg(ctx,W,H,bg,loadedImg);
+  const dist=fmtKm(act.distanceKm),pace=fmtPace(act.avgPaceSecKm)+"/km";
+  const s=act.movingTimeSec||0,dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
+  const date=fmtDate(act.date);
+  const tf=(sz,w)=>{ctx.font=(w||"700")+" "+Math.round(sz)+"px system-ui,sans-serif";};
+  const c=(v)=>{ctx.fillStyle=v;};
+  ctx.textBaseline="alphabetic";
+  if(tmpl==="glass-story"){
+    // dim overlay
+    c("rgba(0,0,0,.35)");ctx.fillRect(0,0,W,H);
+    // glass card
+    const gx=W*.07,gy=H*.28,gw=W*.86,gh=H*.44;
+    ctx.save();ctx.globalAlpha=0.15;c("#a0c0e8");roundRect(ctx,gx,gy,gw,gh,W*.03);ctx.fill();
+    ctx.globalAlpha=0.25;ctx.strokeStyle="#c0d8f0";ctx.lineWidth=W*.002;roundRect(ctx,gx,gy,gw,gh,W*.03);ctx.stroke();
+    ctx.restore();
+    ctx.textAlign="center";
+    tf(H*.022,"800");c("rgba(255,255,255,.65)");ctx.fillText("RUNLYTICS",W/2,gy+H*.055);
+    tf(W*.32,"900");c("#fff");ctx.fillText(dist,W/2,gy+H*.21);
+    tf(H*.016,"600");c("rgba(255,255,255,.42)");ctx.fillText("KILOMETERS",W/2,gy+H*.25);
+    ctx.globalAlpha=0.2;ctx.strokeStyle="#fff";ctx.lineWidth=W*.001;
+    ctx.beginPath();ctx.moveTo(gx+gw*.1,gy+H*.29);ctx.lineTo(gx+gw*.9,gy+H*.29);ctx.stroke();ctx.globalAlpha=1;
+    tf(H*.036,"700");c("rgba(255,255,255,.92)");
+    ctx.fillText(pace,W*.32,gy+H*.37);ctx.fillText(dur,W*.68,gy+H*.37);
+    tf(H*.014,"600");c("rgba(255,255,255,.38)");
+    ctx.fillText("PACE",W*.32,gy+H*.405);ctx.fillText("TIME",W*.68,gy+H*.405);
+    tf(H*.015,"400");c("rgba(255,255,255,.32)");ctx.fillText(date,W/2,gy+gh-H*.022);
+    ctx.textAlign="left";return;
+  }
+  if(tmpl==="cinematic-motion"){
+    const ov=ctx.createLinearGradient(0,0,0,H);
+    ov.addColorStop(0,"rgba(0,0,0,.15)");ov.addColorStop(.5,"rgba(0,0,0,.45)");ov.addColorStop(1,"rgba(0,0,0,.82)");
+    c(ov);ctx.fillRect(0,0,W,H);
+    tf(W*.4,"900");c("#fff");ctx.fillText(dist,W*.07,H*.72);
+    tf(H*.018,"600");c("rgba(255,255,255,.42)");ctx.fillText("KILOMETERS",W*.07,H*.765);
+    tf(H*.038,"700");c("rgba(255,255,255,.9)");ctx.fillText(pace,W*.07,H*.84);ctx.fillText(dur,W*.52,H*.84);
+    tf(H*.015,"700");c("rgba(255,255,255,.3)");ctx.fillText("PACE",W*.07,H*.873);ctx.fillText("TIME",W*.52,H*.873);
+    ctx.globalAlpha=0.2;c("#fff");ctx.fillRect(W*.07,H*.9,W*.86,W*.002);ctx.globalAlpha=1;
+    tf(H*.023,"400");c("rgba(255,255,255,.6)");ctx.fillText("Keep showing up.",W*.07,H*.93);
+    tf(H*.018,"400");c("rgba(255,255,255,.3)");ctx.fillText("The results follow.",W*.07,H*.962);
+    tf(H*.015,"400");c("rgba(255,255,255,.25)");ctx.fillText(date+" · RUNLYTICS",W*.07,H*.978);
+    return;
+  }
+  // photo-overlay (default)
+  const ov2=ctx.createLinearGradient(0,0,0,H);
+  ov2.addColorStop(0,"rgba(0,0,0,.22)");ov2.addColorStop(.6,"rgba(0,0,0,.52)");ov2.addColorStop(1,"rgba(0,0,0,.78)");
+  c(ov2);ctx.fillRect(0,0,W,H);
+  tf(H*.023,"800");c("rgba(255,255,255,.7)");ctx.fillText("RUNLYTICS",W*.07,H*.068);
+  tf(W*.38,"900");c("#fff");ctx.fillText(dist,W*.07,H*.52);
+  tf(H*.018,"600");c("rgba(255,255,255,.5)");ctx.fillText("KILOMETERS",W*.07,H*.565);
+  ctx.globalAlpha=0.22;c("#fff");ctx.fillRect(W*.07,H*.6,W*.86,W*.002);ctx.globalAlpha=1;
+  tf(H*.038,"700");c("rgba(255,255,255,.95)");ctx.fillText(pace,W*.07,H*.67);ctx.fillText(dur,W*.52,H*.67);
+  tf(H*.015,"700");c("rgba(255,255,255,.35)");ctx.fillText("PACE",W*.07,H*.703);ctx.fillText("TIME",W*.52,H*.703);
+  tf(H*.016,"400");c("rgba(255,255,255,.42)");ctx.fillText(date,W*.07,H*.935);
+}
+
 function drawRunCardExtra(ctx,act,tmpl,W,H){
   const dist=fmtKm(act.distanceKm),pace=fmtPace(act.avgPaceSecKm)+"/km";
   const s=act.movingTimeSec||0,dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
@@ -965,6 +1068,69 @@ function drawRunCardExtra(ctx,act,tmpl,W,H){
   }
 }
 
+const PRESET_BGS=[
+  {id:"night",  label:"Night",  css:"linear-gradient(155deg,#0f0c29,#302b63,#24243e)", stops:["#0f0c29","#302b63","#24243e"]},
+  {id:"sunrise",label:"Sunrise",css:"linear-gradient(155deg,#1a0533,#8b1a4a 45%,#fc4a1a 80%,#f7971e)",stops:["#1a0533","#8b1a4a","#fc4a1a","#f7971e"]},
+  {id:"forest", label:"Forest", css:"linear-gradient(155deg,#0f2027,#203a43,#2c5364)", stops:["#0f2027","#203a43","#2c5364"]},
+  {id:"storm",  label:"Storm",  css:"linear-gradient(155deg,#141e30,#243b55)",          stops:["#141e30","#243b55"]},
+  {id:"ember",  label:"Ember",  css:"linear-gradient(155deg,#0d0d0d,#3d1200)",          stops:["#0d0d0d","#3d1200"]},
+  {id:"dusk",   label:"Dusk",   css:"linear-gradient(155deg,#2d1b69,#11998e)",          stops:["#2d1b69","#11998e"]},
+];
+
+function drawBg(ctx,W,H,preset,loadedImg){
+  if(loadedImg){
+    const scale=Math.max(W/loadedImg.width,H/loadedImg.height);
+    const dw=loadedImg.width*scale,dh=loadedImg.height*scale;
+    ctx.drawImage(loadedImg,(W-dw)/2,(H-dh)/2,dw,dh);
+  }else{
+    const bg=PRESET_BGS.find(p=>p.id===preset)||PRESET_BGS[0];
+    const g=ctx.createLinearGradient(0,0,W*.6,H);
+    bg.stops.forEach((c,i)=>g.addColorStop(i/Math.max(bg.stops.length-1,1),c));
+    ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+  }
+}
+
+const BgPicker=({preset,bgImg,onPreset,onUpload,onClearImg})=>{
+  const fileRef=useRef(null);
+  const handleFile=e=>{
+    const f=e.target&&e.target.files&&e.target.files[0];
+    if(!f)return;
+    const r=new FileReader();
+    r.onload=ev=>{if(ev.target&&ev.target.result)onUpload(ev.target.result);};
+    r.readAsDataURL(f);
+  };
+  return(
+    <div style={{padding:"10px 16px 12px",borderTop:"1px solid rgba(255,255,255,.07)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:".62rem",color:"rgba(255,255,255,.3)",letterSpacing:".1em"}}>BACKGROUND</div>
+        {bgImg&&(
+          <button onClick={onClearImg}
+            style={{background:"none",border:"none",color:"rgba(255,255,255,.4)",fontSize:".72rem",cursor:"pointer",padding:"2px 6px"}}>
+            ✕ Clear photo
+          </button>
+        )}
+      </div>
+      <div style={{display:"flex",gap:7,alignItems:"center"}}>
+        {PRESET_BGS.map(p=>(
+          <div key={p.id} onClick={()=>onPreset(p.id)}
+            style={{flex:1,height:32,borderRadius:8,background:p.css,cursor:"pointer",flexShrink:0,
+              outline:(!bgImg&&preset===p.id)?"2px solid #f97316":"2px solid transparent",
+              outlineOffset:2,transition:"outline .15s"}}/>
+        ))}
+        <div onClick={()=>fileRef.current&&fileRef.current.click()}
+          style={{width:32,height:32,borderRadius:8,flexShrink:0,cursor:"pointer",
+            background:bgImg?"#f97316":"rgba(255,255,255,.08)",
+            border:"2px dashed "+(bgImg?"#f97316":"rgba(255,255,255,.22)"),
+            display:"flex",alignItems:"center",justifyContent:"center",fontSize:".9rem"}}>
+          {bgImg?"✔":"📷"}
+        </div>
+      </div>
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" style={{display:"none"}} onChange={handleFile}/>
+    </div>
+  );
+};
+
+
 const MiniRoute=({route,W=160,H=110})=>{
   if(!route||route.length<2)return null;
   const lats=route.map(r=>r.lat),lons=route.map(r=>r.lon);
@@ -992,7 +1158,7 @@ const MiniRoute=({route,W=160,H=110})=>{
 };
 
 
-const ShareCard=({type,act,W=270,H=480})=>{
+const ShareCard=({type,act,W=270,H=480,bg="night",bgImg=null})=>{
   const dist=fmtKm(act.distanceKm),pace=fmtPace(act.avgPaceSecKm)+"/km";
   const s=act.movingTimeSec||0,dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
   const hasRoute=act.route&&act.route.length>2;
@@ -1101,6 +1267,74 @@ const ShareCard=({type,act,W=270,H=480})=>{
       </div>
     );
   }
+  if(type==="photo-overlay"||type==="glass-story"||type==="cinematic-motion"){
+    const hasBg=bgImg||bg;
+    const bgStyle=bgImg
+      ?{backgroundImage:"url("+bgImg+")",backgroundSize:"cover",backgroundPosition:"center"}
+      :{background:(PRESET_BGS.find(p=>p.id===bg)||PRESET_BGS[0]).css};
+    if(type==="glass-story")return(
+      <div style={{width:W,height:H,borderRadius:18,flexShrink:0,overflow:"hidden",position:"relative",...bgStyle,...baseAnim}}>
+        <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.35)"}}/>
+        <div style={{position:"absolute",inset:0,padding:f(20),display:"flex",flexDirection:"column",justifyContent:"center"}}>
+          <div style={{backdropFilter:"blur(22px) saturate(1.4)",WebkitBackdropFilter:"blur(22px) saturate(1.4)",
+            background:"rgba(255,255,255,.14)",border:"1px solid rgba(255,255,255,.28)",
+            borderRadius:f(16),padding:"26px 22px",
+            boxShadow:"0 8px 32px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.22)"}}>
+            <div style={{textAlign:"center",marginBottom:18}}>
+              <div style={{fontSize:f(9),fontWeight:800,color:"rgba(255,255,255,.65)",letterSpacing:".16em",marginBottom:16}}>RUNLYTICS</div>
+              <div style={{fontSize:f(64),fontWeight:900,color:"#fff",lineHeight:.85,letterSpacing:"-.03em"}}>{dist}</div>
+              <div style={{fontSize:f(10),fontWeight:600,color:"rgba(255,255,255,.45)",letterSpacing:".18em",marginTop:10}}>KM</div>
+            </div>
+            <div style={{height:1,background:"rgba(255,255,255,.2)",marginBottom:18}}/>
+            <div style={{display:"flex",justifyContent:"space-around",marginBottom:hasRoute?14:0}}>
+              <Stat label="Pace" value={pace} vc="#fff"/><Stat label="Time" value={dur} vc="#fff"/>
+            </div>
+            {hasRoute&&<div style={{display:"flex",justifyContent:"center",marginTop:4}}><MiniRoute route={act.route} W={W-84} H={Math.round((W-84)*.5)}/></div>}
+            <div style={{textAlign:"center",marginTop:12,fontSize:f(8),color:"rgba(255,255,255,.38)",letterSpacing:".04em"}}>{fmtDate(act.date)}</div>
+          </div>
+        </div>
+      </div>
+    );
+    if(type==="cinematic-motion")return(
+      <div style={{width:W,height:H,borderRadius:18,flexShrink:0,overflow:"hidden",position:"relative",...bgStyle,...baseAnim}}>
+        <div style={{position:"absolute",inset:0,background:"linear-gradient(180deg,rgba(0,0,0,.15) 0%,rgba(0,0,0,.45) 50%,rgba(0,0,0,.82) 100%)"}}/>
+        <div style={{position:"absolute",inset:0,padding:"28px 26px",display:"flex",flexDirection:"column",justifyContent:"flex-end"}}>
+          <div>
+            <div style={{fontSize:f(78),fontWeight:900,color:"#fff",lineHeight:.85,letterSpacing:"-.04em",textShadow:"0 4px 24px rgba(0,0,0,.6)"}}>{dist}</div>
+            <div style={{fontSize:f(11),fontWeight:600,color:"rgba(255,255,255,.45)",letterSpacing:".18em",marginTop:10}}>KM</div>
+            <div style={{display:"flex",gap:f(28),marginTop:20}}>
+              <Stat label="Pace" value={pace}/><Stat label="Time" value={dur}/>
+            </div>
+            <div style={{height:1,background:"rgba(255,255,255,.18)",margin:"16px 0"}}/>
+            <div style={{fontSize:f(12),fontStyle:"italic",color:"rgba(255,255,255,.62)",lineHeight:1.55}}>Keep showing up.</div>
+            <div style={{fontSize:f(10),fontStyle:"italic",color:"rgba(255,255,255,.32)"}}>The results follow.</div>
+            <div style={{marginTop:14,fontSize:f(8),color:"rgba(255,255,255,.28)",letterSpacing:".04em"}}>{fmtDate(act.date)+" · RUNLYTICS"}</div>
+          </div>
+        </div>
+      </div>
+    );
+    return(
+      <div style={{width:W,height:H,borderRadius:18,flexShrink:0,overflow:"hidden",position:"relative",...bgStyle,...baseAnim}}>
+        <div style={{position:"absolute",inset:0,background:"linear-gradient(180deg,rgba(0,0,0,.22) 0%,rgba(0,0,0,.52) 60%,rgba(0,0,0,.78) 100%)"}}/>
+        <div style={{position:"absolute",inset:0,padding:"28px 26px",display:"flex",flexDirection:"column",justifyContent:"space-between"}}>
+          <div style={{fontSize:f(9),fontWeight:800,color:"rgba(255,255,255,.7)",letterSpacing:".16em"}}>RUNLYTICS</div>
+          <div>
+            <div style={{fontSize:f(76),fontWeight:900,color:"#fff",lineHeight:.85,letterSpacing:"-.04em",textShadow:"0 3px 20px rgba(0,0,0,.55)"}}>{dist}</div>
+            <div style={{fontSize:f(11),fontWeight:600,color:"rgba(255,255,255,.52)",letterSpacing:".18em",marginTop:10}}>KM</div>
+            {hasRoute&&<div style={{marginTop:14}}><MiniRoute route={act.route} W={W-52} H={Math.round((W-52)*.48)}/></div>}
+          </div>
+          <div>
+            <div style={{height:1,background:"rgba(255,255,255,.22)",marginBottom:14}}/>
+            <div style={{display:"flex",gap:f(28),marginBottom:12}}>
+              <Stat label="Pace" value={pace}/><Stat label="Time" value={dur}/>
+            </div>
+            <div style={{fontSize:f(8),color:"rgba(255,255,255,.42)",letterSpacing:".04em"}}>{fmtDate(act.date)}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return(
     <div style={{width:W,height:H,borderRadius:18,flexShrink:0,
       background:"#0c0e18",padding:"32px 28px",display:"flex",
@@ -1127,9 +1361,38 @@ const ShareCard=({type,act,W=270,H=480})=>{
 
 
 const ShareModal=({act,onClose})=>{
+  const[mode,setMode]=useState(null);
   const[idx,setIdx]=useState(0);
   const[busy,setBusy]=useState(false);
   const[copied,setCopied]=useState(false);
+  const[bgPreset,setBgPreset]=useState("night");
+  const[bgImg,setBgImg]=useState(null);
+  const scrollRef=useRef(null);
+
+  const TMPL_STD=["minimal","orange","cinematic","glass","poster"];
+  const TMPL_STD_LABELS=["Minimal Dark","Bold Orange","Cinematic","Glassmorphism","Race Poster"];
+  const TMPL_CUS=["photo-overlay","glass-story","cinematic-motion"];
+  const TMPL_CUS_LABELS=["Photo Overlay","Glass Story","Cinematic Motion"];
+  const TMPL=mode==="custom"?TMPL_CUS:TMPL_STD;
+  const LABELS=mode==="custom"?TMPL_CUS_LABELS:TMPL_STD_LABELS;
+
+  const goMode=m=>{
+    setMode(m);setIdx(0);
+    setTimeout(()=>{if(scrollRef.current)scrollRef.current.scrollLeft=0;},30);
+  };
+  const goBack=()=>{setMode(null);setIdx(0);};
+
+  const scrollTo=i=>{
+    if(!scrollRef.current)return;
+    scrollRef.current.scrollTo({left:i*scrollRef.current.offsetWidth,behavior:"smooth"});
+    setIdx(i);
+  };
+  const onScroll=()=>{
+    if(!scrollRef.current)return;
+    const i=Math.round(scrollRef.current.scrollLeft/Math.max(1,scrollRef.current.offsetWidth));
+    setIdx(Math.max(0,Math.min(TMPL.length-1,i)));
+  };
+
   const copyText=()=>{
     const text=getCardText(act,TMPL[idx]);
     if(navigator.clipboard&&navigator.clipboard.writeText){
@@ -1144,19 +1407,7 @@ const ShareModal=({act,onClose})=>{
       }catch(e){}
     }
   };
-  const scrollRef=useRef(null);
-  const TMPL=["minimal","orange","cinematic","glass","poster"];
-  const LABELS=["Minimal Dark","Bold Orange","Cinematic","Glassmorphism","Race Poster"];
-  const scrollTo=i=>{
-    if(!scrollRef.current)return;
-    scrollRef.current.scrollTo({left:i*scrollRef.current.offsetWidth,behavior:"smooth"});
-    setIdx(i);
-  };
-  const onScroll=()=>{
-    if(!scrollRef.current)return;
-    const i=Math.round(scrollRef.current.scrollLeft/Math.max(1,scrollRef.current.offsetWidth));
-    setIdx(Math.max(0,Math.min(TMPL.length-1,i)));
-  };
+
   const doExport=async(fmt)=>{
     if(busy)return;
     setBusy(fmt);
@@ -1165,75 +1416,162 @@ const ShareModal=({act,onClose})=>{
       const cv=document.createElement("canvas");
       cv.width=W;cv.height=H;
       const ctx=cv.getContext("2d");
-      if(TMPL[idx]==="glass"||TMPL[idx]==="poster"){drawRunCardExtra(ctx,act,TMPL[idx],W,H);}
-      else{drawRunCard(ctx,act,TMPL[idx],W,H);}
+      const t=TMPL[idx];
+      if(mode==="custom"){
+        let loadedImg=null;
+        if(bgImg){loadedImg=await new Promise(res=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>res(null);i.src=bgImg;});}
+        drawCustomCard(ctx,act,t,W,H,bgPreset,loadedImg);
+      }else if(t==="glass"||t==="poster"){drawRunCardExtra(ctx,act,t,W,H);}
+      else{drawRunCard(ctx,act,t,W,H);}
       const isPng=fmt==="png";
       cv.toBlob(blob=>{
         if(!blob){setBusy(false);return;}
         const url=URL.createObjectURL(blob);
         const a=document.createElement("a");
-        a.href=url;a.download="runlytics-"+TMPL[idx]+"."+(isPng?"png":"jpg");
+        a.href=url;a.download="runlytics-"+t+"."+(isPng?"png":"jpg");
         document.body.appendChild(a);a.click();
         setTimeout(()=>{try{document.body.removeChild(a);}catch(e){}URL.revokeObjectURL(url);},900);
         setBusy(false);
       },isPng?"image/png":"image/jpeg",isPng?undefined:0.92);
     }catch(e){setBusy(false);}
   };
-  return(
-    <div style={{position:"fixed",inset:0,zIndex:420,background:"#000",display:"flex",flexDirection:"column",overscrollBehavior:"contain"}}>
-      <div style={{padding:"14px 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid rgba(255,255,255,.07)",flexShrink:0}}>
-        <button style={{background:"none",border:"none",color:"rgba(255,255,255,.5)",fontSize:"1.4rem",cursor:"pointer",lineHeight:1,padding:4}} onClick={onClose}>&#x2715;</button>
-        <div style={{fontWeight:700,color:"rgba(255,255,255,.88)",fontSize:".84rem",letterSpacing:".1em"}}>SHARE ACTIVITY</div>
-        <div style={{width:36}}/>
+
+  // Shared header
+  const Header=({title,back})=>(
+    <div style={{padding:"14px 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",
+      borderBottom:"1px solid rgba(255,255,255,.07)",flexShrink:0}}>
+      <button style={{background:"none",border:"none",color:"rgba(255,255,255,.5)",fontSize:"1.3rem",
+        cursor:"pointer",lineHeight:1,padding:4,width:36,textAlign:"left"}} onClick={back||onClose}>
+        {back?"‹":"✕"}
+      </button>
+      <div style={{fontWeight:700,color:"rgba(255,255,255,.88)",fontSize:".84rem",letterSpacing:".1em"}}>{title}</div>
+      <div style={{width:36}}/>
+    </div>
+  );
+
+  // Shared carousel footer
+  const CarouselFooter=()=>(
+    <div style={{padding:"10px 20px 34px",borderTop:"1px solid rgba(255,255,255,.07)",flexShrink:0}}>
+      <div style={{display:"flex",justifyContent:"center",gap:6,marginBottom:10}}>
+        {TMPL.map((_,i)=>(
+          <div key={i} onClick={()=>scrollTo(i)}
+            style={{height:5,borderRadius:3,cursor:"pointer",transition:"all .3s ease",
+              width:i===idx?22:5,background:i===idx?"#f97316":"rgba(255,255,255,.16)"}}/>
+        ))}
       </div>
+      {mode==="custom"&&(
+        <BgPicker preset={bgPreset} bgImg={bgImg}
+          onPreset={p=>{setBgPreset(p);setBgImg(null);}}
+          onUpload={setBgImg} onClearImg={()=>setBgImg(null)}/>
+      )}
+      <div style={{textAlign:"center",fontSize:".66rem",color:"rgba(255,255,255,.25)",
+        marginBottom:12,marginTop:mode==="custom"?8:2,letterSpacing:".1em"}}>
+        {LABELS[idx].toUpperCase()}
+      </div>
+      <button onClick={copyText}
+        style={{width:"100%",padding:"11px",borderRadius:10,border:"1px solid rgba(255,255,255,.12)",
+          cursor:"pointer",marginBottom:10,transition:"all .2s",
+          background:copied?"rgba(34,197,94,.15)":"rgba(255,255,255,.04)",
+          color:copied?"#22c55e":"rgba(255,255,255,.6)",fontWeight:600,fontSize:".84rem"}}>
+        {copied?"\u2713 Text Copied!":"\uD83D\uDCCB Copy Text"}
+      </button>
+      <div style={{display:"flex",gap:10}}>
+        <button onClick={()=>doExport("jpg")} disabled={!!busy}
+          style={{flex:2,padding:"13px 0",borderRadius:12,border:"none",cursor:busy?"wait":"pointer",
+            background:busy==="jpg"?"rgba(249,115,22,.4)":"#f97316",
+            color:busy==="jpg"?"rgba(255,255,255,.4)":"#fff",fontWeight:700,fontSize:".9rem"}}>
+          {busy==="jpg"?"\u23f3 Saving...":"\u2b07 JPEG"}
+        </button>
+        <button onClick={()=>doExport("png")} disabled={!!busy}
+          style={{flex:1,padding:"13px 0",borderRadius:12,border:"1px solid rgba(255,255,255,.12)",
+            cursor:busy?"wait":"pointer",background:"rgba(255,255,255,.05)",
+            color:"rgba(255,255,255,.65)",fontWeight:600,fontSize:".88rem"}}>
+          {busy==="png"?"\u23f3":"PNG"}
+        </button>
+      </div>
+      <div style={{textAlign:"center",marginTop:8,fontSize:".6rem",color:"rgba(255,255,255,.14)",letterSpacing:".06em"}}>
+        1080 \xd7 1920 \xb7 Story Format
+      </div>
+    </div>
+  );
+
+  const shell={position:"fixed",inset:0,zIndex:420,background:"#000",display:"flex",flexDirection:"column",overscrollBehavior:"contain"};
+
+  // ── LANDING ────────────────────────────────────────────────────────
+  if(!mode)return(
+    <div style={shell}>
+      <Header title="SHARE ACTIVITY"/>
+      <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",padding:"20px 22px",gap:12}}>
+        <div style={{textAlign:"center",marginBottom:12}}>
+          <div style={{fontSize:".92rem",fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:6}}>How do you want to share?</div>
+          <div style={{fontSize:".76rem",color:"rgba(255,255,255,.32)"}}>Pick a style for your run card</div>
+        </div>
+        {/* Templates */}
+        <div onClick={()=>goMode("templates")} className="tap"
+          style={{borderRadius:16,border:"1px solid rgba(255,255,255,.1)",background:"rgba(255,255,255,.04)",
+            padding:"20px",cursor:"pointer"}}>
+          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
+            <div style={{width:48,height:48,borderRadius:12,background:"linear-gradient(135deg,#f97316,#c2410c)",
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.4rem",flexShrink:0}}>🎨</div>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:".96rem",color:"#fff",marginBottom:4}}>Templates</div>
+              <div style={{fontSize:".76rem",color:"rgba(255,255,255,.4)",lineHeight:1.5}}>
+                5 built-in designs — Minimal, Orange, Cinematic, Glass, Poster
+              </div>
+            </div>
+            <span style={{color:"rgba(255,255,255,.25)",fontSize:"1.1rem"}}>›</span>
+          </div>
+          <div style={{display:"flex",gap:6,paddingLeft:62}}>
+            {["#0c0e18","#f97316","#080a12","#0a0f1e","#f8f7f4"].map((c,i)=>(
+              <div key={i} style={{width:24,height:24,borderRadius:6,background:c,
+                border:"1px solid rgba(255,255,255,.12)",flexShrink:0}}/>
+            ))}
+          </div>
+        </div>
+        {/* Custom */}
+        <div onClick={()=>goMode("custom")} className="tap"
+          style={{borderRadius:16,border:"1px solid rgba(249,115,22,.2)",background:"rgba(249,115,22,.04)",
+            padding:"20px",cursor:"pointer"}}>
+          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
+            <div style={{width:48,height:48,borderRadius:12,background:"linear-gradient(135deg,#2d1b69,#11998e)",
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.4rem",flexShrink:0}}>📷</div>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:700,fontSize:".96rem",color:"#fff",marginBottom:4}}>Custom Background</div>
+              <div style={{fontSize:".76rem",color:"rgba(255,255,255,.4)",lineHeight:1.5}}>
+                Upload a photo or pick a preset — Photo Overlay, Glass Story, Cinematic
+              </div>
+            </div>
+            <span style={{color:"rgba(255,255,255,.25)",fontSize:"1.1rem"}}>›</span>
+          </div>
+          <div style={{display:"flex",gap:6,paddingLeft:62}}>
+            {PRESET_BGS.slice(0,5).map(p=>(
+              <div key={p.id} style={{width:24,height:24,borderRadius:6,background:p.css,
+                border:"1px solid rgba(255,255,255,.12)",flexShrink:0}}/>
+            ))}
+          </div>
+        </div>
+        <div style={{textAlign:"center",fontSize:".68rem",color:"rgba(255,255,255,.18)",marginTop:6}}>
+          Exports at 1080 \xd7 1920 \xb7 Instagram Story
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── CAROUSEL (templates or custom) ────────────────────────────────
+  return(
+    <div style={shell}>
+      <Header title={mode==="custom"?"CUSTOM BACKGROUND":"TEMPLATES"} back={goBack}/>
       <div ref={scrollRef} onScroll={onScroll}
-        style={{flex:1,display:"flex",overflowX:"auto",scrollSnapType:"x mandatory",scrollbarWidth:"none",WebkitOverflowScrolling:"touch",alignItems:"center"}}>
+        style={{flex:1,display:"flex",overflowX:"auto",scrollSnapType:"x mandatory",
+          scrollbarWidth:"none",WebkitOverflowScrolling:"touch",alignItems:"center"}}>
         {TMPL.map(t=>(
-          <div key={t} style={{minWidth:"100%",scrollSnapAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",padding:"12px 28px",boxSizing:"border-box"}}>
-            <ShareCard type={t} act={act}/>
+          <div key={t} style={{minWidth:"100%",scrollSnapAlign:"center",display:"flex",
+            alignItems:"center",justifyContent:"center",padding:"12px 28px",boxSizing:"border-box"}}>
+            <ShareCard type={t} act={act} bg={bgPreset} bgImg={bgImg}/>
           </div>
         ))}
       </div>
-      <div style={{padding:"12px 20px 36px",borderTop:"1px solid rgba(255,255,255,.07)",flexShrink:0}}>
-        <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:6,marginBottom:12}}>
-          {TMPL.map((_,i)=>(
-            <div key={i} onClick={()=>scrollTo(i)}
-              style={{height:5,borderRadius:3,cursor:"pointer",transition:"all .3s ease",
-                width:i===idx?22:5,background:i===idx?"#f97316":"rgba(255,255,255,.16)"}}/>
-          ))}
-        </div>
-        <div style={{textAlign:"center",fontSize:".68rem",color:"rgba(255,255,255,.25)",marginBottom:16,letterSpacing:".1em"}}>
-          {LABELS[idx].toUpperCase()}
-        </div>
-        <button onClick={copyText}
-          style={{width:"100%",padding:"11px",borderRadius:10,border:"1px solid rgba(255,255,255,.12)",cursor:"pointer",
-            marginBottom:10,transition:"all .2s",
-            background:copied?"rgba(34,197,94,.15)":"rgba(255,255,255,.04)",
-            color:copied?"#22c55e":"rgba(255,255,255,.6)",
-            fontWeight:600,fontSize:".84rem",letterSpacing:".03em"}}>
-          {copied?"\u2713 Text Copied!":"\uD83D\uDCCB Copy Text"}
-        </button>
-        <div style={{display:"flex",gap:10}}>
-          <button onClick={()=>doExport("jpg")} disabled={!!busy}
-            style={{flex:2,padding:"13px 0",borderRadius:12,border:"none",cursor:busy?"wait":"pointer",
-              background:busy==="jpg"?"rgba(249,115,22,.4)":"#f97316",
-              color:busy==="jpg"?"rgba(255,255,255,.4)":"#fff",
-              fontWeight:700,fontSize:".9rem",transition:"background .2s",letterSpacing:".02em"}}>
-            {busy==="jpg"?"⏳ Saving...":"⬇ JPEG"}
-          </button>
-          <button onClick={()=>doExport("png")} disabled={!!busy}
-            style={{flex:1,padding:"13px 0",borderRadius:12,cursor:busy?"wait":"pointer",
-              background:busy==="png"?"rgba(255,255,255,.08)":"rgba(255,255,255,.05)",
-              color:busy==="png"?"rgba(255,255,255,.35)":"rgba(255,255,255,.65)",
-              fontWeight:600,fontSize:".88rem",transition:"background .2s",letterSpacing:".02em",
-              border:"1px solid rgba(255,255,255,.12)"}}>
-            {busy==="png"?"⏳":"PNG"}
-          </button>
-        </div>
-        <div style={{textAlign:"center",marginTop:10,fontSize:".62rem",color:"rgba(255,255,255,.15)",letterSpacing:".06em"}}>
-          1080 × 1920 · Story Format
-        </div>
-      </div>
+      <CarouselFooter/>
     </div>
   );
 };
@@ -1421,9 +1759,13 @@ const Upload=({acts,hrProfile,onAdd,onClearAll})=>{
   const process=useCallback(async files=>{
     const gpx=Array.from(files).filter(f=>f.name.toLowerCase().endsWith(".gpx"));
     if(!gpx.length)return;
+    const MAX_BYTES=20*1024*1024; // 20MB
     const items=gpx.map(f=>({file:f,status:"parsing",parsed:null,error:null}));
     setQueue(items);
     const res=await Promise.all(items.map(async item=>{
+      if(item.file.size>MAX_BYTES){
+        return{...item,status:"error",error:"File too large (max 20MB). Try exporting a shorter activity."};
+      }
       try{
         const text=await item.file.text();
         const parsed=parseGPX(text,item.file.name,hrProfile);
@@ -2132,7 +2474,8 @@ const AchievementsTab=({earnedBadges,acts,analytics,tierProgress,newTiers})=>{
 };
 
 const MonthlyReport=({acts,goals,onClose})=>{
-  // Group activities by calendar month
+  const[expandedKey,setExpandedKey]=useState(null);
+
   const byMonth=useMemo(()=>{
     const map={};
     acts.forEach(a=>{
@@ -2153,10 +2496,10 @@ const MonthlyReport=({acts,goals,onClose})=>{
     <div style={{position:"fixed",inset:0,zIndex:220,background:"var(--bg)",display:"flex",flexDirection:"column"}}>
       <div className="glass" style={{padding:"14px 18px 12px",borderBottom:"1px solid var(--bd)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
         <div style={{fontWeight:700,fontSize:"1.05rem"}}>Monthly Report</div>
-        <button className="btn b-gh" style={{padding:"6px 13px",fontSize:".8rem"}} onClick={onClose}>✕ Close</button>
+        <button className="btn b-gh" style={{padding:"6px 13px",fontSize:".8rem"}} onClick={onClose}>&#x2715; Close</button>
       </div>
       <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12,color:"var(--tx2)"}}>
-        <span style={{fontSize:"3rem"}}>📅</span>
+        <span style={{fontSize:"3rem"}}>&#x1F4C5;</span>
         <div style={{fontWeight:600}}>No runs recorded yet</div>
         <div style={{fontSize:".84rem"}}>Upload your first GPX to generate a report</div>
       </div>
@@ -2170,74 +2513,82 @@ const MonthlyReport=({acts,goals,onClose})=>{
           <div style={{fontWeight:700,fontSize:"1.05rem"}}>Monthly Report</div>
           <div style={{fontSize:".68rem",color:"var(--tx2)",marginTop:2}}>{byMonth.length+" month"+(byMonth.length!==1?"s":"")+" of data"}</div>
         </div>
-        <button className="btn b-gh" style={{padding:"6px 13px",fontSize:".8rem"}} onClick={onClose}>✕ Close</button>
+        <button className="btn b-gh" style={{padding:"6px 13px",fontSize:".8rem"}} onClick={onClose}>&#x2715; Close</button>
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:"16px 18px 40px"}}>
+      <div style={{flex:1,overflowY:"auto",padding:"14px 18px 40px"}}>
         {byMonth.map((m,mi)=>{
+          const isOpen=expandedKey===m.key;
+          const isCurrent=mi===0;
+          const toggle=()=>setExpandedKey(isOpen?null:m.key);
           const longest=m.runs.reduce((b,r)=>r.distanceKm>b.distanceKm?r:b,m.runs[0]);
           const bestPace=m.paces.length?Math.min(...m.paces):null;
           const avgHR=m.hrs.length?Math.round(m.hrs.reduce((s,h)=>s+h,0)/m.hrs.length):null;
           const avgPace=m.paces.length?Math.round(m.paces.reduce((s,p)=>s+p,0)/m.paces.length):null;
           const monthGoal=goals&&goals.monthly?goals.monthly:0;
           const goalPct=monthGoal?Math.min(100,Math.round(m.km/monthGoal*100)):0;
-          const isCurrent=mi===0;
           const totalH=Math.floor(m.timeSec/3600),totalM=Math.floor((m.timeSec%3600)/60);
           const totalTime=(totalH>0?totalH+"h ":"")+totalM+"m";
           return(
-            <div key={m.key} className={"card a"+Math.min(mi,3)} style={{marginBottom:16,padding:0,overflow:"hidden",border:isCurrent?"1px solid rgba(249,115,22,.3)":"1px solid var(--bd)"}}>
-              {/* Month header */}
-              <div style={{padding:"14px 16px 12px",background:isCurrent?"rgba(249,115,22,.07)":"var(--s2)",borderBottom:"1px solid var(--bd)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div>
-                  <div style={{fontWeight:700,fontSize:".96rem",color:isCurrent?"var(--or)":"var(--tx)"}}>{m.label}</div>
+            <div key={m.key} className={"card a"+Math.min(mi,3)}
+              style={{marginBottom:10,padding:0,overflow:"hidden",
+                border:isCurrent?"1px solid rgba(249,115,22,.3)":"1px solid var(--bd)"}}>
+              <div className="tap" onClick={toggle}
+                style={{padding:"14px 16px",display:"flex",alignItems:"center",gap:12,cursor:"pointer",
+                  background:isCurrent?"rgba(249,115,22,.06)":"var(--s2)"}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:".92rem",color:isCurrent?"var(--or)":"var(--tx)"}}>{m.label}</div>
                   <div style={{fontSize:".68rem",color:"var(--tx2)",marginTop:2}}>{m.runs.length+" run"+(m.runs.length!==1?"s":"")}</div>
                 </div>
-                <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:"1.4rem",fontWeight:800,color:isCurrent?"var(--or)":"var(--tx)",lineHeight:1}}>{fmtKm(m.km)}</div>
-                  <div style={{fontSize:".6rem",color:"var(--tx2)",letterSpacing:".08em"}}>KM TOTAL</div>
+                <div style={{textAlign:"right",flexShrink:0}}>
+                  <div style={{fontSize:"1.3rem",fontWeight:800,lineHeight:1,color:isCurrent?"var(--or)":"var(--tx)"}}>{fmtKm(m.km)}</div>
+                  <div style={{fontSize:".58rem",color:"var(--tx2)",letterSpacing:".08em",marginTop:2}}>KM</div>
                 </div>
+                <div style={{color:"var(--tx3)",fontSize:".7rem",flexShrink:0,
+                  transform:isOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform .2s ease"}}>&#x25BC;</div>
               </div>
-              {/* Goal progress bar */}
-              {monthGoal>0&&(
-                <div style={{padding:"10px 16px 0"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
-                    <span style={{fontSize:".64rem",color:"var(--tx2)"}}>Monthly goal</span>
-                    <span style={{fontSize:".64rem",color:goalPct>=100?"var(--gn)":"var(--tx2)",fontWeight:600}}>{goalPct+"% of "+monthGoal+" km"}</span>
+              {isOpen&&(
+                <div>
+                  {monthGoal>0&&(
+                    <div style={{padding:"12px 16px 4px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                        <span style={{fontSize:".64rem",color:"var(--tx2)"}}>Monthly goal</span>
+                        <span style={{fontSize:".64rem",fontWeight:600,color:goalPct>=100?"var(--gn)":"var(--tx2)"}}>{goalPct+"% of "+monthGoal+" km"}</span>
+                      </div>
+                      <div className="pb"><div className="pf" style={{width:goalPct+"%",background:goalPct>=100?"var(--gn)":"var(--or)"}}/></div>
+                    </div>
+                  )}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:1,background:"var(--bd)",borderTop:"1px solid var(--bd)",margin:"10px 0 0"}}>
+                    {[
+                      {l:"Avg Pace",v:avgPace?fmtPace(avgPace)+"/km":"—"},
+                      {l:"Best Pace",v:bestPace?fmtPace(bestPace)+"/km":"—"},
+                      {l:"Total Time",v:totalTime||"—"},
+                      {l:"Longest",v:longest?fmtKm(longest.distanceKm)+" km":"—"},
+                      {l:"Elev Gain",v:"+"+Math.round(m.elevGain)+"m"},
+                      {l:"Avg HR",v:avgHR?(avgHR+" bpm"):"—"},
+                    ].map(({l,v})=>(
+                      <div key={l} style={{background:"var(--bg)",padding:"11px 12px",textAlign:"center"}}>
+                        <div style={{fontSize:".86rem",fontWeight:700,marginBottom:3}}>{v}</div>
+                        <div style={{fontSize:".6rem",color:"var(--tx2)"}}>{l}</div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="pb"><div className="pf" style={{width:goalPct+"%",background:goalPct>=100?"var(--gn)":"var(--or)"}}/></div>
+                  <div style={{padding:"12px 16px 14px"}}>
+                    <div style={{fontSize:".6rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--tx3)",marginBottom:8}}>Runs this month</div>
+                    {[...m.runs].sort((a,b)=>b.distanceKm-a.distanceKm).slice(0,3).map((r,i)=>(
+                      <div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:i<2?"1px solid var(--bd)":"none"}}>
+                        <div style={{minWidth:0,flex:1,paddingRight:10}}>
+                          <div style={{fontSize:".76rem",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</div>
+                          <div style={{fontSize:".64rem",color:"var(--tx2)",marginTop:1}}>{fmtDate(r.date)}</div>
+                        </div>
+                        <div style={{textAlign:"right",flexShrink:0}}>
+                          <div style={{fontSize:".82rem",fontWeight:700,color:"var(--or)"}}>{fmtKm(r.distanceKm)+" km"}</div>
+                          <div style={{fontSize:".64rem",color:"var(--tx2)"}}>{fmtPace(r.avgPaceSecKm)+"/km"}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
-              {/* Stats grid */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:1,background:"var(--bd)",margin:"10px 0 0",borderTop:"1px solid var(--bd)"}}>
-                {[
-                  {l:"Avg Pace",v:avgPace?fmtPace(avgPace)+"/km":"—"},
-                  {l:"Best Pace",v:bestPace?fmtPace(bestPace)+"/km":"—"},
-                  {l:"Total Time",v:totalTime||"—"},
-                  {l:"Longest",v:longest?fmtKm(longest.distanceKm)+" km":"—"},
-                  {l:"Elev Gain",v:"+"+Math.round(m.elevGain)+"m"},
-                  {l:"Avg HR",v:avgHR?(avgHR+" bpm"):"—"},
-                ].map(({l,v})=>(
-                  <div key={l} style={{background:"var(--bg)",padding:"11px 12px",textAlign:"center"}}>
-                    <div style={{fontSize:".86rem",fontWeight:700,marginBottom:3}}>{v}</div>
-                    <div style={{fontSize:".6rem",color:"var(--tx2)"}}>{l}</div>
-                  </div>
-                ))}
-              </div>
-              {/* Top 3 runs */}
-              <div style={{padding:"10px 16px 14px"}}>
-                <div style={{fontSize:".6rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--tx3)",marginBottom:8}}>Runs this month</div>
-                {[...m.runs].sort((a,b)=>b.distanceKm-a.distanceKm).slice(0,3).map((r,i)=>(
-                  <div key={r.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:i<2?"1px solid var(--bd)":"none"}}>
-                    <div style={{minWidth:0,flex:1,paddingRight:10}}>
-                      <div style={{fontSize:".76rem",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.name}</div>
-                      <div style={{fontSize:".64rem",color:"var(--tx2)",marginTop:1}}>{fmtDate(r.date)}</div>
-                    </div>
-                    <div style={{textAlign:"right",flexShrink:0}}>
-                      <div style={{fontSize:".82rem",fontWeight:700,color:"var(--or)"}}>{fmtKm(r.distanceKm)+" km"}</div>
-                      <div style={{fontSize:".64rem",color:"var(--tx2)"}}>{fmtPace(r.avgPaceSecKm)+"/km"}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
           );
         })}
