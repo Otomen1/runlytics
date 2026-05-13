@@ -1393,19 +1393,40 @@ const ShareModal=({act,onClose})=>{
     setIdx(Math.max(0,Math.min(TMPL.length-1,i)));
   };
 
-  const copyText=()=>{
-    const text=getCardText(act,TMPL[idx]);
-    if(navigator.clipboard&&navigator.clipboard.writeText){
-      navigator.clipboard.writeText(text).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);}).catch(()=>{});
-    }else{
-      try{
-        const ta=document.createElement("textarea");
-        ta.value=text;ta.style.position="fixed";ta.style.opacity="0";
-        document.body.appendChild(ta);ta.select();
-        document.execCommand("copy");document.body.removeChild(ta);
-        setCopied(true);setTimeout(()=>setCopied(false),2000);
-      }catch(e){}
-    }
+  const[copying,setCopying]=useState(false);
+
+  const copyImage=async()=>{
+    if(copying)return;
+    setCopying(true);
+    try{
+      const W=1080,H=1920;
+      const cv=document.createElement("canvas");
+      cv.width=W;cv.height=H;
+      const ctx=cv.getContext("2d");
+      const t=TMPL[idx];
+      if(mode==="custom"){
+        let loadedImg=null;
+        if(bgImg){loadedImg=await new Promise(res=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>res(null);i.src=bgImg;});}
+        drawCustomCard(ctx,act,t,W,H,bgPreset,loadedImg);
+      }else if(t==="glass"||t==="poster"){drawRunCardExtra(ctx,act,t,W,H);}
+      else{drawRunCard(ctx,act,t,W,H);}
+      if(navigator.clipboard&&window.ClipboardItem){
+        await navigator.clipboard.write([new ClipboardItem({"image/png":new Promise(res=>cv.toBlob(res,"image/png"))})]);
+        setCopied(true);setTimeout(()=>setCopied(false),2500);
+      }else{
+        // Fallback: auto-download for browsers without ClipboardItem
+        cv.toBlob(blob=>{
+          if(!blob)return;
+          const url=URL.createObjectURL(blob);
+          const a=document.createElement("a");
+          a.href=url;a.download="runlytics-"+t+".png";
+          document.body.appendChild(a);a.click();
+          setTimeout(()=>{try{document.body.removeChild(a);}catch(e){}URL.revokeObjectURL(url);},900);
+          setCopied(true);setTimeout(()=>setCopied(false),2500);
+        },"image/png");
+      }
+    }catch(e){setCopied(false);}
+    finally{setCopying(false);}
   };
 
   const doExport=async(fmt)=>{
@@ -1468,12 +1489,13 @@ const ShareModal=({act,onClose})=>{
         marginBottom:12,marginTop:mode==="custom"?8:2,letterSpacing:".1em"}}>
         {LABELS[idx].toUpperCase()}
       </div>
-      <button onClick={copyText}
+      <button onClick={copyImage} disabled={copying}
         style={{width:"100%",padding:"11px",borderRadius:10,border:"1px solid rgba(255,255,255,.12)",
-          cursor:"pointer",marginBottom:10,transition:"all .2s",
-          background:copied?"rgba(34,197,94,.15)":"rgba(255,255,255,.04)",
-          color:copied?"#22c55e":"rgba(255,255,255,.6)",fontWeight:600,fontSize:".84rem"}}>
-        {copied?"\u2713 Text Copied!":"\uD83D\uDCCB Copy Text"}
+          cursor:copying?"wait":"pointer",marginBottom:10,transition:"all .2s",
+          background:copied?"rgba(34,197,94,.15)":copying?"rgba(255,255,255,.08)":"rgba(255,255,255,.04)",
+          color:copied?"#22c55e":copying?"rgba(255,255,255,.4)":"rgba(255,255,255,.6)",
+          fontWeight:600,fontSize:".84rem"}}>
+        {copied?"\u2713 Image Copied!":copying?"\u23f3 Copying...":"\uD83D\uDDBC\uFE0F Copy Image"}
       </button>
       <div style={{display:"flex",gap:10}}>
         <button onClick={()=>doExport("jpg")} disabled={!!busy}
