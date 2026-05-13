@@ -1175,6 +1175,15 @@ function drawRunCardExtra(ctx,act,tmpl,W,H){
   }
 }
 
+const PRESET_BGS=[
+  {id:"night",  label:"Night",  css:"linear-gradient(155deg,#0f0c29,#302b63,#24243e)", stops:["#0f0c29","#302b63","#24243e"]},
+  {id:"sunrise",label:"Sunrise",css:"linear-gradient(155deg,#1a0533,#8b1a4a 45%,#fc4a1a 80%,#f7971e)",stops:["#1a0533","#8b1a4a","#fc4a1a","#f7971e"]},
+  {id:"forest", label:"Forest", css:"linear-gradient(155deg,#0f2027,#203a43,#2c5364)", stops:["#0f2027","#203a43","#2c5364"]},
+  {id:"storm",  label:"Storm",  css:"linear-gradient(155deg,#141e30,#243b55)",          stops:["#141e30","#243b55"]},
+  {id:"ember",  label:"Ember",  css:"linear-gradient(155deg,#0d0d0d,#3d1200)",          stops:["#0d0d0d","#3d1200"]},
+  {id:"dusk",   label:"Dusk",   css:"linear-gradient(155deg,#2d1b69,#11998e)",          stops:["#2d1b69","#11998e"]},
+];
+
 let _mrIdx=0; // module-level counter — unique ID per MiniRoute instance
 const MiniRoute=({route,W=160,H=110})=>{
   // Hooks FIRST — before any early return (Rules of Hooks)
@@ -1305,8 +1314,9 @@ const ShareCard=({type,act,W=270,H=480,bg="night",bgImg=null})=>{
   // ── T3 ATHLETIC POSTER — cream bg, watermark, black stats rail ─────────────
   if(type==="cinematic")return(
     <div style={{...baseShell,background:"#ede8e0",...baseAnim}}>
-      <div style={{position:"absolute",bottom:"-8%",right:"-10%",fontSize:f(200),fontWeight:900,
-        color:"rgba(0,0,0,.045)",lineHeight:1,letterSpacing:"-.1em",userSelect:"none",pointerEvents:"none"}}>KM</div>
+      <div style={{position:"absolute",bottom:"-5%",right:"-8%",fontSize:f(160),fontWeight:900,
+        color:"rgba(0,0,0,.04)",lineHeight:1,letterSpacing:"-.1em",userSelect:"none",pointerEvents:"none",
+        contain:"layout paint"}}>KM</div>
       <div style={{position:"absolute",top:f(28),left:f(26),right:f(26)}}>
         <div style={{fontSize:f(6),color:"rgba(0,0,0,.25)",letterSpacing:".2em",marginBottom:f(22)}}>RUNLYTICS</div>
         <div style={{fontSize:f(86),fontWeight:900,color:"#0a0a0a",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
@@ -1342,9 +1352,8 @@ const ShareCard=({type,act,W=270,H=480,bg="night",bgImg=null})=>{
   // ── T4 AMOLED NIGHT — pure black, orange radial glow, centered distance ─────
   if(type==="glass")return(
     <div style={{...baseShell,background:"#000000",...baseAnim}}>
-      <div style={{position:"absolute",top:"28%",left:"50%",transform:"translate(-50%,-50%)",
-        width:f(200),height:f(200),borderRadius:"50%",pointerEvents:"none",
-        background:"radial-gradient(circle,rgba(249,115,22,.18) 0%,rgba(249,115,22,0) 70%)"}}/>
+      <div style={{position:"absolute",top:"5%",left:"5%",right:"5%",height:"52%",pointerEvents:"none",
+        background:"radial-gradient(ellipse at 50% 60%,rgba(249,115,22,.16) 0%,rgba(249,115,22,0) 68%)"}}/>
       {hasRoute&&(
         <div style={{position:"absolute",inset:0,opacity:.12,
           maskImage:"linear-gradient(to bottom,transparent 30%,rgba(0,0,0,.7) 55%,transparent 80%)",
@@ -1381,11 +1390,10 @@ const ShareCard=({type,act,W=270,H=480,bg="night",bgImg=null})=>{
           <MiniRoute route={act.route} W={W} H={H}/>
         </div>
       )}
-      <div style={{position:"absolute",top:"50%",left:f(20),right:f(20),transform:"translateY(-50%)",
-        backdropFilter:"blur(24px) saturate(1.5)",WebkitBackdropFilter:"blur(24px) saturate(1.5)",
-        background:"rgba(255,255,255,.07)",borderRadius:f(16),
+      <div style={{position:"absolute",top:f(64),left:f(20),right:f(20),
+        background:"rgba(14,26,58,.82)",borderRadius:f(16),
         border:"1px solid rgba(255,255,255,.11)",
-        boxShadow:"0 8px 32px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.09)"}}>
+        boxShadow:"0 8px 32px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.07)"}}>
         <div style={{padding:f(26)+" "+f(22)+" "+f(22),textAlign:"center"}}>
           <div style={{fontSize:f(6),fontWeight:700,color:"rgba(255,255,255,.35)",
             letterSpacing:".2em",marginBottom:f(18)}}>RUNLYTICS</div>
@@ -1420,8 +1428,7 @@ const ShareCard=({type,act,W=270,H=480,bg="night",bgImg=null})=>{
       <div style={{...baseShell,...bgStyle,...baseAnim}}>
         <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.4)"}}/>
         <div style={{position:"absolute",bottom:0,left:0,right:0,
-          backdropFilter:"blur(28px) saturate(1.5)",WebkitBackdropFilter:"blur(28px) saturate(1.5)",
-          background:"linear-gradient(to top,rgba(0,0,0,.8) 0%,rgba(0,0,0,.35) 100%)",
+          background:"linear-gradient(to top,rgba(0,0,0,.88) 0%,rgba(0,0,0,.42) 100%)",
           borderTop:"1px solid rgba(255,255,255,.12)",padding:f(24)+" "+f(22)+" "+f(28)}}>
           <div style={{fontSize:f(7),fontWeight:800,color:"rgba(255,255,255,.5)",letterSpacing:".18em",marginBottom:f(16)}}>RUNLYTICS</div>
           <div style={{fontSize:f(80),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.03em"}}>{dist}</div>
@@ -1523,7 +1530,25 @@ const ShareModal=({act,onClose})=>{
   const[copied,setCopied]=useState(false);
   const[bgPreset,setBgPreset]=useState("night");
   const[bgImg,setBgImg]=useState(null);
+  const[mounted,setMounted]=useState(false);
   const scrollRef=useRef(null);
+
+  // Defer heavy carousel render until after first paint — prevents blank frame on Android
+  useEffect(()=>{const t=requestAnimationFrame(()=>setMounted(true));return()=>cancelAnimationFrame(t);},[]);
+
+  // Guard: if act is missing, show safe fallback
+  if(!act||typeof act.distanceKm!=="number"){
+    return(
+      <div style={{position:"fixed",inset:0,zIndex:420,background:"#000",display:"flex",
+        flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}>
+        <div style={{color:"rgba(255,255,255,.5)",fontSize:".9rem"}}>Unable to load share preview</div>
+        <button style={{background:"rgba(255,255,255,.1)",border:"none",color:"rgba(255,255,255,.7)",
+          padding:"10px 24px",borderRadius:10,cursor:"pointer",fontSize:".88rem"}} onClick={onClose}>
+          Close
+        </button>
+      </div>
+    );
+  }
 
   const TMPL_STD=["minimal","orange","cinematic","glass","poster"];
   const TMPL_STD_LABELS=["Editorial","Route Art","Athletic Poster","Night Mode","Glass Widget"];
@@ -1608,7 +1633,7 @@ const ShareModal=({act,onClose})=>{
   };
 
   // Shared header
-  const Header=({title,back})=>(
+  const renderHeader=(title,back)=>(
     <div style={{padding:"14px 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",
       borderBottom:"1px solid rgba(255,255,255,.07)",flexShrink:0}}>
       <button style={{background:"none",border:"none",color:"rgba(255,255,255,.5)",fontSize:"1.3rem",
@@ -1621,7 +1646,7 @@ const ShareModal=({act,onClose})=>{
   );
 
   // Shared carousel footer
-  const CarouselFooter=()=>(
+  const renderFooter=()=>(
     <div style={{padding:"10px 20px 34px",borderTop:"1px solid rgba(255,255,255,.07)",flexShrink:0}}>
       <div style={{display:"flex",justifyContent:"center",gap:6,marginBottom:10}}>
         {TMPL.map((_,i)=>(
@@ -1672,7 +1697,7 @@ const ShareModal=({act,onClose})=>{
   // ── LANDING ────────────────────────────────────────────────────────
   if(!mode)return(
     <div style={shell}>
-      <Header title="SHARE ACTIVITY"/>
+      {renderHeader("SHARE ACTIVITY",null)}
       <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",padding:"20px 22px",gap:12}}>
         <div style={{textAlign:"center",marginBottom:12}}>
           <div style={{fontSize:".92rem",fontWeight:700,color:"rgba(255,255,255,.85)",marginBottom:6}}>How do you want to share?</div>
@@ -1732,18 +1757,23 @@ const ShareModal=({act,onClose})=>{
   // ── CAROUSEL (templates or custom) ────────────────────────────────
   return(
     <div style={shell}>
-      <Header title={mode==="custom"?"CUSTOM BACKGROUND":"TEMPLATES"} back={goBack}/>
+      {renderHeader(mode==="custom"?"CUSTOM BACKGROUND":"TEMPLATES",goBack)}
       <div ref={scrollRef} onScroll={onScroll}
         style={{flex:1,display:"flex",overflowX:"auto",scrollSnapType:"x mandatory",
           scrollbarWidth:"none",WebkitOverflowScrolling:"touch",alignItems:"center"}}>
-        {TMPL.map(t=>(
+        {mounted?TMPL.map(t=>(
           <div key={t} style={{minWidth:"100%",scrollSnapAlign:"center",display:"flex",
             alignItems:"center",justifyContent:"center",padding:"12px 28px",boxSizing:"border-box"}}>
             <ShareCard type={t} act={act} bg={bgPreset} bgImg={bgImg}/>
           </div>
-        ))}
+        )):(
+          <div style={{minWidth:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div style={{width:270,height:480,borderRadius:18,background:"rgba(255,255,255,.04)",
+              border:"1px solid rgba(255,255,255,.08)"}}/>
+          </div>
+        )}
       </div>
-      <CarouselFooter/>
+      {renderFooter()}
     </div>
   );
 };
