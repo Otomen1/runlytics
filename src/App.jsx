@@ -937,75 +937,92 @@ function drawTextOverlay(ctx,act,W,H){
   nsh();tf(H*.018,"600");ctx.fillStyle="rgba(255,255,255,.45)";ctx.fillText("PACE",W*.07,H*.855);ctx.fillText("TIME",W*.52,H*.855);
 }
 
+// Canvas helpers: clock + pace icons
+function _clk(ctx,x,y,r,col){
+  ctx.save();ctx.strokeStyle=col;ctx.lineWidth=r*.22;ctx.lineCap="round";
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x,y-r*.55);ctx.lineTo(x,y);ctx.lineTo(x+r*.38,y+r*.28);ctx.stroke();
+  ctx.restore();
+}
+function _pce(ctx,x,y,r,col){
+  ctx.save();ctx.strokeStyle=col;ctx.lineWidth=r*.22;ctx.lineCap="round";
+  ctx.beginPath();ctx.arc(x,y+r*.15,r,Math.PI,0);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x,y+r*.15);ctx.lineTo(x+r*.55,y-r*.38);ctx.stroke();
+  ctx.restore();
+}
+
 function drawRunCard(ctx,act,tmpl,W,H){
-  const dist=fmtKm(act.distanceKm),pace=fmtPace(act.avgPaceSecKm)+"/km";
-  const s=act.movingTimeSec||0,dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
+  const dist=fmtKm(act.distanceKm),pace=fmtPace(act.avgPaceSecKm);
+  const s=act.movingTimeSec||0,dur=fmtDur(s)||"--";
+  const name=act.name||"";
   const date=fmtDate(act.date);
+  const acol="#f97316";
   const tf=(sz,w)=>{ctx.font=(w||"700")+" "+Math.round(sz)+"px system-ui,sans-serif";};
   const tm=(sz,w)=>{ctx.font=(w||"700")+" "+Math.round(sz)+"px monospace,sans-serif";};
   const c=(v)=>{ctx.fillStyle=v;};
   ctx.textBaseline="alphabetic";ctx.textAlign="left";
+  ctx.shadowColor="transparent";ctx.shadowBlur=0;
+  const ir=H*.018; // icon radius
 
-  // T1 — EDITORIAL MINIMAL (light cream, top-anchored, route corner art)
+  // T1 — EDITORIAL MINIMAL (white)
   if(tmpl==="minimal"){
-    c("#f6f3ee");ctx.fillRect(0,0,W,H);
-    if(act.route&&act.route.length>2){
-      ctx.save();ctx.globalAlpha=0.28;
-      drawRouteCanvas(ctx,act.route,W*.38,H*.48,W*.56,H*.46,3);
-      ctx.restore();
-    }
-    tf(H*.016,"400");c("rgba(0,0,0,.22)");ctx.fillText("RUNLYTICS",W*.07,H*.065);
-    tf(W*.46,"900");c("#0a0a0a");ctx.fillText(dist,W*.07,H*.32);
-    tf(H*.018,"400");c("rgba(0,0,0,.22)");ctx.fillText("KILOMETERS",W*.07,H*.362);
-    ctx.globalAlpha=0.12;c("#0a0a0a");ctx.fillRect(W*.07,H*.72,W*.86,H*.001);ctx.globalAlpha=1;
-    tm(H*.034,"700");c("#0a0a0a");ctx.fillText(pace,W*.07,H*.782);ctx.fillText(dur,W*.5,H*.782);
-    tf(H*.013,"400");c("rgba(0,0,0,.28)");ctx.fillText("PACE",W*.07,H*.808);ctx.fillText("TIME",W*.5,H*.808);
-    tf(H*.013,"400");c("rgba(0,0,0,.2)");ctx.fillText(date,W*.07,H*.94);
+    c("#f5f5f2");ctx.fillRect(0,0,W,H);
+    tf(H*.018,"700");c("rgba(0,0,0,.28)");ctx.fillText("RUNLYTICS",W*.09,H*.07);
+    tf(W*.44,"900");c("#0a0a0a");ctx.fillText(dist,W*.09,H*.31);
+    tf(H*.018,"700");c("rgba(0,0,0,.28)");ctx.fillText("KM",W*.09,H*.348);
+    c("rgba(0,0,0,.14)");ctx.fillRect(W*.09,H*.37,W*.11,H*.001);
+    if(name){tf(H*.022,"500");c("rgba(0,0,0,.45)");ctx.fillText(name.slice(0,26),W*.09,H*.42);}
+    c("rgba(0,0,0,.1)");ctx.fillRect(W*.09,H*.75,W*.82,H*.001);
+    _clk(ctx,W*.09+ir,H*.815+ir,ir,"rgba(0,0,0,.45)");
+    tm(H*.032,"800");c("#0a0a0a");ctx.fillText(dur,W*.09+ir*2.6,H*.828);
+    tf(H*.014,"600");c("rgba(0,0,0,.35)");ctx.fillText("DURATION",W*.09+ir*2.6,H*.856);
+    c("rgba(0,0,0,.12)");ctx.fillRect(W*.5,H*.8,H*.001,H*.065);
+    _pce(ctx,W*.56+ir,H*.815+ir,ir,"rgba(0,0,0,.45)");
+    tm(H*.032,"800");c("#0a0a0a");ctx.fillText(pace,W*.56+ir*2.6,H*.828);
+    tf(H*.014,"600");c("rgba(0,0,0,.35)");ctx.fillText("/KM",W*.56+ir*2.6,H*.856);
+    tf(H*.014,"400");c("rgba(0,0,0,.28)");ctx.fillText(date,W*.09,H*.94);
     return;
   }
 
-  // T2 — ROUTE ART (pure dark, centered route hero, stats as whisper)
+  // T2 — ROUTE ART (pure dark, route hero)
   if(tmpl==="orange"){
-    c("#050507");ctx.fillRect(0,0,W,H);
-    if(act.route&&act.route.length>2){
-      drawRouteCanvas(ctx,act.route,W*.06,H*.07,W*.88,H*.68,5);
-    }else{
-      ctx.save();ctx.globalAlpha=0.15;ctx.strokeStyle="#f97316";ctx.lineWidth=W*.004;
-      ctx.beginPath();ctx.arc(W/2,H*.38,W*.22,0,Math.PI*2);ctx.stroke();
-      ctx.restore();
-    }
-    tf(H*.016,"400");c("rgba(255,255,255,.2)");ctx.fillText("RUNLYTICS",W*.07,H*.065);
-    ctx.textAlign="right";tf(H*.018,"700");c("rgba(249,115,22,.5)");ctx.fillText(dist+" km",W*.93,H*.065);ctx.textAlign="left";
-    ctx.globalAlpha=0.06;c("#fff");ctx.fillRect(W*.07,H*.818,W*.86,H*.001);ctx.globalAlpha=1;
-    tf(H*.016,"400");c("rgba(255,255,255,.38)");ctx.fillText(pace,W*.07,H*.862);
-    ctx.textAlign="right";ctx.fillText(dur,W*.93,H*.862);ctx.textAlign="left";
-    tf(H*.013,"400");c("rgba(255,255,255,.14)");
-    ctx.textAlign="center";ctx.fillText(date,W/2,H*.93);ctx.textAlign="left";
+    c("#080808");ctx.fillRect(0,0,W,H);
+    ctx.textAlign="center";tf(H*.016,"700");c("rgba(255,255,255,.22)");ctx.fillText("RUNLYTICS",W/2,H*.065);ctx.textAlign="left";
+    if(act.route&&act.route.length>2)drawRouteCanvas(ctx,act.route,W*.08,H*.08,W*.84,H*.54,4);
+    tf(W*.34,"900");c("#fff");ctx.fillText(dist,W*.09,H*.745);
+    tf(H*.028,"800");c(acol);ctx.fillText(" KM",W*.09+ctx.measureText(dist).width,H*.745);
+    c("rgba(255,255,255,.07)");ctx.fillRect(W*.09,H*.77,W*.82,H*.001);
+    _clk(ctx,W*.09+ir,H*.815+ir,ir,"rgba(255,255,255,.5)");
+    tm(H*.028,"800");c("#fff");ctx.fillText(dur,W*.09+ir*2.6,H*.826);
+    tf(H*.013,"600");c("rgba(255,255,255,.32)");ctx.fillText("DURATION",W*.09+ir*2.6,H*.852);
+    c("rgba(255,255,255,.12)");ctx.fillRect(W*.48,H*.805,H*.001,H*.055);
+    _pce(ctx,W*.54+ir,H*.815+ir,ir,"rgba(255,255,255,.5)");
+    tm(H*.028,"800");c("#fff");ctx.fillText(pace,W*.54+ir*2.6,H*.826);
+    tf(H*.013,"600");c("rgba(255,255,255,.32)");ctx.fillText("/KM",W*.54+ir*2.6,H*.852);
+    if(name){tf(H*.018,"700");c(acol);ctx.fillText(name.slice(0,22),W*.09,H*.892);}
+    tf(H*.013,"400");c("rgba(255,255,255,.28)");ctx.fillText(date,W*.09,H*.93);
     return;
   }
 
-  // T3 — ATHLETIC POSTER (cream bg, KM watermark, black stats rail)
-  c("#ede8e0");ctx.fillRect(0,0,W,H);
-  // KM watermark
-  tf(W*1.4,"900");c("rgba(0,0,0,.04)");ctx.fillText("KM",W*.1,H*.98);
-  tf(H*.016,"400");c("rgba(0,0,0,.22)");ctx.fillText("RUNLYTICS",W*.07,H*.065);
-  tf(W*.44,"900");c("#0a0a0a");ctx.fillText(dist,W*.07,H*.34);
-  tf(H*.018,"400");c("rgba(0,0,0,.22)");ctx.fillText("KILOMETERS",W*.07,H*.382);
-  // Small route
-  if(act.route&&act.route.length>2){
-    ctx.save();ctx.globalAlpha=0.6;
-    drawRouteCanvas(ctx,act.route,W*.07,H*.43,W*.42,H*.22,3);
-    ctx.restore();
-  }
-  // Black strip at bottom
-  const stripY=H*.72;
-  c("#0a0a0a");ctx.fillRect(0,stripY,W,H-stripY);
-  const mid=(H-stripY)/2;
-  tm(H*.036,"800");c("#fff");ctx.fillText(pace,W*.08,stripY+mid*1.1);
-  ctx.textAlign="right";ctx.fillText(dur,W*.92,stripY+mid*1.1);ctx.textAlign="left";
-  tf(H*.013,"400");c("rgba(255,255,255,.32)");ctx.fillText("PACE",W*.08,stripY+mid*1.55);
-  ctx.textAlign="right";ctx.fillText("TIME",W*.92,stripY+mid*1.55);ctx.textAlign="left";
-  tf(H*.012,"400");c("rgba(255,255,255,.2)");ctx.textAlign="center";ctx.fillText(date,W/2,H*.965);ctx.textAlign="left";
+  // T3 — ATHLETIC POSTER (dark, two-col stats+route)
+  c("#090909");ctx.fillRect(0,0,W,H);
+  tf(H*.016,"800");c(acol);ctx.fillText("RUNLYTICS",W*.09,H*.068);
+  ctx.globalAlpha=0.7;c(acol);ctx.fillRect(W*.09+ctx.measureText("RUNLYTICS").width+W*.015,H*.062,W*.6,H*.001);ctx.globalAlpha=1;
+  if(name){tf(H*.022,"800");c("#fff");ctx.fillText(name.toUpperCase().slice(0,20),W*.09,H*.112);}
+  tf(W*.38,"900");c("#fff");ctx.fillText(dist,W*.09,H*.312);
+  tf(H*.026,"800");c(acol);ctx.fillText("KM",W*.09,H*.352);
+  c("rgba(255,255,255,.08)");ctx.fillRect(W*.09,H*.372,W*.82,H*.001);
+  // Left: stats vertical
+  _clk(ctx,W*.09+ir,H*.43+ir,ir,"rgba(255,255,255,.5)");
+  tm(H*.03,"800");c("#fff");ctx.fillText(dur,W*.09+ir*2.6,H*.44);
+  tf(H*.013,"600");c("rgba(255,255,255,.3)");ctx.fillText("DURATION",W*.09+ir*2.6,H*.464);
+  c("rgba(255,255,255,.06)");ctx.fillRect(W*.09,H*.49,W*.38,H*.001);
+  _pce(ctx,W*.09+ir,H*.525+ir,ir,"rgba(255,255,255,.5)");
+  tm(H*.03,"800");c("#fff");ctx.fillText(pace,W*.09+ir*2.6,H*.536);
+  tf(H*.013,"600");c("rgba(255,255,255,.3)");ctx.fillText("/KM",W*.09+ir*2.6,H*.56);
+  // Right: route
+  if(act.route&&act.route.length>2)drawRouteCanvas(ctx,act.route,W*.52,H*.38,W*.4,H*.24,3);
+  tf(H*.013,"400");c("rgba(255,255,255,.25)");ctx.fillText(date,W*.09,H*.94);
 }
 
 function roundRect(ctx,x,y,w,h,r){
@@ -1097,81 +1114,69 @@ function drawCustomCard(ctx,act,tmpl,W,H,bg,loadedImg){
 }
 
 function drawRunCardExtra(ctx,act,tmpl,W,H){
-  const dist=fmtKm(act.distanceKm),pace=fmtPace(act.avgPaceSecKm)+"/km";
-  const s=act.movingTimeSec||0,dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
+  const dist=fmtKm(act.distanceKm),pace=fmtPace(act.avgPaceSecKm);
+  const s=act.movingTimeSec||0,dur=fmtDur(s)||"--";
+  const name=act.name||"";
   const date=fmtDate(act.date);
+  const acol="#f97316";
   const tf=(sz,w)=>{ctx.font=(w||"700")+" "+Math.round(sz)+"px system-ui,sans-serif";};
   const tm=(sz,w)=>{ctx.font=(w||"700")+" "+Math.round(sz)+"px monospace,sans-serif";};
   const c=(v)=>{ctx.fillStyle=v;};
   ctx.textBaseline="alphabetic";ctx.textAlign="left";
+  ctx.shadowColor="transparent";ctx.shadowBlur=0;
+  const ir=H*.018;
 
-  // T4 — AMOLED NIGHT (pure black, orange radial glow, centered distance)
+  // T4 — GLASS STORY (dark, floating card)
   if(tmpl==="glass"){
-    c("#000000");ctx.fillRect(0,0,W,H);
-    // Radial orange glow
-    const grd=ctx.createRadialGradient(W/2,H*.3,0,W/2,H*.3,W*.5);
-    grd.addColorStop(0,"rgba(249,115,22,.22)");grd.addColorStop(1,"rgba(249,115,22,0)");
-    c(grd);ctx.fillRect(0,0,W,H);
-    // Route texture
-    if(act.route&&act.route.length>2){
-      ctx.save();ctx.globalAlpha=0.1;
-      drawRouteCanvas(ctx,act.route,0,H*.28,W,H*.4,4);
-      ctx.restore();
-    }
-    tf(H*.016,"400");c("rgba(255,255,255,.18)");ctx.fillText("RUNLYTICS",W*.07,H*.065);
-    // Centered distance
-    tf(W*.5,"900");c("#fff");
-    const dm=ctx.measureText(dist);ctx.fillText(dist,(W-dm.width)/2,H*.46);
-    tf(H*.016,"400");c("rgba(249,115,22,.5)");
-    const km=ctx.measureText("KM");ctx.fillText("KM",(W-km.width)/2,H*.506);
-    // Single-row stats centered
-    ctx.globalAlpha=0.06;c("#fff");ctx.fillRect(W*.07,H*.75,W*.86,H*.001);ctx.globalAlpha=1;
-    tm(H*.028,"700");c("rgba(255,255,255,.65)");
-    const pw=ctx.measureText(pace).width,dw2=ctx.measureText(dur).width,gap=W*.06;
-    const totalW=pw+gap+dw2,startX=(W-totalW)/2;
-    ctx.fillText(pace,startX,H*.815);
-    c("rgba(249,115,22,.5)");tf(H*.016);
-    ctx.fillText("·",startX+pw+gap*.4,H*.815);
-    tm(H*.028,"700");c("rgba(255,255,255,.65)");ctx.fillText(dur,startX+pw+gap,H*.815);
-    tf(H*.013,"400");c("rgba(255,255,255,.16)");ctx.textAlign="center";ctx.fillText(date,W/2,H*.91);ctx.textAlign="left";
+    c("#111");ctx.fillRect(0,0,W,H);
+    // Card background
+    const cx=W*.07,cy=H*.1,cw=W*.86,ch=H*.62;
+    ctx.save();ctx.globalAlpha=0.9;c("#1a1a1a");roundRect(ctx,cx,cy,cw,ch,W*.03);ctx.fill();
+    ctx.globalAlpha=0.1;ctx.strokeStyle="#fff";ctx.lineWidth=W*.002;
+    roundRect(ctx,cx,cy,cw,ch,W*.03);ctx.stroke();ctx.restore();
+    // Runner circle
+    const rc=W*.5,ry=cy+H*.07;
+    ctx.save();ctx.globalAlpha=0.1;c("#fff");ctx.beginPath();ctx.arc(rc,ry,H*.04,0,Math.PI*2);ctx.fill();ctx.restore();
+    tf(H*.03,"400");c("rgba(255,255,255,.7)");ctx.textAlign="center";ctx.fillText("🏃",rc,ry+H*.014);ctx.textAlign="left";
+    // Distance
+    tf(W*.36,"900");c("#fff");ctx.textAlign="center";ctx.fillText(dist,W/2,cy+H*.31);
+    tf(H*.016,"600");c("rgba(255,255,255,.3)");ctx.fillText("KM",W/2,cy+H*.345);ctx.textAlign="left";
+    // Divider
+    c("rgba(255,255,255,.07)");ctx.fillRect(cx+cw*.08,cy+H*.365,cw*.84,H*.001);
+    // Stats
+    _clk(ctx,W*.22,cy+H*.41+ir,ir,"rgba(255,255,255,.5)");
+    tm(H*.026,"800");c("#fff");ctx.fillText(dur,W*.22+ir*2.4,cy+H*.422);
+    tf(H*.012,"600");c("rgba(255,255,255,.3)");ctx.fillText("DURATION",W*.22+ir*2.4,cy+H*.445);
+    c("rgba(255,255,255,.1)");ctx.fillRect(W*.5,cy+H*.4,H*.001,H*.055);
+    _pce(ctx,W*.56,cy+H*.41+ir,ir,"rgba(255,255,255,.5)");
+    tm(H*.026,"800");c("#fff");ctx.fillText(pace,W*.56+ir*2.4,cy+H*.422);
+    tf(H*.012,"600");c("rgba(255,255,255,.3)");ctx.fillText("/KM",W*.56+ir*2.4,cy+H*.445);
+    // Route preview inside card
+    if(act.route&&act.route.length>2)drawRouteCanvas(ctx,act.route,cx+cw*.08,cy+H*.47,cw*.84,H*.1,3);
+    // Below card
+    if(name){tf(H*.018,"600");c("rgba(255,255,255,.7)");ctx.fillText(name.slice(0,24),W*.07,H*.78);}
+    tf(H*.014,"400");c("rgba(255,255,255,.3)");ctx.fillText(date,W*.07,H*.82);
     return;
   }
 
-  // T5 — GLASS WIDGET (dark indigo, floating frosted card, stacked stats)
+  // T5 — PHOTO STORY (dark, clean lines, accent rule)
   if(tmpl==="poster"){
-    const bg=ctx.createLinearGradient(0,0,W*.4,H);
-    bg.addColorStop(0,"#080d1e");bg.addColorStop(.6,"#0d1428");bg.addColorStop(1,"#060b18");
-    c(bg);ctx.fillRect(0,0,W,H);
-    // Route texture
-    if(act.route&&act.route.length>2){
-      ctx.save();ctx.globalAlpha=0.16;
-      drawRouteCanvas(ctx,act.route,0,H*.25,W,H*.5,4);
-      ctx.restore();
-    }
-    // Glass card panel (simulated with semi-transparent fill)
-    const cX=W*.06,cY=H*.22,cW=W*.88,cH=H*.56;
-    ctx.save();ctx.globalAlpha=0.08;c("#fff");roundRect(ctx,cX,cY,cW,cH,W*.035);ctx.fill();
-    ctx.globalAlpha=0.12;ctx.strokeStyle="rgba(255,255,255,.5)";ctx.lineWidth=W*.002;
-    roundRect(ctx,cX,cY,cW,cH,W*.035);ctx.stroke();
-    ctx.restore();
-    // Inner glow top
-    const ig=ctx.createLinearGradient(cX,cY,cX,cY+cH*.12);
-    ig.addColorStop(0,"rgba(255,255,255,.06)");ig.addColorStop(1,"rgba(255,255,255,0)");
-    c(ig);roundRect(ctx,cX,cY,cW,cH*.12,W*.035);ctx.fill();
-    // Stats inside card
-    ctx.textAlign="center";
-    tf(H*.016,"700");c("rgba(255,255,255,.32)");ctx.fillText("RUNLYTICS",W/2,cY+cH*.1);
-    tf(W*.38,"900");c("#fff");ctx.fillText(dist,W/2,cY+cH*.44);
-    tf(H*.015,"400");c("rgba(255,255,255,.22)");ctx.fillText("KM",W/2,cY+cH*.5);
-    // Divider
-    ctx.globalAlpha=0.1;c("#fff");ctx.fillRect(cX+cW*.1,cY+cH*.56,cW*.8,H*.001);ctx.globalAlpha=1;
-    // Pace + time
-    tm(H*.032,"800");c("rgba(255,255,255,.9)");
-    ctx.fillText(pace,cX+cW*.27,cY+cH*.74);ctx.fillText(dur,cX+cW*.73,cY+cH*.74);
-    tf(H*.013,"400");c("rgba(255,255,255,.26)");
-    ctx.fillText("PACE",cX+cW*.27,cY+cH*.8);ctx.fillText("TIME",cX+cW*.73,cY+cH*.8);
-    tf(H*.013,"400");c("rgba(255,255,255,.18)");ctx.fillText(date,W/2,cY+cH*.93);
-    ctx.textAlign="left";
+    c("#0a0a0a");ctx.fillRect(0,0,W,H);
+    tf(H*.016,"700");c("rgba(255,255,255,.22)");ctx.fillText("RUNLYTICS",W*.09,H*.068);
+    tf(W*.44,"900");c("#fff");ctx.fillText(dist,W*.09,H*.38);
+    tf(H*.018,"700");c("rgba(255,255,255,.25)");ctx.fillText("KM",W*.09,H*.418);
+    // Accent rule
+    c(acol);ctx.fillRect(W*.09,H*.44,W*.1,H*.0025);
+    c("rgba(255,255,255,.07)");ctx.fillRect(W*.09,H*.72,W*.82,H*.001);
+    _clk(ctx,W*.09+ir,H*.765+ir,ir,"rgba(255,255,255,.5)");
+    tm(H*.032,"800");c("#fff");ctx.fillText(dur,W*.09+ir*2.6,H*.778);
+    tf(H*.014,"600");c("rgba(255,255,255,.3)");ctx.fillText("DURATION",W*.09+ir*2.6,H*.804);
+    c("rgba(255,255,255,.12)");ctx.fillRect(W*.5,H*.755,H*.001,H*.06);
+    _pce(ctx,W*.56+ir,H*.765+ir,ir,"rgba(255,255,255,.5)");
+    tm(H*.032,"800");c("#fff");ctx.fillText(pace,W*.56+ir*2.6,H*.778);
+    tf(H*.014,"600");c("rgba(255,255,255,.3)");ctx.fillText("/KM",W*.56+ir*2.6,H*.804);
+    if(name){tf(H*.018,"700");c(acol);ctx.fillText(name.slice(0,22),W*.09,H*.866);}
+    tf(H*.014,"400");c("rgba(255,255,255,.25)");ctx.fillText(date,W*.09,H*.92);
   }
 }
 
@@ -1183,6 +1188,18 @@ const PRESET_BGS=[
   {id:"ember",  label:"Ember",  css:"linear-gradient(155deg,#0d0d0d,#3d1200)",          stops:["#0d0d0d","#3d1200"]},
   {id:"dusk",   label:"Dusk",   css:"linear-gradient(155deg,#2d1b69,#11998e)",          stops:["#2d1b69","#11998e"]},
 ];
+
+// Tiny inline icons for share templates (no external library)
+const ClkIco=({s=11,c="rgba(255,255,255,.55)"})=>(
+  <svg width={s} height={s} viewBox="0 0 12 12" fill="none" stroke={c} strokeWidth={1.3} strokeLinecap="round">
+    <circle cx={6} cy={6} r={5}/><path d="M6 3.5v2.7l1.8 1.1"/>
+  </svg>
+);
+const PceIco=({s=11,c="rgba(255,255,255,.55)"})=>(
+  <svg width={s} height={s} viewBox="0 0 12 12" fill="none" stroke={c} strokeWidth={1.3} strokeLinecap="round">
+    <path d="M1.5 10.5a5 5 0 1 1 9 0"/><path d="M6 5.5l1.6 2.4"/>
+  </svg>
+);
 
 let _mrIdx=0; // module-level counter — unique ID per MiniRoute instance
 const MiniRoute=({route,W=160,H=110})=>{
@@ -1240,186 +1257,191 @@ const MiniRoute=({route,W=160,H=110})=>{
 
 
 const ShareCard=({type,act,W=270,H=480,bg="night",bgImg=null})=>{
-  const dist=fmtKm(act.distanceKm),pace=fmtPace(act.avgPaceSecKm)+"/km";
-  const s=act.movingTimeSec||0,dur=(s>=3600?Math.floor(s/3600)+"h ":"")+Math.floor((s%3600)/60)+"m";
+  if(!act)return null;
+  const dist=fmtKm(act.distanceKm);
+  const pace=fmtPace(act.avgPaceSecKm);
+  const s=act.movingTimeSec||0;
+  const dur=fmtDur(s)||"--";
+  const name=act.name||"";
   const hasRoute=act.route&&act.route.length>2;
   const f=n=>Math.round(n*W/270)+"px";
+  const acol="#f97316";
   const baseAnim={animation:"fadeUp .32s ease both"};
   const baseShell={width:W,height:H,borderRadius:18,flexShrink:0,overflow:"hidden",position:"relative"};
+  const dt=act.dateTs?(()=>{
+    const d=new Date(act.dateTs),h=d.getHours(),m=d.getMinutes();
+    return fmtDate(act.date)+" · "+((h%12)||12)+":"+(m<10?"0"+m:m)+(h<12?" AM":" PM");
+  })():"";
 
-  // ── T1 EDITORIAL MINIMAL — light cream, top-anchored, route as corner art ──
+  // Shared stat block (icon + value + label)
+  const Stat=({Icon,val,lbl,vc,lc,ic})=>(
+    <div style={{display:"flex",alignItems:"center",gap:f(7)}}>
+      <Icon s={Math.round(W/25)} c={ic||"rgba(255,255,255,.5)"}/>
+      <div>
+        <div style={{fontSize:f(17),fontWeight:800,lineHeight:1,
+          color:vc||"#fff",fontFamily:"monospace",letterSpacing:"-.01em"}}>{val}</div>
+        <div style={{fontSize:f(6),letterSpacing:".1em",marginTop:2,
+          color:lc||"rgba(255,255,255,.32)"}}>{lbl}</div>
+      </div>
+    </div>
+  );
+  const VDivider=()=><div style={{alignSelf:"stretch",width:1,background:"rgba(255,255,255,.12)",flexShrink:0}}/>;
+
+  // ── T1 EDITORIAL MINIMAL — white bg, large number top, stats bottom ──────
   if(type==="minimal")return(
-    <div style={{...baseShell,background:"#f6f3ee",...baseAnim}}>
-      {hasRoute&&(
-        <div style={{position:"absolute",bottom:0,right:0,width:"62%",height:"52%",overflow:"hidden",
-          maskImage:"linear-gradient(to top-left,rgba(0,0,0,.3) 20%,transparent 70%)",
-          WebkitMaskImage:"linear-gradient(to top-left,rgba(0,0,0,.3) 20%,transparent 70%)"}}>
-          <MiniRoute route={act.route} W={Math.round(W*.62)} H={Math.round(H*.52)}/>
-        </div>
-      )}
-      <div style={{position:"absolute",top:f(28),left:f(28),right:f(60)}}>
-        <div style={{fontSize:f(6),color:"rgba(0,0,0,.25)",letterSpacing:".2em",marginBottom:f(28)}}>RUNLYTICS</div>
-        <div style={{fontSize:f(88),fontWeight:900,color:"#0a0a0a",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
-        <div style={{fontSize:f(8),color:"rgba(0,0,0,.22)",letterSpacing:".22em",marginTop:f(10)}}>KILOMETERS</div>
-      </div>
-      <div style={{position:"absolute",bottom:f(28),left:f(28),right:f(28)}}>
-        <div style={{height:.5,background:"rgba(0,0,0,.1)",marginBottom:f(14)}}/>
-        <div style={{display:"flex",gap:f(28)}}>
-          <div>
-            <div style={{fontSize:f(15),fontWeight:700,color:"#0a0a0a",fontFamily:"monospace"}}>{pace}</div>
-            <div style={{fontSize:f(6),color:"rgba(0,0,0,.3)",letterSpacing:".14em",marginTop:3}}>PACE</div>
-          </div>
-          <div>
-            <div style={{fontSize:f(15),fontWeight:700,color:"#0a0a0a",fontFamily:"monospace"}}>{dur}</div>
-            <div style={{fontSize:f(6),color:"rgba(0,0,0,.3)",letterSpacing:".14em",marginTop:3}}>TIME</div>
-          </div>
-        </div>
-        <div style={{fontSize:f(6),color:"rgba(0,0,0,.2)",marginTop:f(14),letterSpacing:".06em"}}>{fmtDate(act.date)}</div>
-      </div>
-    </div>
-  );
-
-  // ── T2 ROUTE ART — route as hero, stats as whisper, pure dark ──────────────
-  if(type==="orange")return(
-    <div style={{...baseShell,background:"#050507",...baseAnim}}>
-      {hasRoute?(
-        <div style={{position:"absolute",top:"7%",left:"50%",transform:"translateX(-50%)",
-          width:"88%",height:"68%",overflow:"hidden"}}>
-          <MiniRoute route={act.route} W={Math.round(W*.88)} H={Math.round(H*.68)}/>
-        </div>
-      ):(
-        <div style={{position:"absolute",top:"20%",left:"50%",transform:"translateX(-50%)",
-          width:f(120),height:f(120),borderRadius:"50%",
-          border:"1px solid rgba(249,115,22,.18)",opacity:.6}}/>
-      )}
-      <div style={{position:"absolute",top:f(22),left:f(22)}}>
-        <div style={{fontSize:f(6),color:"rgba(255,255,255,.2)",letterSpacing:".18em"}}>RUNLYTICS</div>
-      </div>
-      <div style={{position:"absolute",top:f(22),right:f(22),textAlign:"right"}}>
-        <div style={{fontSize:f(8),fontWeight:700,color:"rgba(249,115,22,.5)",letterSpacing:"-.01em"}}>{dist}</div>
-        <div style={{fontSize:f(5),color:"rgba(255,255,255,.15)",letterSpacing:".14em"}}>KM</div>
-      </div>
-      <div style={{position:"absolute",bottom:f(22),left:f(22),right:f(22)}}>
-        <div style={{height:1,background:"rgba(255,255,255,.05)",marginBottom:f(14)}}/>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <div style={{fontSize:f(7),color:"rgba(255,255,255,.38)",letterSpacing:".1em"}}>{pace}</div>
-          <div style={{width:3,height:3,borderRadius:"50%",background:"rgba(249,115,22,.45)",flexShrink:0}}/>
-          <div style={{fontSize:f(7),color:"rgba(255,255,255,.38)",letterSpacing:".1em"}}>{dur}</div>
-        </div>
-        <div style={{textAlign:"center",marginTop:f(10),fontSize:f(6),color:"rgba(255,255,255,.14)",letterSpacing:".08em"}}>{fmtDate(act.date)}</div>
-      </div>
-    </div>
-  );
-
-  // ── T3 ATHLETIC POSTER — cream bg, watermark, black stats rail ─────────────
-  if(type==="cinematic")return(
-    <div style={{...baseShell,background:"#ede8e0",...baseAnim}}>
-      <div style={{position:"absolute",bottom:"-5%",right:"-8%",fontSize:f(160),fontWeight:900,
-        color:"rgba(0,0,0,.04)",lineHeight:1,letterSpacing:"-.1em",userSelect:"none",pointerEvents:"none",
-        contain:"layout paint"}}>KM</div>
-      <div style={{position:"absolute",top:f(28),left:f(26),right:f(26)}}>
-        <div style={{fontSize:f(6),color:"rgba(0,0,0,.25)",letterSpacing:".2em",marginBottom:f(22)}}>RUNLYTICS</div>
+    <div style={{...baseShell,background:"#f5f5f2",display:"flex",flexDirection:"column",
+      padding:f(26)+" "+f(24),...baseAnim}}>
+      <div style={{fontSize:f(7),fontWeight:700,color:"rgba(0,0,0,.3)",letterSpacing:".18em",marginBottom:f(20)}}>RUNLYTICS</div>
+      <div style={{flex:1}}>
         <div style={{fontSize:f(86),fontWeight:900,color:"#0a0a0a",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
-        <div style={{fontSize:f(8),color:"rgba(0,0,0,.22)",letterSpacing:".22em",marginTop:f(10)}}>KILOMETERS</div>
+        <div style={{fontSize:f(10),fontWeight:700,color:"rgba(0,0,0,.28)",letterSpacing:".2em",marginTop:f(8)}}>KM</div>
+        <div style={{width:f(32),height:1,background:"rgba(0,0,0,.15)",margin:f(18)+" 0"}}/>
+        {name?<div style={{fontSize:f(12),fontWeight:500,color:"rgba(0,0,0,.5)",lineHeight:1.4,marginBottom:f(16)}}>{name}</div>:null}
       </div>
-      {hasRoute&&(
-        <div style={{position:"absolute",top:"54%",left:f(26)}}>
-          <MiniRoute route={act.route} W={Math.round(W*.45)} H={Math.round(W*.32)}/>
+      <div>
+        <div style={{height:1,background:"rgba(0,0,0,.08)",marginBottom:f(16)}}/>
+        <div style={{display:"flex",alignItems:"center",gap:f(18)}}>
+          <Stat Icon={ClkIco} val={dur} lbl="DURATION" vc="#0a0a0a" lc="rgba(0,0,0,.38)" ic="rgba(0,0,0,.45)"/>
+          <VDivider/>
+          <Stat Icon={PceIco} val={pace} lbl="/KM" vc="#0a0a0a" lc="rgba(0,0,0,.38)" ic="rgba(0,0,0,.45)"/>
         </div>
-      )}
-      <div style={{position:"absolute",bottom:0,left:0,right:0,background:"#0a0a0a",
-        padding:f(16)+" "+f(24)+" "+f(22)}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <div>
-            <div style={{fontSize:f(17),fontWeight:800,color:"#fff",lineHeight:1,fontFamily:"monospace"}}>{pace}</div>
-            <div style={{fontSize:f(6),color:"rgba(255,255,255,.32)",letterSpacing:".14em",marginTop:4}}>PACE</div>
-          </div>
-          <div style={{width:1,height:28,background:"rgba(255,255,255,.1)"}}/>
-          <div>
-            <div style={{fontSize:f(17),fontWeight:800,color:"#fff",lineHeight:1,fontFamily:"monospace"}}>{dur}</div>
-            <div style={{fontSize:f(6),color:"rgba(255,255,255,.32)",letterSpacing:".14em",marginTop:4}}>TIME</div>
-          </div>
-          <div style={{width:1,height:28,background:"rgba(255,255,255,.1)"}}/>
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:f(6),color:"rgba(255,255,255,.32)",letterSpacing:".08em"}}>{fmtDate(act.date)}</div>
-            <div style={{fontSize:f(5),color:"rgba(255,255,255,.18)",letterSpacing:".14em",marginTop:3}}>RUNLYTICS</div>
-          </div>
-        </div>
+        {dt?<div style={{fontSize:f(7),color:"rgba(0,0,0,.3)",marginTop:f(14),letterSpacing:".04em"}}>{dt}</div>:null}
       </div>
     </div>
   );
 
-  // ── T4 AMOLED NIGHT — pure black, orange radial glow, centered distance ─────
+  // ── T2 ROUTE ART — dark, route hero, accent title ────────────────────────
+  if(type==="orange")return(
+    <div style={{...baseShell,background:"#080808",...baseAnim}}>
+      <div style={{position:"absolute",top:f(20),left:0,right:0,textAlign:"center",
+        fontSize:f(7),fontWeight:700,color:"rgba(255,255,255,.22)",letterSpacing:".18em"}}>RUNLYTICS</div>
+      {hasRoute&&(
+        <div style={{position:"absolute",top:"8%",left:"8%",right:"8%",height:"54%",overflow:"hidden"}}>
+          <MiniRoute route={act.route} W={Math.round(W*.84)} H={Math.round(H*.54)}/>
+        </div>
+      )}
+      <div style={{position:"absolute",bottom:f(24),left:f(22),right:f(22)}}>
+        <div style={{fontSize:f(64),fontWeight:900,color:"#fff",lineHeight:.85,letterSpacing:"-.03em"}}>
+          {dist}<span style={{fontSize:f(18),color:acol,letterSpacing:".04em",marginLeft:f(8)}}> KM</span>
+        </div>
+        <div style={{height:1,background:"rgba(255,255,255,.07)",margin:f(16)+" 0"}}/>
+        <div style={{display:"flex",alignItems:"center",gap:f(18),marginBottom:f(12)}}>
+          <Stat Icon={ClkIco} val={dur} lbl="DURATION"/>
+          <VDivider/>
+          <Stat Icon={PceIco} val={pace} lbl="/KM"/>
+        </div>
+        {name?<div style={{fontSize:f(11),fontWeight:700,color:acol,marginBottom:f(6),letterSpacing:".01em"}}>{name}</div>:null}
+        {dt?<div style={{fontSize:f(7),color:"rgba(255,255,255,.28)",letterSpacing:".04em"}}>{dt}</div>:null}
+      </div>
+    </div>
+  );
+
+  // ── T3 ATHLETIC POSTER — dark, accent header, route+stats two-col ────────
+  if(type==="cinematic")return(
+    <div style={{...baseShell,background:"#090909",display:"flex",flexDirection:"column",
+      padding:f(24)+" "+f(22),...baseAnim}}>
+      <div style={{marginBottom:f(16)}}>
+        <div style={{display:"flex",alignItems:"center",gap:f(8),marginBottom:f(12)}}>
+          <div style={{fontSize:f(7),fontWeight:800,color:acol,letterSpacing:".18em"}}>RUNLYTICS</div>
+          <div style={{flex:1,height:1,background:acol,opacity:.7}}/>
+        </div>
+        {name?<div style={{fontSize:f(13),fontWeight:800,color:"#fff",letterSpacing:".04em",
+          textTransform:"uppercase",marginBottom:f(10)}}>{name}</div>:null}
+        <div style={{fontSize:f(76),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
+        <div style={{fontSize:f(14),fontWeight:800,color:acol,letterSpacing:".16em",marginTop:f(6)}}>KM</div>
+      </div>
+      <div style={{height:1,background:"rgba(255,255,255,.08)",marginBottom:f(14)}}/>
+      <div style={{display:"flex",flex:1,gap:f(12)}}>
+        <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"space-around"}}>
+          <div style={{display:"flex",alignItems:"center",gap:f(9)}}>
+            <ClkIco s={Math.round(W/25)} c="rgba(255,255,255,.5)"/>
+            <div>
+              <div style={{fontSize:f(16),fontWeight:800,color:"#fff",fontFamily:"monospace"}}>{dur}</div>
+              <div style={{fontSize:f(6),color:"rgba(255,255,255,.32)",letterSpacing:".1em"}}>DURATION</div>
+            </div>
+          </div>
+          <div style={{height:1,background:"rgba(255,255,255,.06)"}}/>
+          <div style={{display:"flex",alignItems:"center",gap:f(9)}}>
+            <PceIco s={Math.round(W/25)} c="rgba(255,255,255,.5)"/>
+            <div>
+              <div style={{fontSize:f(16),fontWeight:800,color:"#fff",fontFamily:"monospace"}}>{pace}</div>
+              <div style={{fontSize:f(6),color:"rgba(255,255,255,.32)",letterSpacing:".1em"}}>/KM</div>
+            </div>
+          </div>
+        </div>
+        {hasRoute&&(
+          <div style={{width:"45%",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <MiniRoute route={act.route} W={Math.round(W*.42)} H={Math.round(H*.3)}/>
+          </div>
+        )}
+      </div>
+      {dt?<div style={{fontSize:f(7),color:"rgba(255,255,255,.25)",marginTop:f(14),letterSpacing:".04em"}}>{dt}</div>:null}
+    </div>
+  );
+
+  // ── T4 GLASS STORY — dark, floating card, runner icon, route preview ─────
   if(type==="glass")return(
-    <div style={{...baseShell,background:"#000000",...baseAnim}}>
-      <div style={{position:"absolute",top:"5%",left:"5%",right:"5%",height:"52%",pointerEvents:"none",
-        background:"radial-gradient(ellipse at 50% 60%,rgba(249,115,22,.16) 0%,rgba(249,115,22,0) 68%)"}}/>
-      {hasRoute&&(
-        <div style={{position:"absolute",inset:0,opacity:.12,
-          maskImage:"linear-gradient(to bottom,transparent 30%,rgba(0,0,0,.7) 55%,transparent 80%)",
-          WebkitMaskImage:"linear-gradient(to bottom,transparent 30%,rgba(0,0,0,.7) 55%,transparent 80%)"}}>
-          <MiniRoute route={act.route} W={W} H={H}/>
+    <div style={{...baseShell,background:"#111",...baseAnim}}>
+      <div style={{position:"absolute",top:f(24),left:0,right:0,textAlign:"center",
+        fontSize:f(7),fontWeight:700,color:"rgba(255,255,255,.22)",letterSpacing:".18em"}}>RUNLYTICS</div>
+      <div style={{position:"absolute",top:f(50),left:f(20),right:f(20),
+        background:"#1a1a1a",borderRadius:f(16),
+        border:"1px solid rgba(255,255,255,.09)",
+        boxShadow:"0 4px 24px rgba(0,0,0,.5)"}}>
+        <div style={{padding:f(20)+" "+f(18)+" "+f(16),textAlign:"center"}}>
+          <div style={{width:f(36),height:f(36),borderRadius:"50%",background:"rgba(255,255,255,.08)",
+            border:"1px solid rgba(255,255,255,.1)",display:"flex",alignItems:"center",
+            justifyContent:"center",margin:"0 auto "+f(14),fontSize:f(16)}}>🏃</div>
+          <div style={{fontSize:f(58),fontWeight:900,color:"#fff",lineHeight:.85,letterSpacing:"-.03em"}}>{dist}</div>
+          <div style={{fontSize:f(9),color:"rgba(255,255,255,.3)",letterSpacing:".2em",marginTop:f(6)}}>KM</div>
         </div>
-      )}
-      <div style={{position:"absolute",top:f(24),left:f(24),fontSize:f(6),fontWeight:700,
-        color:"rgba(255,255,255,.18)",letterSpacing:".18em"}}>RUNLYTICS</div>
-      <div style={{position:"absolute",top:0,left:0,right:0,height:"65%",display:"flex",
-        flexDirection:"column",alignItems:"center",justifyContent:"center",paddingTop:f(20)}}>
-        <div style={{fontSize:f(100),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
-        <div style={{fontSize:f(7),color:"rgba(249,115,22,.5)",letterSpacing:".24em",marginTop:f(12)}}>KM</div>
+        <div style={{height:1,background:"rgba(255,255,255,.07)",marginLeft:f(16),marginRight:f(16)}}/>
+        <div style={{padding:f(14)+" "+f(18),display:"flex",alignItems:"center",gap:f(14)}}>
+          <Stat Icon={ClkIco} val={dur} lbl="DURATION"/>
+          <VDivider/>
+          <Stat Icon={PceIco} val={pace} lbl="/KM"/>
+        </div>
+        {hasRoute&&(
+          <div style={{padding:"0 "+f(16)+" "+f(14),display:"flex",justifyContent:"center"}}>
+            <MiniRoute route={act.route} W={Math.round(W*.7)} H={Math.round(H*.15)}/>
+          </div>
+        )}
       </div>
-      <div style={{position:"absolute",bottom:f(30),left:f(24),right:f(24)}}>
-        <div style={{height:1,background:"rgba(255,255,255,.05)",marginBottom:f(16)}}/>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:f(14)}}>
-          <span style={{fontSize:f(13),fontWeight:700,color:"rgba(255,255,255,.65)",fontFamily:"monospace"}}>{pace}</span>
-          <span style={{width:3,height:3,borderRadius:"50%",background:"rgba(249,115,22,.5)",flexShrink:0,display:"inline-block"}}/>
-          <span style={{fontSize:f(13),fontWeight:700,color:"rgba(255,255,255,.65)",fontFamily:"monospace"}}>{dur}</span>
-        </div>
-        <div style={{textAlign:"center",marginTop:f(10),fontSize:f(6),color:"rgba(255,255,255,.16)",letterSpacing:".08em"}}>{fmtDate(act.date)}</div>
+      <div style={{position:"absolute",bottom:f(24),left:f(22),right:f(22)}}>
+        {name?<div style={{fontSize:f(11),fontWeight:600,color:"rgba(255,255,255,.7)",marginBottom:f(6)}}>{name}</div>:null}
+        {dt?<div style={{fontSize:f(7),color:"rgba(255,255,255,.3)",letterSpacing:".04em",display:"flex",alignItems:"center",gap:f(5)}}>
+          <span>&#x1F4CD;</span>{dt}
+        </div>:null}
       </div>
     </div>
   );
 
-  // ── T5 GLASS WIDGET — dark indigo, floating frosted card, stacked stats ─────
+  // ── T5 PHOTO STORY — dark, clean, accent rule, name in color ─────────────
   if(type==="poster")return(
-    <div style={{...baseShell,background:"linear-gradient(170deg,#080d1e 0%,#0d1428 60%,#060b18 100%)",...baseAnim}}>
-      {hasRoute&&(
-        <div style={{position:"absolute",inset:0,opacity:.18,
-          maskImage:"linear-gradient(to bottom,transparent 15%,rgba(0,0,0,.75) 45%,transparent 85%)",
-          WebkitMaskImage:"linear-gradient(to bottom,transparent 15%,rgba(0,0,0,.75) 45%,transparent 85%)"}}>
-          <MiniRoute route={act.route} W={W} H={H}/>
+    <div style={{...baseShell,background:"#0a0a0a",display:"flex",flexDirection:"column",
+      padding:f(26)+" "+f(24),...baseAnim}}>
+      <div style={{fontSize:f(7),fontWeight:700,color:"rgba(255,255,255,.22)",letterSpacing:".18em",marginBottom:f(22)}}>RUNLYTICS</div>
+      <div style={{flex:1}}>
+        <div style={{fontSize:f(86),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
+        <div style={{fontSize:f(10),fontWeight:700,color:"rgba(255,255,255,.25)",letterSpacing:".2em",marginTop:f(8)}}>KM</div>
+        <div style={{width:f(28),height:2,background:acol,borderRadius:1,margin:f(18)+" 0"}}/>
+      </div>
+      <div>
+        <div style={{height:1,background:"rgba(255,255,255,.07)",marginBottom:f(16)}}/>
+        <div style={{display:"flex",alignItems:"center",gap:f(18),marginBottom:f(16)}}>
+          <Stat Icon={ClkIco} val={dur} lbl="DURATION"/>
+          <VDivider/>
+          <Stat Icon={PceIco} val={pace} lbl="/KM"/>
         </div>
-      )}
-      <div style={{position:"absolute",top:f(64),left:f(20),right:f(20),
-        background:"rgba(14,26,58,.82)",borderRadius:f(16),
-        border:"1px solid rgba(255,255,255,.11)",
-        boxShadow:"0 8px 32px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.07)"}}>
-        <div style={{padding:f(26)+" "+f(22)+" "+f(22),textAlign:"center"}}>
-          <div style={{fontSize:f(6),fontWeight:700,color:"rgba(255,255,255,.35)",
-            letterSpacing:".2em",marginBottom:f(18)}}>RUNLYTICS</div>
-          <div style={{fontSize:f(74),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.03em"}}>{dist}</div>
-          <div style={{fontSize:f(7),color:"rgba(255,255,255,.25)",letterSpacing:".22em",marginTop:f(10)}}>KM</div>
-        </div>
-        <div style={{height:1,background:"linear-gradient(90deg,transparent,rgba(255,255,255,.1),transparent)",
-          marginLeft:f(16),marginRight:f(16)}}/>
-        <div style={{padding:f(18)+" "+f(22)+" "+f(22),display:"flex",justifyContent:"space-around",alignItems:"center"}}>
-          <div style={{textAlign:"center"}}>
-            <div style={{fontSize:f(16),fontWeight:800,color:"rgba(255,255,255,.9)",fontFamily:"monospace"}}>{pace}</div>
-            <div style={{fontSize:f(6),color:"rgba(255,255,255,.28)",letterSpacing:".14em",marginTop:f(5)}}>PACE</div>
-          </div>
-          <div style={{width:1,height:28,background:"rgba(255,255,255,.08)"}}/>
-          <div style={{textAlign:"center"}}>
-            <div style={{fontSize:f(16),fontWeight:800,color:"rgba(255,255,255,.9)",fontFamily:"monospace"}}>{dur}</div>
-            <div style={{fontSize:f(6),color:"rgba(255,255,255,.28)",letterSpacing:".14em",marginTop:f(5)}}>TIME</div>
-          </div>
-        </div>
-        <div style={{textAlign:"center",paddingBottom:f(18),fontSize:f(6),
-          color:"rgba(255,255,255,.18)",letterSpacing:".06em"}}>{fmtDate(act.date)}</div>
+        {name?<div style={{fontSize:f(12),fontWeight:700,color:acol,letterSpacing:".02em",marginBottom:f(8)}}>{name}</div>:null}
+        {dt?<div style={{fontSize:f(7),color:"rgba(255,255,255,.28)",letterSpacing:".04em",display:"flex",alignItems:"center",gap:f(5)}}>
+          <span>&#x1F4CD;</span>{dt}
+        </div>:null}
       </div>
     </div>
   );
 
-  // ── CUSTOM BG TEMPLATES (unchanged) ─────────────────────────────────────────
+  // ── CUSTOM BG TEMPLATES (unchanged) ──────────────────────────────────────
   if(type==="photo-overlay"||type==="glass-story"||type==="cinematic-motion"){
     const bgStyle=bgImg
       ?{backgroundImage:"url("+bgImg+")",backgroundSize:"cover",backgroundPosition:"center"}
@@ -1428,95 +1450,70 @@ const ShareCard=({type,act,W=270,H=480,bg="night",bgImg=null})=>{
       <div style={{...baseShell,...bgStyle,...baseAnim}}>
         <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,.4)"}}/>
         <div style={{position:"absolute",bottom:0,left:0,right:0,
-          background:"linear-gradient(to top,rgba(0,0,0,.88) 0%,rgba(0,0,0,.42) 100%)",
-          borderTop:"1px solid rgba(255,255,255,.12)",padding:f(24)+" "+f(22)+" "+f(28)}}>
-          <div style={{fontSize:f(7),fontWeight:800,color:"rgba(255,255,255,.5)",letterSpacing:".18em",marginBottom:f(16)}}>RUNLYTICS</div>
-          <div style={{fontSize:f(80),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.03em"}}>{dist}</div>
-          <div style={{fontSize:f(8),color:"rgba(255,255,255,.38)",letterSpacing:".2em",marginTop:f(8),marginBottom:f(20)}}>KM</div>
-          <div style={{display:"flex",gap:f(28),marginBottom:hasRoute?f(14):0}}>
-            <div>
-              <div style={{fontSize:f(20),fontWeight:800,color:"#fff",lineHeight:1}}>{pace}</div>
-              <div style={{fontSize:f(6),color:"rgba(255,255,255,.3)",letterSpacing:".14em",marginTop:3}}>PACE</div>
-            </div>
-            <div>
-              <div style={{fontSize:f(20),fontWeight:800,color:"#fff",lineHeight:1}}>{dur}</div>
-              <div style={{fontSize:f(6),color:"rgba(255,255,255,.3)",letterSpacing:".14em",marginTop:3}}>TIME</div>
-            </div>
+          background:"linear-gradient(to top,rgba(0,0,0,.9) 0%,rgba(0,0,0,.45) 100%)",
+          borderTop:"1px solid rgba(255,255,255,.1)",padding:f(22)+" "+f(22)+" "+f(26)}}>
+          <div style={{fontSize:f(7),fontWeight:800,color:"rgba(255,255,255,.5)",letterSpacing:".18em",marginBottom:f(14)}}>RUNLYTICS</div>
+          <div style={{fontSize:f(70),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.03em"}}>{dist}</div>
+          <div style={{fontSize:f(9),color:"rgba(255,255,255,.35)",letterSpacing:".2em",marginTop:f(8),marginBottom:f(18)}}>KM</div>
+          <div style={{display:"flex",alignItems:"center",gap:f(18),marginBottom:hasRoute?f(14):0}}>
+            <Stat Icon={ClkIco} val={dur} lbl="DURATION"/>
+            <VDivider/>
+            <Stat Icon={PceIco} val={pace} lbl="/KM"/>
           </div>
           {hasRoute&&<MiniRoute route={act.route} W={W-44} H={Math.round((W-44)*.42)}/>}
-          <div style={{marginTop:f(12),fontSize:f(7),color:"rgba(255,255,255,.28)"}}>{fmtDate(act.date)}</div>
+          {name?<div style={{marginTop:f(10),fontSize:f(9),fontWeight:600,color:"rgba(255,255,255,.6)"}}>{name}</div>:null}
         </div>
       </div>
     );
     if(type==="cinematic-motion")return(
       <div style={{...baseShell,...bgStyle,...baseAnim}}>
         <div style={{position:"absolute",inset:0,background:"linear-gradient(180deg,rgba(0,0,0,.08) 0%,rgba(0,0,0,.5) 55%,rgba(0,0,0,.88) 100%)"}}/>
-        <div style={{position:"absolute",bottom:f(32),left:f(26),right:f(26)}}>
-          <div style={{fontSize:f(90),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.04em",textShadow:"0 4px 24px rgba(0,0,0,.6)"}}>{dist}</div>
-          <div style={{fontSize:f(8),color:"rgba(255,255,255,.38)",letterSpacing:".2em",marginTop:f(8),marginBottom:f(20)}}>KM</div>
-          <div style={{display:"flex",gap:f(28)}}>
-            <div>
-              <div style={{fontSize:f(21),fontWeight:800,color:"#fff",lineHeight:1}}>{pace}</div>
-              <div style={{fontSize:f(7),color:"rgba(255,255,255,.28)",letterSpacing:".12em",marginTop:4}}>PACE</div>
-            </div>
-            <div>
-              <div style={{fontSize:f(21),fontWeight:800,color:"#fff",lineHeight:1}}>{dur}</div>
-              <div style={{fontSize:f(7),color:"rgba(255,255,255,.28)",letterSpacing:".12em",marginTop:4}}>TIME</div>
-            </div>
+        <div style={{position:"absolute",bottom:f(28),left:f(24),right:f(24)}}>
+          <div style={{fontSize:f(82),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.04em",textShadow:"0 4px 24px rgba(0,0,0,.6)"}}>{dist}</div>
+          <div style={{fontSize:f(10),fontWeight:700,color:"rgba(255,255,255,.4)",letterSpacing:".2em",marginTop:f(8),marginBottom:f(20)}}>KM</div>
+          <div style={{display:"flex",alignItems:"center",gap:f(18),marginBottom:f(18)}}>
+            <Stat Icon={ClkIco} val={dur} lbl="DURATION"/>
+            <VDivider/>
+            <Stat Icon={PceIco} val={pace} lbl="/KM"/>
           </div>
-          <div style={{marginTop:f(20),paddingTop:f(18),borderTop:"1px solid rgba(255,255,255,.12)"}}>
-            <div style={{fontSize:f(11),fontStyle:"italic",color:"rgba(255,255,255,.5)"}}>Keep showing up.</div>
-            <div style={{fontSize:f(9),fontStyle:"italic",color:"rgba(255,255,255,.28)",marginTop:2}}>The results follow.</div>
-          </div>
-          <div style={{marginTop:f(14),fontSize:f(7),color:"rgba(255,255,255,.25)",letterSpacing:".04em"}}>{fmtDate(act.date)+" · RUNLYTICS"}</div>
+          <div style={{height:1,background:"rgba(255,255,255,.12)",marginBottom:f(14)}}/>
+          <div style={{fontSize:f(11),fontStyle:"italic",color:"rgba(255,255,255,.5)"}}>Keep showing up.</div>
+          {name?<div style={{marginTop:f(12),fontSize:f(9),fontWeight:700,color:acol}}>{name}</div>:null}
         </div>
       </div>
     );
     return(
       <div style={{...baseShell,...bgStyle,...baseAnim}}>
         <div style={{position:"absolute",inset:0,background:"linear-gradient(180deg,rgba(0,0,0,.1) 0%,rgba(0,0,0,.5) 55%,rgba(0,0,0,.82) 100%)"}}/>
-        <div style={{position:"absolute",top:f(26),left:f(26),fontSize:f(7),fontWeight:800,color:"rgba(255,255,255,.6)",letterSpacing:".18em"}}>RUNLYTICS</div>
-        <div style={{position:"absolute",bottom:f(32),left:f(26),right:f(26)}}>
-          <div style={{fontSize:f(86),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.04em",textShadow:"0 3px 20px rgba(0,0,0,.5)"}}>{dist}</div>
-          <div style={{fontSize:f(8),color:"rgba(255,255,255,.42)",letterSpacing:".2em",marginTop:f(8)}}>KM</div>
-          {hasRoute&&<div style={{margin:f(16)+" 0"}}><MiniRoute route={act.route} W={W-52} H={Math.round((W-52)*.45)}/></div>}
-          <div style={{height:1,background:"rgba(255,255,255,.2)",marginBottom:f(14)}}/>
-          <div style={{display:"flex",gap:f(28)}}>
-            <div>
-              <div style={{fontSize:f(21),fontWeight:800,color:"#fff",lineHeight:1}}>{pace}</div>
-              <div style={{fontSize:f(7),color:"rgba(255,255,255,.28)",letterSpacing:".12em",marginTop:4}}>PACE</div>
-            </div>
-            <div>
-              <div style={{fontSize:f(21),fontWeight:800,color:"#fff",lineHeight:1}}>{dur}</div>
-              <div style={{fontSize:f(7),color:"rgba(255,255,255,.28)",letterSpacing:".12em",marginTop:4}}>TIME</div>
-            </div>
+        <div style={{position:"absolute",top:f(24),left:f(24),fontSize:f(7),fontWeight:800,color:"rgba(255,255,255,.6)",letterSpacing:".18em"}}>RUNLYTICS</div>
+        <div style={{position:"absolute",bottom:f(28),left:f(24),right:f(24)}}>
+          <div style={{fontSize:f(80),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.04em",textShadow:"0 3px 20px rgba(0,0,0,.5)"}}>{dist}</div>
+          <div style={{fontSize:f(10),fontWeight:700,color:"rgba(255,255,255,.42)",letterSpacing:".2em",marginTop:f(8)}}>KM</div>
+          {hasRoute&&<div style={{margin:f(14)+" 0"}}><MiniRoute route={act.route} W={W-52} H={Math.round((W-52)*.45)}/></div>}
+          <div style={{height:1,background:"rgba(255,255,255,.18)",marginBottom:f(14)}}/>
+          <div style={{display:"flex",alignItems:"center",gap:f(18),marginBottom:f(10)}}>
+            <Stat Icon={ClkIco} val={dur} lbl="DURATION"/>
+            <VDivider/>
+            <Stat Icon={PceIco} val={pace} lbl="/KM"/>
           </div>
-          <div style={{marginTop:f(12),fontSize:f(7),color:"rgba(255,255,255,.35)",letterSpacing:".04em"}}>{fmtDate(act.date)}</div>
+          {name?<div style={{fontSize:f(9),fontWeight:700,color:acol}}>{name}</div>:null}
         </div>
       </div>
     );
   }
 
-  // ── FALLBACK ──────────────────────────────────────────────────────────────
+  // FALLBACK
   return(
-    <div style={{...baseShell,background:"#f6f3ee",...baseAnim}}>
-      <div style={{position:"absolute",top:f(28),left:f(28)}}>
-        <div style={{fontSize:f(6),color:"rgba(0,0,0,.25)",letterSpacing:".2em",marginBottom:f(24)}}>RUNLYTICS</div>
-        <div style={{fontSize:f(88),fontWeight:900,color:"#0a0a0a",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
-        <div style={{fontSize:f(8),color:"rgba(0,0,0,.22)",letterSpacing:".22em",marginTop:f(10)}}>KILOMETERS</div>
+    <div style={{...baseShell,background:"#f5f5f2",display:"flex",flexDirection:"column",
+      padding:f(26)+" "+f(24),...baseAnim}}>
+      <div style={{flex:1}}>
+        <div style={{fontSize:f(86),fontWeight:900,color:"#0a0a0a",lineHeight:.82,letterSpacing:"-.04em"}}>{dist}</div>
+        <div style={{fontSize:f(10),fontWeight:700,color:"rgba(0,0,0,.28)",letterSpacing:".2em",marginTop:f(8)}}>KM</div>
       </div>
-      <div style={{position:"absolute",bottom:f(28),left:f(28),right:f(28)}}>
-        <div style={{height:.5,background:"rgba(0,0,0,.1)",marginBottom:f(14)}}/>
-        <div style={{display:"flex",gap:f(28)}}>
-          <div>
-            <div style={{fontSize:f(15),fontWeight:700,color:"#0a0a0a",fontFamily:"monospace"}}>{pace}</div>
-            <div style={{fontSize:f(6),color:"rgba(0,0,0,.3)",letterSpacing:".14em",marginTop:3}}>PACE</div>
-          </div>
-          <div>
-            <div style={{fontSize:f(15),fontWeight:700,color:"#0a0a0a",fontFamily:"monospace"}}>{dur}</div>
-            <div style={{fontSize:f(6),color:"rgba(0,0,0,.3)",letterSpacing:".14em",marginTop:3}}>TIME</div>
-          </div>
-        </div>
+      <div style={{display:"flex",alignItems:"center",gap:f(18)}}>
+        <Stat Icon={ClkIco} val={dur} lbl="DURATION" vc="#0a0a0a" lc="rgba(0,0,0,.38)" ic="rgba(0,0,0,.45)"/>
+        <VDivider/>
+        <Stat Icon={PceIco} val={pace} lbl="/KM" vc="#0a0a0a" lc="rgba(0,0,0,.38)" ic="rgba(0,0,0,.45)"/>
       </div>
     </div>
   );
