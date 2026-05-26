@@ -271,7 +271,7 @@ function computeTierProgress(acts){
   const runDays=new Set(acts.map(a=>new Date(a.dateTs).toDateString()));
   const today=new Date();today.setHours(0,0,0,0);
   let streak=0,maxStreak=0;
-  for(let i=0;i<365;i++){const d=new Date(today);d.setDate(d.getDate()-i);if(runDays.has(d.toDateString())){streak++;maxStreak=Math.max(maxStreak,streak);}else if(i>0&&streak>0)break;}
+  for(let i=0;i<365;i++){const d=new Date(today);d.setDate(d.getDate()-i);if(runDays.has(d.toDateString())){streak++;maxStreak=Math.max(maxStreak,streak);}else{streak=0;}}
   const totalElev=acts.reduce((s,a)=>s+(a.elevGainM||0),0);
   const vals={distance:totalKm,runs:totalRuns,streak:maxStreak,elevation:totalElev};
   return TIER_TRACKS.map(t=>{
@@ -416,157 +416,640 @@ function CoachCard({insight}){
     </div>
   );
 }
-function drawRunCard(ctx,act,tmpl,W,H){
-  try{
-    const OR="#f97316";
-    const bg={"minimal":"#ffffff"}[tmpl]||"#111827";const fg={"minimal":"#0a0a0a"}[tmpl]||"#ffffff";
-    ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
-    if(act.route&&act.route.length>1)drawRouteCanvas(ctx,act.route,0,0,W,H*.55);
-    ctx.textAlign="center";
-    ctx.fillStyle=OR;ctx.font="bold "+Math.round(H*.11)+"px system-ui";ctx.fillText(fmtKm(act.distanceKm),W/2,H*.45);
-    ctx.fillStyle=fg;ctx.font="600 "+Math.round(H*.026)+"px system-ui";ctx.fillText("KM",W/2,H*.48);
-    ctx.fillStyle=OR;ctx.fillRect(W*.2,H*.52,W*.6,2);
-    ctx.fillStyle=fg;ctx.font="600 "+Math.round(H*.022)+"px system-ui";ctx.fillText((act.name||"Run").substring(0,28),W/2,H*.58);
-    ctx.fillStyle="rgba(255,255,255,.5)";ctx.font=Math.round(H*.016)+"px system-ui";ctx.fillText(act.date+" · "+fmtPace(act.avgPaceSecKm)+"/km",W/2,H*.62);
-    ctx.fillStyle=OR;ctx.font="bold "+Math.round(H*.016)+"px system-ui";ctx.textAlign="left";ctx.fillText("RUNLYTICS",W*.07,H*.068);
-  }catch(e){}
+// ── Canvas Typography System ─────────────────────────────────────────────────
+// All sizes are ratios of canvas H for resolution-independence.
+// Exact ratios match previous magic numbers to preserve visual parity.
+const CANVAS_TYPE = {
+  hero:    { ratio: 0.11,  weight: 'bold', family: 'system-ui' }, // big distance number
+  unit:    { ratio: 0.026, weight: 600,    family: 'system-ui' }, // "KM" unit label
+  title:   { ratio: 0.022, weight: 600,    family: 'system-ui' }, // activity name
+  brand:   { ratio: 0.016, weight: 'bold', family: 'system-ui' }, // RUNLYTICS wordmark
+  caption: { ratio: 0.016, weight: 400,    family: 'system-ui' }, // date · pace line
+};
+
+// ── Canvas Layout Tokens ─────────────────────────────────────────────────────
+// Named positions replacing inline magic numbers. Fractions of W or H.
+const CANVAS_LAYOUT = {
+  padX:     0.07,   // horizontal padding (fraction of W)
+  brandY:   0.068,  // RUNLYTICS baseline (fraction of H)
+  heroY:    0.45,   // distance number baseline
+  unitY:    0.48,   // "KM" baseline
+  divX:     0.20,   // divider left edge (fraction of W)
+  divY:     0.52,   // divider Y
+  divW:     0.60,   // divider width (fraction of W)
+  nameY:    0.58,   // activity name baseline
+  captionY: 0.62,   // date/pace baseline
+  routeH:   0.55,   // route occupies top fraction of H
+};
+
+// ── Canvas Primitive Functions ────────────────────────────────────────────────
+function cFont(H, key) {
+  const t = CANVAS_TYPE[key];
+  return `${t.weight} ${Math.round(H * t.ratio)}px ${t.family}`;
+}
+function cDrawBg(ctx, W, H, color) {
+  ctx.fillStyle = color; ctx.fillRect(0, 0, W, H);
+}
+function cDrawBranding(ctx, W, H, color) {
+  ctx.save();
+  ctx.fillStyle = color; ctx.textAlign = 'left';
+  ctx.font = cFont(H, 'brand');
+  ctx.fillText('RUNLYTICS', W * CANVAS_LAYOUT.padX, H * CANVAS_LAYOUT.brandY);
+  ctx.restore();
+}
+function cDrawHero(ctx, W, H, dist, fg, accent) {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = accent; ctx.font = cFont(H, 'hero');
+  ctx.fillText(dist, W / 2, H * CANVAS_LAYOUT.heroY);
+  ctx.fillStyle = fg; ctx.font = cFont(H, 'unit');
+  ctx.fillText('KM', W / 2, H * CANVAS_LAYOUT.unitY);
+  ctx.restore();
+}
+function cDrawDivider(ctx, W, H, color) {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.fillRect(W * CANVAS_LAYOUT.divX, H * CANVAS_LAYOUT.divY, W * CANVAS_LAYOUT.divW, 2);
+  ctx.restore();
+}
+function cDrawTitle(ctx, W, H, name, color) {
+  ctx.save();
+  ctx.fillStyle = color; ctx.textAlign = 'center';
+  ctx.font = cFont(H, 'title');
+  ctx.fillText(name.substring(0, 28), W / 2, H * CANVAS_LAYOUT.nameY);
+  ctx.restore();
+}
+function cDrawCaption(ctx, W, H, text, color) {
+  ctx.save();
+  ctx.fillStyle = color; ctx.textAlign = 'center';
+  ctx.font = cFont(H, 'caption');
+  ctx.fillText(text, W / 2, H * CANVAS_LAYOUT.captionY);
+  ctx.restore();
 }
 
-function MiniRoute({route,W=160,H=110}){
+// ── Additional Canvas Primitives ─────────────────────────────────────────────
+function cDrawVignette(ctx,W,H,intensity=0.55){
+  const vg=ctx.createRadialGradient(W/2,H/2,H*0.2,W/2,H/2,H*0.85);
+  vg.addColorStop(0,'transparent'); vg.addColorStop(1,`rgba(0,0,0,${intensity})`);
+  ctx.fillStyle=vg; ctx.fillRect(0,0,W,H);
+}
+function cDrawRadialGlow(ctx,cx,cy,r,color){
+  const gl=ctx.createRadialGradient(cx,cy,0,cx,cy,r);
+  gl.addColorStop(0,color); gl.addColorStop(1,'transparent');
+  ctx.fillStyle=gl; ctx.fillRect(Math.max(0,cx-r),Math.max(0,cy-r),r*2,r*2);
+}
+function cDrawLinGrad(ctx,W,H,x0,y0,x1,y1,stops){
+  const gr=ctx.createLinearGradient(x0,y0,x1,y1);
+  stops.forEach(([p,c])=>gr.addColorStop(p,c));
+  ctx.fillStyle=gr; ctx.fillRect(0,0,W,H);
+}
+
+// ── Per-Template Canvas Renderers ─────────────────────────────────────────────
+// Each function is the sole authority for one template's full canvas output.
+// Add a template: write cRenderXxx below + add one row to CANVAS_RENDERERS.
+
+function cRenderVelocity(ctx,act,W,H){
+  cDrawBg(ctx,W,H,'#faf8f4');
+  cDrawLinGrad(ctx,W,H, 0,H*0.55,0,H, [[0,'transparent'],[1,'rgba(249,115,22,.07)']]);
+  cDrawBranding(ctx,W,H,'rgba(0,0,0,.2)');
+  ctx.save(); ctx.textAlign='center';
+  ctx.fillStyle='#0a0a0a'; ctx.font=cFont(H,'hero');
+  ctx.fillText(fmtKm(act.distanceKm),W/2,H*CANVAS_LAYOUT.heroY);
+  ctx.fillStyle='rgba(0,0,0,.28)'; ctx.font=`600 ${Math.round(H*.018)}px system-ui`;
+  ctx.fillText('KILOMETRES',W/2,H*(CANVAS_LAYOUT.unitY+.008));
+  ctx.restore();
+  ctx.fillStyle='#f97316'; ctx.fillRect(W*0.07,H*CANVAS_LAYOUT.divY,W*0.1,3);
+  ctx.fillStyle='rgba(0,0,0,.09)'; ctx.fillRect(W*0.07+W*0.1+W*0.015,H*CANVAS_LAYOUT.divY,W*0.555,1);
+  cDrawTitle(ctx,W,H,act.name||'Run','rgba(0,0,0,.75)');
+  cDrawCaption(ctx,W,H,act.date+' · '+fmtPace(act.avgPaceSecKm)+'/km','rgba(0,0,0,.36)');
+}
+
+function cRenderRaceDay(ctx,act,W,H){
+  cDrawBg(ctx,W,H,'#060810');
+  if(act.route&&act.route.length>1){
+    drawRouteCanvas(ctx,act.route,0,0,W,H*0.63);
+    cDrawLinGrad(ctx,W,H, 0,H*0.28,0,H*0.65, [[0,'transparent'],[1,'#060810']]);
+  }
+  cDrawRadialGlow(ctx,W/2,H*0.67,W*0.55,'rgba(249,115,22,.2)');
+  cDrawVignette(ctx,W,H,0.58);
+  ctx.save(); ctx.textAlign='center';
+  ctx.fillStyle='#fff'; ctx.font=cFont(H,'hero');
+  ctx.fillText(fmtKm(act.distanceKm),W/2,H*0.70);
+  ctx.fillStyle='#f97316'; ctx.font=`700 ${Math.round(H*.013)}px system-ui`;
+  ctx.fillText('KILOMETRES',W/2,H*0.752);
+  ctx.restore();
+  cDrawBranding(ctx,W,H,'rgba(255,255,255,.22)');
+  cDrawCaption(ctx,W,H,(act.name||'Run').substring(0,26)+' · '+fmtPace(act.avgPaceSecKm)+'/km','rgba(255,255,255,.32)');
+}
+
+function cRenderEndurance(ctx,act,W,H){
+  cDrawBg(ctx,W,H,'#0a0c14');
+  cDrawRadialGlow(ctx,W/2,0,W*0.8,'rgba(249,115,22,.06)');
+  cDrawVignette(ctx,W,H,0.42);
+  const px=W*CANVAS_LAYOUT.padX;
+  ctx.save(); ctx.textAlign='left';
+  ctx.fillStyle='rgba(255,255,255,.18)'; ctx.font=cFont(H,'brand');
+  ctx.fillText('RUNLYTICS',px,H*CANVAS_LAYOUT.brandY);
+  ctx.fillStyle='#fff'; ctx.font=cFont(H,'hero'); ctx.fillText(fmtKm(act.distanceKm),px,H*0.42);
+  ctx.fillStyle='rgba(255,255,255,.32)'; ctx.font=cFont(H,'unit'); ctx.fillText('KM',px,H*0.468);
+  ctx.fillStyle='#f97316'; ctx.fillRect(px,H*0.492,W*0.11,3);
+  ctx.fillStyle='rgba(255,255,255,.06)'; ctx.fillRect(px,H*0.548,W*0.86,1);
+  const mF=`700 ${Math.round(H*.026)}px monospace`;
+  const lF=`600 ${Math.round(H*.014)}px system-ui`;
+  const rX=W*(1-CANVAS_LAYOUT.padX);
+  [[H*0.615,'DURATION',fmtDur(act.movingTimeSec)],[H*0.675,'PACE',fmtPace(act.avgPaceSecKm)+'/km']].forEach(([y,lbl,val])=>{
+    ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.28)'; ctx.font=lF; ctx.fillText(lbl,px,y);
+    ctx.textAlign='right'; ctx.fillStyle='#fff'; ctx.font=mF; ctx.fillText(val,rX,y);
+  });
+  ctx.restore();
+  if(act.route&&act.route.length>1){
+    ctx.globalAlpha=0.32; drawRouteCanvas(ctx,act.route,W*0.44,H*0.73,W*0.5,H*0.21); ctx.globalAlpha=1;
+  }
+}
+
+function cRenderCinematic(ctx,act,W,H){
+  cDrawBg(ctx,W,H,'#0d0520');
+  cDrawLinGrad(ctx,W,H, 0,0,W,H, [[0,'rgba(100,40,180,.2)'],[0.5,'transparent'],[1,'rgba(249,115,22,.1)']]);
+  if(act.route&&act.route.length>1){
+    ctx.globalAlpha=0.28; drawRouteCanvas(ctx,act.route,-W*0.05,0,W*1.1,H*0.66); ctx.globalAlpha=1;
+    cDrawLinGrad(ctx,W,H, 0,H*0.26,0,H*0.68, [[0,'transparent'],[1,'rgba(13,5,32,.97)']]);
+  }
+  cDrawVignette(ctx,W,H,0.65);
+  cDrawRadialGlow(ctx,W/2,H*0.67,W*0.5,'rgba(140,70,230,.18)');
+  ctx.save(); ctx.textAlign='center';
+  ctx.fillStyle='#fff'; ctx.font=cFont(H,'hero'); ctx.fillText(fmtKm(act.distanceKm),W/2,H*0.71);
+  ctx.fillStyle='rgba(160,90,255,.85)'; ctx.font=`700 ${Math.round(H*.013)}px system-ui`;
+  ctx.fillText('KILOMETRES',W/2,H*0.758);
+  ctx.restore();
+  cDrawBranding(ctx,W,H,'rgba(255,255,255,.18)');
+  cDrawCaption(ctx,W,H,(act.name||'Run').substring(0,28),'rgba(255,255,255,.3)');
+}
+
+function cRenderGlass(ctx,act,W,H){
+  cDrawBg(ctx,W,H,'#0c1120');
+  cDrawRadialGlow(ctx,W/2,H*0.12,W*0.75,'rgba(249,115,22,.06)');
+  cDrawVignette(ctx,W,H,0.38);
+  const gx=W*0.06,gy=H*0.1,gw=W*0.88,gh=H*0.76;
+  const rad=W*0.04;
+  ctx.save();
+  ctx.fillStyle='rgba(255,255,255,.04)';
+  ctx.strokeStyle='rgba(255,255,255,.1)'; ctx.lineWidth=1;
+  ctx.beginPath();
+  ctx.moveTo(gx+rad,gy); ctx.lineTo(gx+gw-rad,gy);
+  ctx.quadraticCurveTo(gx+gw,gy,gx+gw,gy+rad);
+  ctx.lineTo(gx+gw,gy+gh-rad); ctx.quadraticCurveTo(gx+gw,gy+gh,gx+gw-rad,gy+gh);
+  ctx.lineTo(gx+rad,gy+gh); ctx.quadraticCurveTo(gx,gy+gh,gx,gy+gh-rad);
+  ctx.lineTo(gx,gy+rad); ctx.quadraticCurveTo(gx,gy,gx+rad,gy);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,.09)'; ctx.fillRect(gx,gy,gw,1);
+  ctx.restore();
+  if(act.route&&act.route.length>1){
+    ctx.globalAlpha=0.5; drawRouteCanvas(ctx,act.route,gx+gw*0.04,gy+gh*0.54,gw*0.92,gh*0.41); ctx.globalAlpha=1;
+  }
+  ctx.save(); ctx.textAlign='center';
+  ctx.fillStyle='#fff'; ctx.font=cFont(H,'hero'); ctx.fillText(fmtKm(act.distanceKm),W/2,gy+gh*0.38);
+  ctx.fillStyle='rgba(255,255,255,.28)'; ctx.font=cFont(H,'unit'); ctx.fillText('KILOMETRES',W/2,gy+gh*0.44);
+  ctx.restore();
+  cDrawDivider(ctx,W,H,'rgba(255,255,255,.06)');
+  cDrawBranding(ctx,W,H,'rgba(255,255,255,.18)');
+  cDrawCaption(ctx,W,H,(act.name||'Run').substring(0,28),'rgba(255,255,255,.28)');
+}
+
+const CANVAS_RENDERERS={velocity:cRenderVelocity,raceday:cRenderRaceDay,endurance:cRenderEndurance,cinematic:cRenderCinematic,glass:cRenderGlass};
+
+function renderToCanvas(ctx,act,templateId,W,H){
+  const render=CANVAS_RENDERERS[templateId]||CANVAS_RENDERERS.raceday;
+  try{render(ctx,act,W,H);}catch(e){}
+}
+
+// ── Export Pipeline ───────────────────────────────────────────────────────────
+// Single place to change canvas dimensions, quality, or MIME handling.
+const EXPORT_CONFIG = { W: 1080, H: 1920, quality: 0.92 };
+
+function canvasToBlob(canvas, format) {
+  const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
+  return new Promise(resolve => canvas.toBlob(resolve, mime, EXPORT_CONFIG.quality));
+}
+
+async function downloadExport(act, templateId, format) {
+  const { W, H } = EXPORT_CONFIG;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  renderToCanvas(canvas.getContext('2d'), act, templateId, W, H);
+  const blob = await canvasToBlob(canvas, format);
+  if (!blob) return;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `runlytics-share.${format === 'jpg' ? 'jpg' : 'png'}`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function MiniRoute({route,W=160,H=110,glowColor='#f97316',bgColor=null}){
   if(!route||!Array.isArray(route)||route.length<2)return null;
   try{
-    const pts=route.filter(p=>p&&isFinite(p.lat)&&isFinite(p.lon));if(pts.length<2)return null;
+    const pts=route.filter(p=>p&&isFinite(p.lat)&&isFinite(p.lon));
+    if(pts.length<2)return null;
     let x0=pts[0].lon,x1=pts[0].lon,y0=pts[0].lat,y1=pts[0].lat;
     for(const p of pts){if(p.lon<x0)x0=p.lon;if(p.lon>x1)x1=p.lon;if(p.lat<y0)y0=p.lat;if(p.lat>y1)y1=p.lat;}
-    const pad=8,dx=x1-x0||.001,dy=y1-y0||.001;
-    const tx=lon=>pad+(lon-x0)/dx*(W-pad*2);const ty=lat=>pad+(y1-lat)/dy*(H-pad*2);
+    const pad=10,dx=x1-x0||.001,dy=y1-y0||.001;
+    const tx=lon=>pad+(lon-x0)/dx*(W-pad*2);
+    const ty=lat=>pad+(y1-lat)/dy*(H-pad*2);
     const d=pts.map((p,i)=>(i===0?"M":"L")+tx(p.lon).toFixed(1)+","+ty(p.lat).toFixed(1)).join(" ");
     const p0=pts[0],pN=pts[pts.length-1];
-    return(<svg width={W} height={H} viewBox={"0 0 "+W+" "+H} style={{display:"block",borderRadius:8}}>
-      <rect width={W} height={H} fill="#0d1117" rx={8}/>
-      <path d={d} fill="none" stroke="#f97316" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.85}/>
-      <circle cx={tx(p0.lon)} cy={ty(p0.lat)} r={4} fill="#22c55e"/>
-      <circle cx={tx(pN.lon)} cy={ty(pN.lat)} r={4} fill="#ef4444"/>
-    </svg>);
+    const fid="rg"+glowColor.replace(/[^a-z0-9]/gi,"")+W;
+    return(
+      <svg width={W} height={H} viewBox={"0 0 "+W+" "+H} style={{display:"block"}}>
+        <defs>
+          <filter id={fid} x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/>
+          </filter>
+        </defs>
+        {bgColor&&<rect width={W} height={H} fill={bgColor}/>}
+        <path d={d} fill="none" stroke={glowColor} strokeWidth={10} opacity={0.18}
+          filter={"url(#"+fid+")"} strokeLinecap="round" strokeLinejoin="round"/>
+        <path d={d} fill="none" stroke={glowColor} strokeWidth={2.5}
+          strokeLinecap="round" strokeLinejoin="round" opacity={0.92}/>
+        <circle cx={tx(p0.lon)} cy={ty(p0.lat)} r={5} fill="#22c55e" opacity={0.9}/>
+        <circle cx={tx(p0.lon)} cy={ty(p0.lat)} r={9} fill="#22c55e" opacity={0.15}/>
+        <circle cx={tx(pN.lon)} cy={ty(pN.lat)} r={5} fill={glowColor} opacity={0.9}/>
+        <circle cx={tx(pN.lon)} cy={ty(pN.lat)} r={9} fill={glowColor} opacity={0.15}/>
+      </svg>
+    );
   }catch(e){return null;}
 }
 
 function StatRow({dark,W,durFmt,paceFmt}){
-  const f=n=>Math.round(n*W/270)+"px";const fn=n=>Math.round(n*W/270);
-  const tc=dark?"#0a0a0a":"#fff";const lc=dark?"rgba(0,0,0,.38)":"rgba(255,255,255,.32)";const dc=dark?"rgba(0,0,0,.1)":"rgba(255,255,255,.12)";
+  const f=n=>Math.round(n*W/270)+"px";
+  const fn=n=>Math.round(n*W/270);
+  const tc=dark?"#1a1a1a":"#ffffff";
+  const lc=dark?"rgba(0,0,0,.32)":"rgba(255,255,255,.28)";
+  const dc=dark?"rgba(0,0,0,.1)":"rgba(255,255,255,.1)";
   return(
     <div style={{display:"flex",alignItems:"flex-start"}}>
       <div style={{flex:1}}>
-        <div style={{display:"flex",alignItems:"center",gap:f(5),marginBottom:2}}>
-          <span style={{fontSize:f(21),fontWeight:800,color:tc,fontFamily:"monospace"}}>{durFmt}</span>
-        </div>
-        <div style={{fontSize:f(6),color:lc,letterSpacing:".12em"}}>DURATION</div>
+        <span style={{fontSize:f(20),fontWeight:800,color:tc,fontFamily:"monospace",letterSpacing:"-.01em"}}>{durFmt}</span>
+        <div style={{fontSize:f(5.5),color:lc,letterSpacing:".14em",marginTop:f(2)}}>DURATION</div>
       </div>
-      <div style={{width:1,height:fn(34)+"px",background:dc,flexShrink:0,marginTop:2}}/>
+      <div style={{width:1,height:fn(30)+"px",background:dc,flexShrink:0,marginTop:fn(2)+"px"}}/>
       <div style={{flex:1,paddingLeft:f(14)}}>
-        <div style={{display:"flex",alignItems:"center",gap:f(5),marginBottom:2}}>
-          <span style={{fontSize:f(21),fontWeight:800,color:tc,fontFamily:"monospace"}}>{paceFmt}</span>
-        </div>
-        <div style={{fontSize:f(6),color:lc,letterSpacing:".12em"}}>/KM</div>
+        <span style={{fontSize:f(20),fontWeight:800,color:tc,fontFamily:"monospace",letterSpacing:"-.01em"}}>{paceFmt}</span>
+        <div style={{fontSize:f(5.5),color:lc,letterSpacing:".14em",marginTop:f(2)}}>/KM</div>
       </div>
     </div>
   );
 }
 
-function ShareCard({type,act,W=270,H=480,bg="night",bgImg=null}){
-  const dist=fmtKm(act.distanceKm);const durFmt=fmtDur(act.movingTimeSec);const paceFmt=fmtPace(act.avgPaceSecKm)+"/km";
-  const hasRoute=act.route&&act.route.length>2;const runName=act.name||"Activity";
-  const f=n=>Math.round(n*W/270)+"px";const fn=n=>Math.round(n*W/270);
+// ── React Share Card Primitives ───────────────────────────────────────────────
+const CardBrand=({f,color='rgba(255,255,255,.28)'})=>(
+  <div style={{fontSize:f(6),fontWeight:700,color,letterSpacing:'.2em'}}>RUNLYTICS</div>
+);
+const CardKilometres=({f,dist,distColor='#fff',accentColor='#f97316'})=>(
+  <div>
+    <div style={{fontSize:f(54),fontWeight:900,color:distColor,lineHeight:.84,letterSpacing:'-.04em'}}>{dist}</div>
+    <div style={{fontSize:f(7),fontWeight:700,color:accentColor,letterSpacing:'.22em',marginTop:f(6)}}>KILOMETRES</div>
+  </div>
+);
+const CardRule=({f,accentColor='#f97316',muteColor='rgba(255,255,255,.1)'})=>(
+  <div style={{display:'flex',alignItems:'center',gap:f(8),margin:`${f(14)} 0`}}>
+    <div style={{width:f(22),height:2,background:accentColor,borderRadius:1,flexShrink:0}}/>
+    <div style={{flex:1,height:1,background:muteColor}}/>
+  </div>
+);
+const CardGlass=({f,children,style={}})=>(
+  <div style={{background:'rgba(255,255,255,.055)',backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',
+    border:'1px solid rgba(255,255,255,.1)',borderRadius:f(11),
+    boxShadow:'inset 0 1px 0 rgba(255,255,255,.08)',padding:`${f(12)} ${f(14)}`,...style}}>
+    {children}
+  </div>
+);
+
+// ── Share Card Templates ──────────────────────────────────────────────────────
+function ShareCard({type,act,W=270,H=480}){
+  const f=n=>Math.round(n*W/270)+"px";
+  const fn=n=>Math.round(n*W/270);
+  const dist=fmtKm(act.distanceKm);
+  const durFmt=fmtDur(act.movingTimeSec);
+  const paceFmt=fmtPace(act.avgPaceSecKm)+"/km";
+  const hasRoute=act.route&&act.route.length>2;
+  const runName=act.name||"Activity";
   const d=act.dateTs?new Date(act.dateTs):null;
   const dateStr=d?d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):fmtDate(act.date);
-  const OR="#f97316";const baseShell={width:W,height:H,borderRadius:18,flexShrink:0,overflow:"hidden",position:"relative"};
-  const baseAnim={animation:"fadeUp .32s ease both"};
+  const shell={width:W,height:H,borderRadius:fn(20)+"px",flexShrink:0,overflow:"hidden",position:"relative"};
+  const anim={animation:"fadeUp .32s ease both"};
 
-  if(type==="minimal")return(
-    <div style={{...baseShell,background:"#f8f8f5",...baseAnim}}>
-      <div style={{position:"absolute",top:f(22),left:f(22),fontSize:f(7),fontWeight:700,color:"rgba(0,0,0,.35)",letterSpacing:".16em"}}>RUNLYTICS</div>
-      <div style={{position:"absolute",top:f(52),left:f(22),right:f(22)}}>
-        <div style={{fontSize:f(92),fontWeight:900,color:"#0a0a0a",lineHeight:.85,letterSpacing:"-.04em"}}>{dist}</div>
-        <div style={{fontSize:f(10),fontWeight:600,color:"rgba(0,0,0,.35)",letterSpacing:".2em",marginTop:f(8)}}>KM</div>
-        <div style={{height:1,background:"rgba(0,0,0,.14)",margin:f(18)+" 0"}}/>
+  // ── VELOCITY — clean editorial, light background ──────────────────────────
+  if(type==="velocity")return(
+    <div style={{...shell,background:"#faf8f4",...anim}}>
+      {/* Warm gradient wash */}
+      <div style={{position:"absolute",bottom:0,left:0,right:0,height:"42%",
+        background:"linear-gradient(to top,rgba(249,115,22,.07) 0%,transparent 100%)",pointerEvents:"none"}}/>
+      {/* Top row: wordmark + date */}
+      <div style={{position:"absolute",top:f(22),left:f(22),right:f(22),display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <CardBrand f={f} color="rgba(0,0,0,.22)"/>
+        <div style={{fontSize:f(7),color:"rgba(0,0,0,.25)",letterSpacing:".06em"}}>{dateStr}</div>
+      </div>
+      {/* Main content block */}
+      <div style={{position:"absolute",top:f(56),left:f(22),right:f(22)}}>
+        {/* Activity type badge */}
+        <div style={{display:"inline-flex",alignItems:"center",padding:`${f(3)} ${f(9)}`,borderRadius:f(20),
+          background:"rgba(0,0,0,.06)",border:"1px solid rgba(0,0,0,.07)",marginBottom:f(16)}}>
+          <span style={{fontSize:f(6),fontWeight:700,color:"rgba(0,0,0,.38)",letterSpacing:".14em"}}>{(act.type||"RUN").toUpperCase()}</span>
+        </div>
+        {/* Giant distance hero */}
+        <div style={{fontSize:f(86),fontWeight:900,color:"#0a0a0a",lineHeight:.82,letterSpacing:"-.05em",marginBottom:f(7)}}>{dist}</div>
+        <div style={{fontSize:f(8),fontWeight:600,color:"rgba(0,0,0,.28)",letterSpacing:".24em",marginBottom:f(20)}}>KILOMETRES</div>
+        {/* Asymmetric accent rule */}
+        <div style={{display:"flex",alignItems:"center",gap:f(8),marginBottom:f(20)}}>
+          <div style={{width:f(22),height:2,background:"#f97316",borderRadius:1,flexShrink:0}}/>
+          <div style={{flex:1,height:1,background:"rgba(0,0,0,.1)"}}/>
+        </div>
         <StatRow dark W={W} durFmt={durFmt} paceFmt={paceFmt}/>
+        {/* Run name */}
+        <div style={{marginTop:f(20),paddingTop:f(16),borderTop:"1px solid rgba(0,0,0,.08)"}}>
+          <div style={{fontSize:f(9),fontWeight:600,color:"rgba(0,0,0,.55)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:f(3)}}>{runName}</div>
+          {act.avgHR&&<div style={{display:"inline-flex",alignItems:"center",gap:f(4),padding:`${f(3)} ${f(8)}`,borderRadius:f(16),background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.12)"}}>
+            <span style={{fontSize:f(7),color:"#ef4444",fontWeight:700,fontFamily:"monospace"}}>{act.avgHR}</span>
+            <span style={{fontSize:f(5.5),color:"rgba(239,68,68,.65)",letterSpacing:".1em"}}>BPM</span>
+          </div>}
+        </div>
       </div>
     </div>
   );
 
-  const bgStyle=bgImg?{backgroundImage:"url("+bgImg+")",backgroundSize:"cover",backgroundPosition:"center"}:{background:(PRESET_BGS.find(p=>p.id===bg)||PRESET_BGS[0]).css};
-
-  return(
-    <div style={{...baseShell,background:"#0a0a0a",...baseAnim}}>
-      <div style={{position:"absolute",top:f(22),left:f(22),fontSize:f(7),fontWeight:700,color:"rgba(255,255,255,.45)",letterSpacing:".16em"}}>RUNLYTICS</div>
-      {hasRoute&&<div style={{position:"absolute",top:f(48),left:"5%",right:"5%",height:"50%",overflow:"hidden"}}><MiniRoute route={act.route} W={Math.round(W*.9)} H={Math.round(H*.5)}/></div>}
-      <div style={{position:"absolute",bottom:f(24),left:f(22),right:f(22)}}>
-        <div style={{display:"flex",alignItems:"baseline",gap:f(6),marginBottom:f(2)}}>
-          <span style={{fontSize:f(52),fontWeight:900,color:"#fff",lineHeight:.9}}>{dist}</span>
-          <span style={{fontSize:f(18),fontWeight:800,color:OR}}>KM</span>
+  // ── RACE DAY — route as hero art on dark ─────────────────────────────────
+  if(type==="raceday")return(
+    <div style={{...shell,background:"#060810",...anim}}>
+      {/* Route fills top */}
+      {hasRoute&&(
+        <div style={{position:"absolute",top:0,left:0,right:0,height:"60%",overflow:"hidden"}}>
+          <MiniRoute route={act.route} W={W} H={fn(H*.62)} glowColor="#f97316"/>
+          <div style={{position:"absolute",bottom:0,left:0,right:0,height:"65%",
+            background:"linear-gradient(to bottom,transparent,#060810)"}}/>
         </div>
-        <div style={{height:1,background:"rgba(255,255,255,.08)",margin:f(12)+" 0"}}/>
+      )}
+      {/* Edge vignette */}
+      <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse at 50% 50%,transparent 35%,rgba(0,0,0,.55) 100%)",pointerEvents:"none"}}/>
+      {/* Orange glow behind distance */}
+      <div style={{position:"absolute",bottom:"26%",left:"50%",transform:"translateX(-50%)",
+        width:f(160),height:f(48),background:"radial-gradient(ellipse at center,rgba(249,115,22,.22) 0%,transparent 70%)",filter:"blur(10px)",pointerEvents:"none"}}/>
+      {/* Bottom content */}
+      <div style={{position:"absolute",bottom:f(28),left:f(22),right:f(22)}}>
+        <div style={{textAlign:"center",marginBottom:f(14)}}>
+          <div style={{fontSize:f(54),fontWeight:900,color:"#fff",lineHeight:.86,letterSpacing:"-.04em"}}>{dist}</div>
+          <div style={{fontSize:f(7),fontWeight:700,color:"#f97316",letterSpacing:".24em",marginTop:f(7)}}>KILOMETRES</div>
+        </div>
+        {/* Frosted glass stat panel */}
+        <CardGlass f={f} style={{marginBottom:f(12)}}>
+          <StatRow W={W} durFmt={durFmt} paceFmt={paceFmt}/>
+        </CardGlass>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:f(7),color:"rgba(255,255,255,.3)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"68%"}}>{runName}</div>
+          <CardBrand f={f} color="rgba(255,255,255,.22)"/>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── ENDURANCE — left-aligned cinematic poster ─────────────────────────────
+  if(type==="endurance")return(
+    <div style={{...shell,background:"#0a0c14",...anim}}>
+      {/* Subtle top glow */}
+      <div style={{position:"absolute",top:"-8%",left:"15%",right:"15%",height:"28%",
+        background:"radial-gradient(ellipse at center,rgba(249,115,22,.06) 0%,transparent 70%)",pointerEvents:"none"}}/>
+      {/* Edge darkening */}
+      <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse at 50% 50%,transparent 50%,rgba(0,0,0,.38) 100%)",pointerEvents:"none"}}/>
+      {/* Content — left-aligned */}
+      <div style={{position:"absolute",top:f(32),left:f(24),right:f(24)}}>
+        <div style={{fontSize:f(6),fontWeight:700,color:"rgba(255,255,255,.16)",letterSpacing:".22em",marginBottom:f(28)}}>RUNLYTICS</div>
+        {/* Distance block */}
+        <div style={{fontSize:f(76),fontWeight:900,color:"#fff",lineHeight:.82,letterSpacing:"-.05em",marginBottom:f(8)}}>{dist}</div>
+        <div style={{display:"flex",alignItems:"center",gap:f(10),marginBottom:f(26)}}>
+          <div style={{width:f(26),height:3,background:"#f97316",borderRadius:1.5}}/>
+          <div style={{fontSize:f(7),fontWeight:700,color:"rgba(255,255,255,.36)",letterSpacing:".18em"}}>KM</div>
+        </div>
+        {/* Stat list */}
+        <div style={{borderTop:"1px solid rgba(255,255,255,.06)",paddingTop:f(18)}}>
+          {[["DURATION",durFmt],["PACE",paceFmt]].map(([lbl,val])=>(
+            <div key={lbl} style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:f(13)}}>
+              <span style={{fontSize:f(6),color:"rgba(255,255,255,.26)",letterSpacing:".14em"}}>{lbl}</span>
+              <span style={{fontSize:f(16),fontWeight:700,color:"#fff",fontFamily:"monospace"}}>{val}</span>
+            </div>
+          ))}
+          {act.avgHR&&(
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:f(13)}}>
+              <span style={{fontSize:f(6),color:"rgba(255,255,255,.26)",letterSpacing:".14em"}}>HR</span>
+              <span style={{fontSize:f(16),fontWeight:700,color:"#f97316",fontFamily:"monospace"}}>{act.avgHR} <span style={{fontSize:f(7),fontWeight:600,opacity:.7}}>BPM</span></span>
+            </div>
+          )}
+        </div>
+        <div style={{fontSize:f(7),color:"rgba(255,255,255,.2)",marginTop:f(8),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{runName}</div>
+      </div>
+      {/* Route as decorative bottom-right art */}
+      {hasRoute&&(
+        <div style={{position:"absolute",bottom:f(18),right:0,width:"52%",height:"22%",overflow:"hidden",opacity:.32}}>
+          <MiniRoute route={act.route} W={fn(W*.52)} H={fn(H*.22)} glowColor="#f97316"/>
+        </div>
+      )}
+    </div>
+  );
+
+  // ── CINEMATIC — atmospheric gradient with route ghost ─────────────────────
+  if(type==="cinematic")return(
+    <div style={{...shell,background:"linear-gradient(160deg,#0d0520 0%,#150830 40%,#080d18 100%)",...anim}}>
+      {/* Atmospheric light sources */}
+      <div style={{position:"absolute",top:"-5%",left:"15%",width:"70%",height:"45%",
+        background:"radial-gradient(ellipse at center,rgba(110,50,200,.18) 0%,transparent 70%)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",bottom:"10%",right:"10%",width:"55%",height:"35%",
+        background:"radial-gradient(ellipse at center,rgba(249,115,22,.1) 0%,transparent 70%)",pointerEvents:"none"}}/>
+      {/* Route as blurred background art */}
+      {hasRoute&&(
+        <div style={{position:"absolute",top:"-2%",left:"-5%",right:"-5%",height:"62%",overflow:"hidden",opacity:.28,filter:"blur(1.5px)"}}>
+          <MiniRoute route={act.route} W={fn(W*1.1)} H={fn(H*.64)} glowColor="#a855f7"/>
+        </div>
+      )}
+      {/* Dark gradient masking lower portion */}
+      <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,transparent 22%,rgba(8,5,22,.94) 62%)",pointerEvents:"none"}}/>
+      {/* Vignette */}
+      <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse at 50% 50%,transparent 38%,rgba(0,0,0,.6) 100%)",pointerEvents:"none"}}/>
+      {/* Purple glow behind distance */}
+      <div style={{position:"absolute",bottom:"28%",left:"50%",transform:"translateX(-50%)",
+        width:f(150),height:f(44),background:"radial-gradient(ellipse at center,rgba(140,70,255,.2) 0%,transparent 70%)",filter:"blur(12px)",pointerEvents:"none"}}/>
+      {/* Content */}
+      <div style={{position:"absolute",bottom:f(28),left:f(22),right:f(22),textAlign:"center"}}>
+        <div style={{fontSize:f(56),fontWeight:900,color:"#fff",lineHeight:.84,letterSpacing:"-.04em",marginBottom:f(8)}}>{dist}</div>
+        <div style={{fontSize:f(7),fontWeight:700,color:"rgba(168,85,247,.85)",letterSpacing:".22em",marginBottom:f(16)}}>KILOMETRES</div>
+        <div style={{height:1,background:"linear-gradient(to right,transparent,rgba(255,255,255,.12),transparent)",marginBottom:f(16)}}/>
         <StatRow W={W} durFmt={durFmt} paceFmt={paceFmt}/>
-        <div style={{marginTop:f(14)}}>
-          <div style={{fontSize:f(11),fontWeight:700,color:OR,marginBottom:f(4)}}>{runName}</div>
-          <div style={{fontSize:f(8),color:"rgba(255,255,255,.4)"}}>📍 {dateStr}</div>
+        <div style={{marginTop:f(14),display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:f(7),color:"rgba(255,255,255,.26)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"65%"}}>{runName}</div>
+          <CardBrand f={f} color="rgba(255,255,255,.2)"/>
         </div>
       </div>
     </div>
   );
-}
 
-function ShareModal({act,onClose}){
-  const[idx,setIdx]=useState(0);const[busy,setBusy]=useState(false);const[mounted,setMounted]=useState(false);
-  const scrollRef=useRef(null);
-  useEffect(()=>{const t=requestAnimationFrame(()=>setMounted(true));return()=>cancelAnimationFrame(t);},[]);
-  if(!act||typeof act.distanceKm!=="number")return(
-    <div style={{position:"fixed",inset:0,zIndex:420,background:"#000",display:"flex",alignItems:"center",justifyContent:"center"}}>
-      <button style={{background:"rgba(255,255,255,.1)",border:"none",color:"rgba(255,255,255,.7)",padding:"10px 24px",borderRadius:10,cursor:"pointer"}} onClick={onClose}>Close</button>
-    </div>
-  );
-  const TMPL=["minimal","orange","poster"];const LABELS=["Editorial","Route Art","Poster"];
-  const onScroll=()=>{if(!scrollRef.current)return;setIdx(Math.round(scrollRef.current.scrollLeft/scrollRef.current.offsetWidth));};
-  const doExport=async(fmt)=>{
-    if(busy)return;setBusy(true);
-    try{
-      const W=1080,H=1920;const cv=document.createElement("canvas");cv.width=W;cv.height=H;
-      const ctx=cv.getContext("2d");drawRunCard(ctx,act,TMPL[idx],W,H);
-      const mimeType=fmt==="jpg"?"image/jpeg":"image/png";
-      cv.toBlob(blob=>{if(!blob){setBusy(false);return;}const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="runlytics-share."+(fmt==="jpg"?"jpg":"png");a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setBusy(false);},mimeType,0.92);
-    }catch(e){setBusy(false);}
-  };
+  // ── GLASS — frosted luxury card with inner panel ──────────────────────────
   return(
-    <div style={{position:"fixed",inset:0,zIndex:420,background:"#000",display:"flex",flexDirection:"column"}}>
-      <div style={{padding:"14px 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",borderBottom:"1px solid rgba(255,255,255,.07)",flexShrink:0}}>
-        <button style={{background:"none",border:"none",color:"rgba(255,255,255,.5)",fontSize:"1.3rem",cursor:"pointer",width:36}} onClick={onClose}>✕</button>
-        <div style={{fontWeight:700,color:"rgba(255,255,255,.88)",fontSize:".84rem",letterSpacing:".1em"}}>SHARE ACTIVITY</div>
-        <div style={{width:36}}/>
-      </div>
-      <div ref={scrollRef} onScroll={onScroll} style={{flex:1,display:"flex",overflowX:"auto",scrollSnapType:"x mandatory",scrollbarWidth:"none",alignItems:"center"}}>
-        {mounted?TMPL.map(t=>(
-          <div key={t} style={{minWidth:"100%",scrollSnapAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",padding:"12px 28px",boxSizing:"border-box"}}>
-            <ShareCard type={t} act={act}/>
+    <div style={{...shell,background:"linear-gradient(145deg,#0c1120 0%,#080d1a 100%)",...anim}}>
+      {/* Subtle grid texture */}
+      <div style={{position:"absolute",inset:0,
+        backgroundImage:"linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px)",
+        backgroundSize:`${f(18)} ${f(18)}`,pointerEvents:"none"}}/>
+      {/* Top accent glow */}
+      <div style={{position:"absolute",top:"-8%",left:"18%",right:"18%",height:"32%",
+        background:"radial-gradient(ellipse at center,rgba(249,115,22,.07) 0%,transparent 70%)",pointerEvents:"none"}}/>
+      {/* Main glass panel */}
+      <div style={{position:"absolute",top:f(38),left:f(14),right:f(14),
+        background:"rgba(255,255,255,.045)",backdropFilter:"blur(24px)",WebkitBackdropFilter:"blur(24px)",
+        borderRadius:f(16),border:"1px solid rgba(255,255,255,.1)",overflow:"hidden"}}>
+        {/* Inner top highlight */}
+        <div style={{height:1,background:"linear-gradient(to right,transparent,rgba(255,255,255,.18),transparent)"}}/>
+        <div style={{padding:`${f(18)} ${f(16)} ${f(14)}`}}>
+          {/* Icon badge */}
+          <div style={{textAlign:"center",marginBottom:f(14)}}>
+            <div style={{display:"inline-flex",alignItems:"center",justifyContent:"center",
+              width:f(36),height:f(36),borderRadius:"50%",
+              background:"rgba(249,115,22,.12)",border:"1px solid rgba(249,115,22,.2)",
+              fontSize:f(17),marginBottom:f(12)}}>🏃</div>
+            <div style={{fontSize:f(56),fontWeight:900,color:"#fff",lineHeight:.84,letterSpacing:"-.04em"}}>{dist}</div>
+            <div style={{fontSize:f(7),fontWeight:600,color:"rgba(255,255,255,.28)",letterSpacing:".2em",marginTop:f(6)}}>KILOMETRES</div>
           </div>
-        )):(
-          <div style={{minWidth:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <div style={{width:270,height:480,borderRadius:18,background:"rgba(255,255,255,.04)"}}/>
+          <div style={{height:1,background:"rgba(255,255,255,.07)",marginBottom:f(14)}}/>
+          <StatRow W={W} durFmt={durFmt} paceFmt={paceFmt}/>
+        </div>
+        {/* Route inside glass */}
+        {hasRoute&&(
+          <div style={{margin:`0 ${f(4)} ${f(4)}`,borderRadius:f(10),overflow:"hidden",border:"1px solid rgba(255,255,255,.06)"}}>
+            <MiniRoute route={act.route} W={W-fn(14)*2-fn(8)} H={fn((W-fn(14)*2-fn(8))*.45)} glowColor="#f97316" bgColor="#0a0e1a"/>
           </div>
         )}
       </div>
-      <div style={{padding:"14px 20px",borderTop:"1px solid rgba(255,255,255,.07)",flexShrink:0}}>
-        <div style={{display:"flex",justifyContent:"center",gap:6,marginBottom:10}}>
-          {TMPL.map((_,i)=><div key={i} style={{width:i===idx?20:6,height:6,borderRadius:3,background:i===idx?"var(--or)":"rgba(255,255,255,.2)",transition:"all .2s"}}/>)}
+      {/* Below-panel info */}
+      <div style={{position:"absolute",bottom:f(20),left:f(22),right:f(22),display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div style={{fontSize:f(8),fontWeight:500,color:"rgba(255,255,255,.4)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"72%"}}>{runName}</div>
+        <CardBrand f={f} color="rgba(255,255,255,.2)"/>
+      </div>
+    </div>
+  );
+}
+
+// ── Share Modal UI Style Constants ────────────────────────────────────────────
+const SHARE_UI={
+  shell:      {position:"fixed",inset:0,zIndex:420,background:"#060810",display:"flex",flexDirection:"column",overscrollBehavior:"contain"},
+  floatClose: {position:"absolute",top:16,right:16,zIndex:10,background:"rgba(255,255,255,.1)",
+    backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",
+    border:"1px solid rgba(255,255,255,.12)",color:"rgba(255,255,255,.7)",
+    width:34,height:34,borderRadius:"50%",fontSize:".8rem",cursor:"pointer",
+    display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"},
+  carousel:   {flex:1,display:"flex",overflowX:"auto",scrollSnapType:"x mandatory",
+    scrollbarWidth:"none",WebkitOverflowScrolling:"touch",alignItems:"center",paddingTop:8},
+  slide:      {minWidth:"100%",scrollSnapAlign:"center",display:"flex",
+    alignItems:"center",justifyContent:"center",padding:"0 20px",boxSizing:"border-box"},
+  footer:     {padding:"18px 20px 30px",flexShrink:0},
+  skeleton:   {width:270,height:480,borderRadius:20,background:"rgba(255,255,255,.04)",
+    border:"1px solid rgba(255,255,255,.06)"},
+  dot:        (active)=>({width:active?22:6,height:6,borderRadius:3,
+    background:active?"#f97316":"rgba(255,255,255,.18)",
+    transition:"all .3s cubic-bezier(.4,0,.2,1)"}),
+};
+
+// Template registry — add new template: implement above + add row here
+const SHARE_TEMPLATES=[
+  {id:"velocity",  label:"Velocity",   sub:"Clean editorial"},
+  {id:"raceday",   label:"Race Day",   sub:"Route art"},
+  {id:"endurance", label:"Endurance",  sub:"Cinematic poster"},
+  {id:"cinematic", label:"Cinematic",  sub:"Atmospheric"},
+  {id:"glass",     label:"Glass",      sub:"Frosted luxury"},
+];
+
+function ShareModal({act,onClose}){
+  const[idx,setIdx]=useState(0);
+  const[busy,setBusy]=useState(false);
+  const[mounted,setMounted]=useState(false);
+  const scrollRef=useRef(null);
+
+  useEffect(()=>{const t=requestAnimationFrame(()=>setMounted(true));return()=>cancelAnimationFrame(t);},[]);
+
+  if(!act||typeof act.distanceKm!=="number")return(
+    <div style={SHARE_UI.shell}>
+      <button style={SHARE_UI.floatClose} onClick={onClose}>✕</button>
+    </div>
+  );
+
+  const onScroll=()=>{
+    if(!scrollRef.current)return;
+    setIdx(Math.round(scrollRef.current.scrollLeft/scrollRef.current.offsetWidth));
+  };
+
+  const jumpTo=i=>{
+    if(!scrollRef.current)return;
+    scrollRef.current.scrollTo({left:i*scrollRef.current.offsetWidth,behavior:"smooth"});
+    setIdx(i);
+  };
+
+  const doExport=async(fmt)=>{
+    if(busy)return;setBusy(true);
+    try{await downloadExport(act,SHARE_TEMPLATES[idx].id,fmt);}catch(e){}
+    setBusy(false);
+  };
+
+  const tmpl=SHARE_TEMPLATES[idx];
+
+  return(
+    <div style={SHARE_UI.shell}>
+      {/* Floating close button — no header bar so preview gets full height */}
+      <button style={SHARE_UI.floatClose} onClick={onClose}>✕</button>
+
+      {/* Preview carousel — primary content, fills most of the screen */}
+      <div ref={scrollRef} onScroll={onScroll} style={SHARE_UI.carousel}>
+        {mounted?SHARE_TEMPLATES.map(t=>(
+          <div key={t.id} style={SHARE_UI.slide}>
+            <ShareCard type={t.id} act={act}/>
+          </div>
+        )):(
+          <div style={{minWidth:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div style={SHARE_UI.skeleton}/>
+          </div>
+        )}
+      </div>
+
+      {/* Bottom panel */}
+      <div style={SHARE_UI.footer}>
+        {/* Template name — prominent, not tucked below dots */}
+        <div style={{textAlign:"center",marginBottom:14}}>
+          <div style={{fontSize:"1rem",fontWeight:700,color:"#fff",letterSpacing:".02em",lineHeight:1.2}}>{tmpl.label}</div>
+          <div style={{fontSize:".65rem",color:"rgba(255,255,255,.28)",marginTop:4,letterSpacing:".1em"}}>{tmpl.sub} · {idx+1} of {SHARE_TEMPLATES.length}</div>
         </div>
-        <div style={{fontSize:".72rem",color:"rgba(255,255,255,.35)",marginBottom:12,textAlign:"center"}}>{LABELS[idx]}</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-          <button className="btn b-or" style={{padding:"13px",fontSize:".82rem",borderRadius:13}} onClick={()=>doExport("jpg")} disabled={busy}>{busy?"Saving...":"Save JPEG"}</button>
-          <button className="btn b-gh" style={{padding:"13px",fontSize:".82rem",borderRadius:13}} onClick={()=>doExport("png")} disabled={busy}>Save PNG</button>
+
+        {/* Dot indicators — tappable for direct jump */}
+        <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:5,marginBottom:18}}>
+          {SHARE_TEMPLATES.map((_,i)=>(
+            <button key={i} onClick={()=>jumpTo(i)}
+              style={{background:"none",border:"none",padding:4,cursor:"pointer",display:"flex",alignItems:"center"}}>
+              <div style={SHARE_UI.dot(i===idx)}/>
+            </button>
+          ))}
+        </div>
+
+        {/* Export buttons */}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:8}}>
+          <button className="btn b-or" style={{padding:"14px",fontSize:".84rem",borderRadius:14,fontWeight:700,letterSpacing:".03em"}}
+            onClick={()=>doExport("jpg")} disabled={busy}>
+            {busy?"Saving…":"Save JPEG"}
+          </button>
+          <button className="btn b-gh" style={{padding:"14px",fontSize:".84rem",borderRadius:14,fontWeight:600}}
+            onClick={()=>doExport("png")} disabled={busy}>Save PNG</button>
+        </div>
+        <div style={{textAlign:"center",fontSize:".6rem",color:"rgba(255,255,255,.14)",letterSpacing:".08em"}}>
+          1080 × 1920 · Instagram Story size
         </div>
       </div>
     </div>
   );
 }
+
 
 function RouteMapSVG({route,act}){
   const[drawn,setDrawn]=useState(false);const[hov,setHov]=useState(null);
@@ -1071,8 +1554,8 @@ function AchievementsTab({earnedBadges,acts,analytics,tierProgress,newTiers}){
 function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onClose,stravaAuth,stravaSync,onStravaConnect,onStravaSync,onStravaDisconnect}){
   const[view,setView]=useState("main");
   const[age,setAge]=useState(hrProfile.age||"");
-  const[ov,setOv]=useState(hrProfile.maxHROverride||"");
-  const[useOv,setUseOv]=useState(!!hrProfile.maxHROverride);
+  const[ov,setOv]=useState(hrProfile.overrideMAF||"");
+  const[useOv,setUseOv]=useState(!!hrProfile.overrideMAF);
   const[wk,setWk]=useState(goals.weekly);const[mo,setMo]=useState(goals.monthly);const[nm,setNm]=useState(profile.name||"Runner");
   const ageNum=parseInt(age)||null;
   const prevMaf=useOv&&parseInt(ov)?parseInt(ov):ageNum?180-ageNum:null;
@@ -1139,8 +1622,8 @@ function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSave
               </div>
             )}
             <div style={{display:"flex",gap:8}}>
-              <button className="btn b-gh" style={{padding:"12px 14px"}} onClick={()=>{onSaveHR({age:null,restingHR:null,maxHROverride:null});setView("main");}}>Clear</button>
-              <button className="btn b-or" style={{flex:1,padding:"12px"}} onClick={()=>{onSaveHR({age:ageNum,restingHR:null,maxHROverride:useOv&&parseInt(ov)?parseInt(ov):null});setView("main");}}>Save</button>
+              <button className="btn b-gh" style={{padding:"12px 14px"}} onClick={()=>{onSaveHR({age:null,restingHR:null,overrideMAF:null});setView("main");}}>Clear</button>
+              <button className="btn b-or" style={{flex:1,padding:"12px"}} onClick={()=>{onSaveHR({age:ageNum,restingHR:null,overrideMAF:useOv&&parseInt(ov)?parseInt(ov):null});setView("main");}}>Save</button>
             </div>
           </div>
         )}
@@ -1309,7 +1792,7 @@ function Upload({acts,hrProfile,onAdd,onClearAll}){
   const saveAll=()=>{
     const valid=queue.filter(q=>q.status==="preview"&&q.parsed);
     if(!valid.length)return;
-    valid.forEach(q=>onAdd(q.parsed));
+    onAdd(valid.map(q=>q.parsed));
     setQueue([]);
   };
   return(
@@ -1658,7 +2141,7 @@ const App=()=>{
         // FIX #13: onOpenRun receives an ID string; find the activity then open detail
         onOpenRun={id=>{setPrDetail(null);const found=acts.find(a=>a.id===id);if(found)openDetail(found);}}/>}
       {/* FIX #3: AllRuns → AllRunsView (component was named AllRunsView but called as AllRuns) */}
-      {showUpload&&<Upload acts={acts} hrProfile={hrProfile} onAdd={act=>{addAct(act);back();}} onClearAll={()=>{setActs([]);back();}}/>}
+      {showUpload&&<Upload acts={acts} hrProfile={hrProfile} onAdd={newActs=>{newActs.forEach(a=>addAct(a));back();}} onClearAll={()=>{setActs([]);back();}}/>}
       {showSettings&&<SettingsPanel acts={acts} goals={goals} hrProfile={hrProfile} profile={profile}
         onSaveGoals={g=>{setGoals(g);saveGoals(g);}} onSaveHR={p=>{setHRProfile(p);saveHRProfile(p);}}
         onSaveProfile={p=>{setProfile(p);saveProfile(p);}}
