@@ -373,6 +373,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .scroll-x{overflow-x:auto;scrollbar-width:none;}.scroll-x::-webkit-scrollbar{display:none;}
 .pill{display:inline-flex;align-items:center;padding:5px 13px;border-radius:20px;border:1px solid var(--bd);background:transparent;cursor:pointer;font-size:.74rem;font-family:inherit;transition:all .15s;}
 .pill.on{background:var(--or3);border-color:var(--or);color:var(--or);font-weight:600;}
+@keyframes cardEntrance{from{opacity:0;transform:translateY(18px) scale(.95)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes floatCard{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes successPop{0%{transform:scale(1)}35%{transform:scale(1.06)}100%{transform:scale(1)}}
+@keyframes bounceIn{0%{transform:scale(.35);opacity:0}60%{transform:scale(1.14)}100%{transform:scale(1);opacity:1}}
+@keyframes slideDown{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideUp2{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pressDot{0%{transform:scale(1)}40%{transform:scale(.72)}100%{transform:scale(1)}}
+@keyframes exportRing{to{stroke-dashoffset:0}}
+.card-entrance{animation:cardEntrance .38s cubic-bezier(.34,1.56,.64,1) both}
+.float-card{animation:floatCard 4s ease-in-out infinite}
+.slide-down{animation:slideDown .22s ease both}
+.slide-up2{animation:slideUp2 .24s ease both}
+.success-pop{animation:successPop .4s ease}
+.bounce-in{animation:bounceIn .45s cubic-bezier(.34,1.56,.64,1)}
 `}</style>;
 
 const PRESET_BGS=[
@@ -647,7 +661,24 @@ async function downloadExport(act, templateId, format) {
 }
 
 function MiniRoute({route,W=160,H=110,glowColor='#f97316',bgColor=null}){
-  if(!route||!Array.isArray(route)||route.length<2)return null;
+  const[drawn,setDrawn]=useState(false);
+  useEffect(()=>{const t=setTimeout(()=>setDrawn(true),120);return()=>clearTimeout(t);},[]);
+
+  if(!route||!Array.isArray(route)||route.length<2){
+    const cx=W/2,cy=H/2,r=Math.min(W,H)*0.28;
+    return(
+      <svg width={W} height={H} viewBox={"0 0 "+W+" "+H} style={{display:"block",borderRadius:8}}>
+        {bgColor&&<rect width={W} height={H} fill={bgColor}/>}
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={glowColor} strokeWidth={1.2}
+          strokeDasharray="4 3.5" opacity={0.2}/>
+        <path d={"M"+(cx-r*.55)+" "+(cy+r*.2)+" C"+(cx-r*.2)+" "+(cy-r*.4)+" "+(cx+r*.2)+" "+(cy-r*.35)+" "+(cx+r*.55)+" "+(cy+r*.25)}
+          fill="none" stroke={glowColor} strokeWidth={1.5} strokeLinecap="round" opacity={0.18}/>
+        <text x={cx} y={cy+r+Math.min(W,H)*.13} textAnchor="middle" fill={glowColor}
+          fontSize={Math.round(Math.min(W,H)*.095)} fontFamily="system-ui" opacity={0.16}>no GPS</text>
+      </svg>
+    );
+  }
+
   try{
     const pts=route.filter(p=>p&&isFinite(p.lat)&&isFinite(p.lon));
     if(pts.length<2)return null;
@@ -658,6 +689,7 @@ function MiniRoute({route,W=160,H=110,glowColor='#f97316',bgColor=null}){
     const ty=lat=>pad+(y1-lat)/dy*(H-pad*2);
     const d=pts.map((p,i)=>(i===0?"M":"L")+tx(p.lon).toFixed(1)+","+ty(p.lat).toFixed(1)).join(" ");
     const p0=pts[0],pN=pts[pts.length-1];
+    const pathLen=pts.reduce((tot,p,i)=>i===0?0:tot+Math.hypot(tx(p.lon)-tx(pts[i-1].lon),ty(p.lat)-ty(pts[i-1].lat)),0);
     const fid="rg"+glowColor.replace(/[^a-z0-9]/gi,"")+W;
     return(
       <svg width={W} height={H} viewBox={"0 0 "+W+" "+H} style={{display:"block"}}>
@@ -670,11 +702,18 @@ function MiniRoute({route,W=160,H=110,glowColor='#f97316',bgColor=null}){
         <path d={d} fill="none" stroke={glowColor} strokeWidth={10} opacity={0.18}
           filter={"url(#"+fid+")"} strokeLinecap="round" strokeLinejoin="round"/>
         <path d={d} fill="none" stroke={glowColor} strokeWidth={2.5}
-          strokeLinecap="round" strokeLinejoin="round" opacity={0.92}/>
-        <circle cx={tx(p0.lon)} cy={ty(p0.lat)} r={5} fill="#22c55e" opacity={0.9}/>
-        <circle cx={tx(p0.lon)} cy={ty(p0.lat)} r={9} fill="#22c55e" opacity={0.15}/>
-        <circle cx={tx(pN.lon)} cy={ty(pN.lat)} r={5} fill={glowColor} opacity={0.9}/>
-        <circle cx={tx(pN.lon)} cy={ty(pN.lat)} r={9} fill={glowColor} opacity={0.15}/>
+          strokeLinecap="round" strokeLinejoin="round" opacity={0.92}
+          strokeDasharray={pathLen.toFixed(1)}
+          strokeDashoffset={drawn?0:pathLen.toFixed(1)}
+          style={{transition:drawn?'stroke-dashoffset 1.3s cubic-bezier(.4,0,.2,1)':'none'}}/>
+        <circle cx={tx(p0.lon)} cy={ty(p0.lat)} r={drawn?5:0} fill="#22c55e" opacity={0.9}
+          style={{transition:'r .25s .5s ease'}}/>
+        <circle cx={tx(p0.lon)} cy={ty(p0.lat)} r={drawn?9:0} fill="#22c55e" opacity={0.15}
+          style={{transition:'r .25s .5s ease'}}/>
+        <circle cx={tx(pN.lon)} cy={ty(pN.lat)} r={drawn?5:0} fill={glowColor} opacity={0.9}
+          style={{transition:'r .25s 1.1s ease'}}/>
+        <circle cx={tx(pN.lon)} cy={ty(pN.lat)} r={drawn?9:0} fill={glowColor} opacity={0.15}
+          style={{transition:'r .25s 1.1s ease'}}/>
       </svg>
     );
   }catch(e){return null;}
@@ -737,7 +776,7 @@ function ShareCard({type,act,W=270,H=480}){
   const d=act.dateTs?new Date(act.dateTs):null;
   const dateStr=d?d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):fmtDate(act.date);
   const shell={width:W,height:H,borderRadius:fn(20)+"px",flexShrink:0,overflow:"hidden",position:"relative"};
-  const anim={animation:"fadeUp .32s ease both"};
+  const anim={animation:"cardEntrance .38s cubic-bezier(.34,1.56,.64,1) both"};
 
   // ── VELOCITY — clean editorial, light background ──────────────────────────
   if(type==="velocity")return(
@@ -966,100 +1005,181 @@ const SHARE_TEMPLATES=[
 
 function ShareModal({act,onClose,onOpenEditor}){
   const[idx,setIdx]=useState(0);
-  const[busy,setBusy]=useState(false);
+  const[exportState,setExportState]=useState('idle'); // idle|exporting|success
+  const[exportFmt,setExportFmt]=useState('');
   const[mounted,setMounted]=useState(false);
   const scrollRef=useRef(null);
+  const slideRefs=useRef([]);  // direct DOM refs for depth scaling
+  const rafRef=useRef(null);
+  const scrollTimerRef=useRef(null);
 
   useEffect(()=>{const t=requestAnimationFrame(()=>setMounted(true));return()=>cancelAnimationFrame(t);},[]);
 
-  if(!act||typeof act.distanceKm!=="number")return(
-    <div style={SHARE_UI.shell}>
-      <button style={SHARE_UI.floatClose} onClick={onClose}>✕</button>
-    </div>
-  );
+  // Depth carousel: scale slides via direct DOM manipulation to avoid React re-renders on every scroll frame
+  useEffect(()=>{
+    if(!mounted||!scrollRef.current)return;
+    const carousel=scrollRef.current;
 
-  const onScroll=()=>{
-    if(!scrollRef.current)return;
-    setIdx(Math.round(scrollRef.current.scrollLeft/scrollRef.current.offsetWidth));
-  };
+    const updateScales=()=>{
+      const{scrollLeft,offsetWidth}=carousel;
+      if(!offsetWidth)return;
+      const pos=scrollLeft/offsetWidth;
+      slideRefs.current.forEach((el,i)=>{
+        if(!el)return;
+        const dist=Math.min(Math.abs(i-pos),1);
+        el.style.transform=`scale(${(1-dist*0.09).toFixed(3)})`;
+        el.style.opacity=(1-dist*0.28).toFixed(3);
+      });
+      setIdx(Math.round(pos));
+    };
+
+    const onScroll=()=>{
+      // Drop transitions during scroll so scaling tracks finger without lag
+      slideRefs.current.forEach(el=>{if(el)el.style.transition='none';});
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current=requestAnimationFrame(updateScales);
+      // Restore transitions ~150ms after scroll settles (for programmatic jumps)
+      clearTimeout(scrollTimerRef.current);
+      scrollTimerRef.current=setTimeout(()=>{
+        slideRefs.current.forEach(el=>{if(el)el.style.transition='transform .3s ease,opacity .3s ease';});
+      },150);
+    };
+
+    carousel.addEventListener('scroll',onScroll,{passive:true});
+    updateScales();
+    return()=>{
+      carousel.removeEventListener('scroll',onScroll);
+      cancelAnimationFrame(rafRef.current);
+      clearTimeout(scrollTimerRef.current);
+    };
+  },[mounted]);
+
+  if(!act||typeof act.distanceKm!=='number')return(
+    <div style={SHARE_UI.shell}><button style={SHARE_UI.floatClose} onClick={onClose}>✕</button></div>
+  );
 
   const jumpTo=i=>{
     if(!scrollRef.current)return;
-    scrollRef.current.scrollTo({left:i*scrollRef.current.offsetWidth,behavior:"smooth"});
+    // Restore transitions before programmatic scroll
+    slideRefs.current.forEach(el=>{if(el)el.style.transition='transform .3s ease,opacity .3s ease';});
+    scrollRef.current.scrollTo({left:i*scrollRef.current.offsetWidth,behavior:'smooth'});
     setIdx(i);
   };
 
-  const doExport=async(fmt)=>{
-    if(busy)return;setBusy(true);
-    try{await downloadExport(act,SHARE_TEMPLATES[idx].id,fmt);}catch(e){}
-    setBusy(false);
+  const doExport=async fmt=>{
+    if(exportState!=='idle')return;
+    setExportFmt(fmt);setExportState('exporting');
+    try{
+      await downloadExport(act,SHARE_TEMPLATES[idx].id,fmt);
+      setExportState('success');
+      setTimeout(()=>setExportState('idle'),2500);
+    }catch{setExportState('idle');}
   };
 
   const tmpl=SHARE_TEMPLATES[idx];
 
   return(
     <div style={SHARE_UI.shell}>
-      {/* Floating close button — no header bar so preview gets full height */}
       <button style={SHARE_UI.floatClose} onClick={onClose}>✕</button>
 
-      {/* Preview carousel — primary content, fills most of the screen */}
-      <div ref={scrollRef} onScroll={onScroll} style={SHARE_UI.carousel}>
-        {mounted?SHARE_TEMPLATES.map(t=>(
+      {/* Depth carousel — previews scale with scroll position via direct DOM manipulation */}
+      <div ref={scrollRef} style={SHARE_UI.carousel}>
+        {mounted?SHARE_TEMPLATES.map((t,i)=>(
           <div key={t.id} style={SHARE_UI.slide}>
-            <ShareCard type={t.id} act={act}/>
+            {/* This div receives direct style mutations from the scroll RAF */}
+            <div ref={el=>slideRefs.current[i]=el}
+              style={{transition:'transform .3s ease,opacity .3s ease',willChange:'transform,opacity',
+                display:'flex',alignItems:'center',justifyContent:'center'}}>
+              {/* Floating wrapper — active card gently bobs when carousel is settled */}
+              <div style={{animation:i===idx?'floatCard 4.2s ease-in-out infinite':'none',willChange:'transform'}}>
+                <ShareCard type={t.id} act={act}/>
+              </div>
+            </div>
           </div>
         )):(
-          <div style={{minWidth:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}>
-            <div style={SHARE_UI.skeleton}/>
+          <div style={{minWidth:'100%',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            {/* Animated shimmer skeleton */}
+            <div style={{...SHARE_UI.skeleton,
+              background:'linear-gradient(90deg,rgba(255,255,255,.04) 25%,rgba(255,255,255,.08) 50%,rgba(255,255,255,.04) 75%)',
+              backgroundSize:'200% 100%',animation:'shimmer 1.6s ease infinite'}}/>
           </div>
         )}
       </div>
 
       {/* Bottom panel */}
       <div style={SHARE_UI.footer}>
-        {/* Template name — prominent, not tucked below dots */}
-        <div style={{textAlign:"center",marginBottom:14}}>
-          <div style={{fontSize:"1rem",fontWeight:700,color:"#fff",letterSpacing:".02em",lineHeight:1.2}}>{tmpl.label}</div>
-          <div style={{fontSize:".65rem",color:"rgba(255,255,255,.28)",marginTop:4,letterSpacing:".1em"}}>{tmpl.sub} · {idx+1} of {SHARE_TEMPLATES.length}</div>
+
+        {/* Template label — re-animates on idx change via key */}
+        <div key={tmpl.id} style={{textAlign:'center',marginBottom:14,animation:'slideDown .2s ease'}}>
+          <div style={{fontSize:'1rem',fontWeight:700,color:'#fff',letterSpacing:'.02em',lineHeight:1.2}}>{tmpl.label}</div>
+          <div style={{fontSize:'.65rem',color:'rgba(255,255,255,.28)',marginTop:4,letterSpacing:'.1em'}}>
+            {tmpl.sub} · {idx+1} of {SHARE_TEMPLATES.length}
+          </div>
         </div>
 
-        {/* Dot indicators — tappable for direct jump */}
-        <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:5,marginBottom:18}}>
+        {/* Dot indicators — tappable with press feedback */}
+        <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:5,marginBottom:18}}>
           {SHARE_TEMPLATES.map((_,i)=>(
             <button key={i} onClick={()=>jumpTo(i)}
-              style={{background:"none",border:"none",padding:4,cursor:"pointer",display:"flex",alignItems:"center"}}>
+              style={{background:'none',border:'none',padding:5,cursor:'pointer',display:'flex',alignItems:'center',
+                WebkitTapHighlightColor:'transparent'}}
+              onPointerDown={e=>e.currentTarget.style.transform='scale(.75)'}
+              onPointerUp={e=>e.currentTarget.style.transform='scale(1)'}
+              onPointerLeave={e=>e.currentTarget.style.transform='scale(1)'}>
               <div style={SHARE_UI.dot(i===idx)}/>
             </button>
           ))}
         </div>
 
-        {/* Export buttons */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:8}}>
-          <button className="btn b-or" style={{padding:"14px",fontSize:".84rem",borderRadius:14,fontWeight:700,letterSpacing:".03em"}}
-            onClick={()=>doExport("jpg")} disabled={busy}>
-            {busy?"Saving…":"Save JPEG"}
-          </button>
-          <button className="btn b-gh" style={{padding:"14px",fontSize:".84rem",borderRadius:14,fontWeight:600}}
-            onClick={()=>doExport("png")} disabled={busy}>Save PNG</button>
-        </div>
-        {/* Custom editor entry point */}
+        {/* Export — three distinct states: idle → exporting → success */}
+        {exportState==='idle'&&(
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:8,animation:'slideUp2 .22s ease'}}>
+            <button className="btn b-or" style={{padding:'14px',fontSize:'.84rem',borderRadius:14,fontWeight:700,letterSpacing:'.03em'}}
+              onClick={()=>doExport('jpg')}>Save JPEG</button>
+            <button className="btn b-gh" style={{padding:'14px',fontSize:'.84rem',borderRadius:14,fontWeight:600}}
+              onClick={()=>doExport('png')}>Save PNG</button>
+          </div>
+        )}
+        {exportState==='exporting'&&(
+          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'14px',
+            borderRadius:14,background:'rgba(255,255,255,.05)',border:'1px solid rgba(255,255,255,.08)',
+            marginBottom:8}}>
+            <div style={{width:18,height:18,borderRadius:'50%',border:'2px solid rgba(255,255,255,.15)',
+              borderTopColor:'#f97316',animation:'spin .7s linear infinite',flexShrink:0}}/>
+            <span style={{color:'rgba(255,255,255,.52)',fontSize:'.84rem'}}>
+              Preparing {exportFmt.toUpperCase()}…
+            </span>
+          </div>
+        )}
+        {exportState==='success'&&(
+          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:10,padding:'14px',
+            borderRadius:14,background:'rgba(34,197,94,.1)',border:'1px solid rgba(34,197,94,.22)',
+            marginBottom:8,animation:'successPop .4s ease'}}>
+            <span style={{fontSize:'1.15rem',animation:'bounceIn .45s cubic-bezier(.34,1.56,.64,1)'}}>✓</span>
+            <span style={{color:'#22c55e',fontSize:'.84rem',fontWeight:600}}>Saved to downloads</span>
+          </div>
+        )}
+
+        {/* Custom editor entry */}
         {onOpenEditor&&(
           <button onClick={()=>onOpenEditor(act)}
-            style={{width:"100%",padding:"10px",borderRadius:12,border:"1px solid rgba(255,255,255,.1)",
-              background:"transparent",color:"rgba(255,255,255,.42)",fontSize:".76rem",cursor:"pointer",
-              fontFamily:"inherit",fontWeight:500,letterSpacing:".04em",
-              display:"flex",alignItems:"center",justifyContent:"center",gap:7,marginBottom:2}}>
-            <span style={{fontSize:".88rem"}}>🎨</span> Custom Editor — full control
+            style={{width:'100%',padding:'10px',borderRadius:12,border:'1px solid rgba(255,255,255,.1)',
+              background:'transparent',color:'rgba(255,255,255,.4)',fontSize:'.76rem',cursor:'pointer',
+              fontFamily:'inherit',fontWeight:500,letterSpacing:'.04em',
+              display:'flex',alignItems:'center',justifyContent:'center',gap:7,
+              transition:'color .15s,border-color .15s'}}
+            onPointerEnter={e=>{e.currentTarget.style.color='rgba(255,255,255,.65)';e.currentTarget.style.borderColor='rgba(255,255,255,.2)';}}
+            onPointerLeave={e=>{e.currentTarget.style.color='rgba(255,255,255,.4)';e.currentTarget.style.borderColor='rgba(255,255,255,.1)';}}>
+            <span style={{fontSize:'.88rem'}}>🎨</span> Custom Editor — full control
           </button>
         )}
-        <div style={{textAlign:"center",fontSize:".6rem",color:"rgba(255,255,255,.14)",letterSpacing:".08em"}}>
+        <div style={{textAlign:'center',marginTop:8,fontSize:'.6rem',color:'rgba(255,255,255,.13)',letterSpacing:'.08em'}}>
           1080 × 1920 · Instagram Story size
         </div>
       </div>
     </div>
   );
 }
-
 
 function RouteMapSVG({route,act}){
   const[drawn,setDrawn]=useState(false);const[hov,setHov]=useState(null);
@@ -2138,6 +2258,7 @@ async function exportCustomCard(act, state, format) {
 
 // ── Editor UI Primitives ──────────────────────────────────────────────────────
 function Slider({ label, value, min=0, max=1, step=0.05, onChange, unit='', pct=false }) {
+  const rafRef = useRef(null);
   const display = pct ? Math.round(value * 100) + '%' : (step < 1 ? value.toFixed(2) : Math.round(value)) + unit;
   return (
     <div style={{ marginBottom: 14 }}>
@@ -2146,7 +2267,11 @@ function Slider({ label, value, min=0, max=1, step=0.05, onChange, unit='', pct=
         <span style={{ fontSize:'.68rem', color:'rgba(255,255,255,.65)', fontFamily:'monospace' }}>{display}</span>
       </div>
       <input type="range" min={min} max={max} step={step} value={value}
-        onChange={e => onChange(parseFloat(e.target.value))}
+        onChange={e => {
+          const val = parseFloat(e.target.value);
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = requestAnimationFrame(() => onChange(val));
+        }}
         style={{ width:'100%', height:4, cursor:'pointer', accentColor:'#f97316', display:'block' }}/>
     </div>
   );
@@ -2222,15 +2347,17 @@ function EditorPreview({ act, state, W, H, cardRef, selected, onSelect, onDragSt
       cursor: 'grab', touchAction: 'none', userSelect: 'none',
       outline: selected === key ? '2px solid rgba(59,130,246,.75)' : 'none',
       outlineOffset: 4, borderRadius: 3,
-      filter: selected === key ? 'drop-shadow(0 0 6px rgba(59,130,246,.4))' : 'none',
-      transition: 'outline .1s, filter .1s',
+      filter: selected === key ? 'drop-shadow(0 0 8px rgba(59,130,246,.45))' : 'none',
+      transition: 'left .08s ease, top .08s ease, outline .1s, filter .1s',
+      willChange: 'transform, left, top',
     },
   }), [el, selected, onDragStart, onSelect]);
 
   return (
     <div ref={cardRef} onClick={() => onSelect(null)}
       style={{ width: W, height: H, borderRadius: fn(18) + 'px', overflow: 'hidden',
-        position: 'relative', flexShrink: 0, boxShadow: '0 12px 50px rgba(0,0,0,.75)', cursor: 'default' }}>
+        position: 'relative', flexShrink: 0, boxShadow: '0 12px 50px rgba(0,0,0,.75)',
+        cursor: 'default', animation: 'cardEntrance .38s cubic-bezier(.34,1.56,.64,1) both' }}>
 
       {/* Background */}
       <div style={{ position:'absolute', inset:0, ...bgStyle }}/>
