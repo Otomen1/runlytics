@@ -2877,6 +2877,15 @@ const App=()=>{
   const openDetail=useCallback(act=>{history.pushState({_rl:"d"},"");setDetail(act);},[]);
   const openShare=useCallback(act=>{history.pushState({_rl:"sh"},"");setShareAct(act);},[]);
   const openEditor=useCallback(act=>{history.pushState({_rl:"ed"},"");setEditorAct(act);setShowEditor(true);},[]);
+  // switchToEditor: transitions from ShareModal → ShareEditor WITHOUT async history.back().
+  // Using replaceState avoids the popstate race where edRef.current becomes true before
+  // the popstate for back() fires, causing the editor to be closed immediately after opening.
+  const switchToEditor=useCallback(act=>{
+    history.replaceState({_rl:"ed"},""); // replace ShareModal's entry; no popstate fired
+    setShareAct(null);                   // close ShareModal
+    setEditorAct(act);                   // set editor target
+    setShowEditor(true);                 // open editor
+  },[]);
   const openPR=useCallback(entry=>{history.pushState({_rl:"pr"},"");setPrDetail(entry);},[]);
   const openSettings=useCallback(()=>{history.pushState({_rl:"se"},"");setShowSettings(true);},[]);
   const openAllRuns=useCallback(()=>{history.pushState({_rl:"a"},"");setShowAllRuns(true);},[]);
@@ -2975,7 +2984,7 @@ const App=()=>{
         ))}
       </div>
       {detail&&<Detail act={detail} hrProfile={hrProfile} onClose={back} onDelete={deleteAct} onShare={()=>openShare(detail)}/>}
-      {shareAct&&<ShareModal act={shareAct} onClose={back} onOpenEditor={act=>{back();openEditor(act);}}/>}
+      {shareAct&&<ShareModal act={shareAct} onClose={back} onOpenEditor={switchToEditor}/>}
       {showEditor&&editorAct&&<ShareEditor act={editorAct} onClose={back}/>}
       {prDetail&&<PRDetailModal entry={prDetail} onClose={back}
         // FIX #13: onOpenRun receives an ID string; find the activity then open detail
