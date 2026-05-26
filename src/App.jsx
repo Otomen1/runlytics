@@ -964,7 +964,7 @@ const SHARE_TEMPLATES=[
   {id:"glass",     label:"Glass",      sub:"Frosted luxury"},
 ];
 
-function ShareModal({act,onClose}){
+function ShareModal({act,onClose,onOpenEditor}){
   const[idx,setIdx]=useState(0);
   const[busy,setBusy]=useState(false);
   const[mounted,setMounted]=useState(false);
@@ -1042,6 +1042,16 @@ function ShareModal({act,onClose}){
           <button className="btn b-gh" style={{padding:"14px",fontSize:".84rem",borderRadius:14,fontWeight:600}}
             onClick={()=>doExport("png")} disabled={busy}>Save PNG</button>
         </div>
+        {/* Custom editor entry point */}
+        {onOpenEditor&&(
+          <button onClick={()=>onOpenEditor(act)}
+            style={{width:"100%",padding:"10px",borderRadius:12,border:"1px solid rgba(255,255,255,.1)",
+              background:"transparent",color:"rgba(255,255,255,.42)",fontSize:".76rem",cursor:"pointer",
+              fontFamily:"inherit",fontWeight:500,letterSpacing:".04em",
+              display:"flex",alignItems:"center",justifyContent:"center",gap:7,marginBottom:2}}>
+            <span style={{fontSize:".88rem"}}>🎨</span> Custom Editor — full control
+          </button>
+        )}
         <div style={{textAlign:"center",fontSize:".6rem",color:"rgba(255,255,255,.14)",letterSpacing:".08em"}}>
           1080 × 1920 · Instagram Story size
         </div>
@@ -1972,6 +1982,703 @@ function AllRunsView({acts,onSelectAct,onClose}){
   );
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SHARE CUSTOM EDITOR — Phase 3
+// Drag-and-position, live-preview, multi-layer card builder
+// Builds on Phase 1 canvas infrastructure (cDrawVignette, cDrawRadialGlow,
+// drawRouteCanvas, EXPORT_CONFIG, canvasToBlob, hexToRgba)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const EDITOR_PRESETS_KEY = 'runlytics_share_presets_v1';
+
+const ACCENT_PRESETS = ['#f97316','#22c55e','#3b82f6','#a855f7','#ef4444','#eab308','#06b6d4','#ec4899','#ffffff'];
+const BG_PRESETS     = ['#060810','#0a0c14','#111827','#0d0520','#050505','#1a0a30','#0a1628','#faf8f4'];
+
+const EDITOR_DEFAULTS = {
+  bg: {
+    type: 'color', color: '#060810',
+    gradAngle: 155, gradStop1: '#0d0520', gradStop2: '#1a0835',
+    imageData: null, imageX: 50, imageY: 50, imageZoom: 100,
+    blur: 0, brightness: 100, overlayColor: '#000000', overlayOpacity: 0,
+  },
+  fx: {
+    vignette: 0.35, grain: 0,
+    glowActive: false, glowColor: '#f97316',
+    glowX: 50, glowY: 65, glowRadius: 45, glowOpacity: 0.2,
+  },
+  elements: {
+    route:    { x: 50, y: 26, scale: 1,    visible: true  },
+    distance: { x: 50, y: 61, scale: 1,    visible: true  },
+    stats:    { x: 50, y: 75, scale: 1,    visible: true  },
+    name:     { x: 50, y: 84, scale: 0.9,  visible: true  },
+    branding: { x: 8,  y: 6,  scale: 1,    visible: true  },
+  },
+  style: { accentColor: '#f97316', textColor: '#ffffff' },
+};
+
+// Safe merge: saved state fields override defaults, missing fields fall back
+function mergeEditorState(saved) {
+  const d = EDITOR_DEFAULTS;
+  if (!saved || typeof saved !== 'object') return d;
+  const mergeObj = (def, src) => ({ ...def, ...(src && typeof src === 'object' ? src : {}) });
+  return {
+    bg:       mergeObj(d.bg,    saved.bg),
+    fx:       mergeObj(d.fx,    saved.fx),
+    elements: {
+      route:    mergeObj(d.elements.route,    saved.elements?.route),
+      distance: mergeObj(d.elements.distance, saved.elements?.distance),
+      stats:    mergeObj(d.elements.stats,    saved.elements?.stats),
+      name:     mergeObj(d.elements.name,     saved.elements?.name),
+      branding: mergeObj(d.elements.branding, saved.elements?.branding),
+    },
+    style: mergeObj(d.style, saved.style),
+  };
+}
+
+// ── Canvas export for custom editor ──────────────────────────────────────────
+async function exportCustomCard(act, state, format) {
+  const { W, H } = EXPORT_CONFIG;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const { bg, fx, elements: el, style: st } = state;
+
+  // 1. Background
+  if (bg.type === 'gradient') {
+    const ang = bg.gradAngle * Math.PI / 180;
+    const len = Math.sqrt(W * W + H * H) * 0.55;
+    const gr = ctx.createLinearGradient(W/2 - Math.cos(ang)*len, H/2 - Math.sin(ang)*len, W/2 + Math.cos(ang)*len, H/2 + Math.sin(ang)*len);
+    gr.addColorStop(0, bg.gradStop1); gr.addColorStop(1, bg.gradStop2);
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+  } else if (bg.type === 'image' && bg.imageData) {
+    await new Promise(res => {
+      const img = new Image();
+      img.onload = () => {
+        if (bg.brightness !== 100) ctx.filter = `brightness(${bg.brightness / 100})`;
+        const sc = Math.max(W / img.width, H / img.height) * (bg.imageZoom / 100);
+        const dw = img.width * sc, dh = img.height * sc;
+        ctx.drawImage(img, (W - dw) * bg.imageX / 100, (H - dh) * bg.imageY / 100, dw, dh);
+        ctx.filter = 'none'; res();
+      };
+      img.onerror = () => { cDrawBg(ctx, W, H, '#060810'); res(); };
+      img.src = bg.imageData;
+    });
+  } else {
+    cDrawBg(ctx, W, H, bg.color || '#060810');
+  }
+  if (bg.overlayOpacity > 0) {
+    ctx.globalAlpha = bg.overlayOpacity;
+    ctx.fillStyle = bg.overlayColor || '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  // 2. Route
+  if (el.route.visible && act.route?.length > 1) {
+    const rW = Math.round(W * 0.82 * el.route.scale);
+    const rH = Math.round(rW * 0.55);
+    drawRouteCanvas(ctx, act.route, Math.round(el.route.x / 100 * W - rW / 2), Math.round(el.route.y / 100 * H - rH / 2), rW, rH);
+  }
+
+  // 3. FX
+  if (fx.vignette > 0) cDrawVignette(ctx, W, H, fx.vignette);
+  if (fx.glowActive) cDrawRadialGlow(ctx, fx.glowX / 100 * W, fx.glowY / 100 * H, fx.glowRadius / 100 * W, hexToRgba(fx.glowColor, fx.glowOpacity));
+
+  // 4. Elements
+  if (el.distance.visible) {
+    const sc = el.distance.scale, dX = el.distance.x / 100 * W, dY = el.distance.y / 100 * H;
+    ctx.save(); ctx.textAlign = 'center';
+    ctx.fillStyle = st.textColor; ctx.font = `900 ${Math.round(H * 0.11 * sc)}px system-ui`;
+    ctx.fillText(fmtKm(act.distanceKm), dX, dY);
+    ctx.fillStyle = st.accentColor; ctx.font = `700 ${Math.round(H * 0.013 * sc)}px system-ui`;
+    ctx.fillText('KILOMETRES', dX, dY + Math.round(H * 0.048 * sc));
+    ctx.restore();
+  }
+  if (el.stats.visible) {
+    const sc = el.stats.scale, sX = el.stats.x / 100 * W, sY = el.stats.y / 100 * H, hw = W * 0.36 * sc;
+    const vF = `700 ${Math.round(H * 0.022 * sc)}px monospace`;
+    const lF = `600 ${Math.round(H * 0.012 * sc)}px system-ui`;
+    ctx.save();
+    [[sY, 'DURATION', fmtDur(act.movingTimeSec)], [sY + Math.round(H * 0.042 * sc), 'PACE', fmtPace(act.avgPaceSecKm) + '/km']].forEach(([y, lbl, val], i) => {
+      ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.font = lF;
+      ctx.fillText(lbl, sX - hw, y - (i === 0 ? Math.round(H * 0.006) : 0));
+      ctx.textAlign = 'right'; ctx.fillStyle = st.textColor; ctx.font = vF;
+      ctx.fillText(val, sX + hw, y);
+    });
+    ctx.restore();
+  }
+  if (el.name.visible) {
+    ctx.save(); ctx.textAlign = 'center'; ctx.globalAlpha = 0.42; ctx.fillStyle = st.textColor;
+    ctx.font = `500 ${Math.round(H * 0.016 * el.name.scale)}px system-ui`;
+    ctx.fillText((act.name || 'Activity').substring(0, 32), el.name.x / 100 * W, el.name.y / 100 * H);
+    ctx.restore();
+  }
+  if (el.branding.visible) {
+    ctx.save(); ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(255,255,255,.25)';
+    ctx.font = `700 ${Math.round(H * 0.016 * el.branding.scale)}px system-ui`;
+    ctx.fillText('RUNLYTICS', el.branding.x / 100 * W, el.branding.y / 100 * H);
+    ctx.restore();
+  }
+
+  // 5. Grain (last — applied to pixel data)
+  if (fx.grain > 0) {
+    const id = ctx.getImageData(0, 0, W, H); const d = id.data; const str = fx.grain * 55;
+    for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - 0.5) * str; d[i] += n; d[i+1] += n; d[i+2] += n; }
+    ctx.putImageData(id, 0, 0);
+  }
+
+  const blob = await canvasToBlob(canvas, format);
+  if (!blob) return;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `runlytics-custom.${format === 'jpg' ? 'jpg' : 'png'}`; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ── Editor UI Primitives ──────────────────────────────────────────────────────
+function Slider({ label, value, min=0, max=1, step=0.05, onChange, unit='', pct=false }) {
+  const display = pct ? Math.round(value * 100) + '%' : (step < 1 ? value.toFixed(2) : Math.round(value)) + unit;
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', marginBottom: 5 }}>
+        <span style={{ fontSize:'.68rem', color:'rgba(255,255,255,.4)', letterSpacing:'.08em' }}>{label}</span>
+        <span style={{ fontSize:'.68rem', color:'rgba(255,255,255,.65)', fontFamily:'monospace' }}>{display}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(parseFloat(e.target.value))}
+        style={{ width:'100%', height:4, cursor:'pointer', accentColor:'#f97316', display:'block' }}/>
+    </div>
+  );
+}
+
+function EditorToggle({ label, value, onChange }) {
+  return (
+    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+      <span style={{ fontSize:'.76rem', color:'rgba(255,255,255,.62)' }}>{label}</span>
+      <div style={{ width:36, height:20, borderRadius:10, background:value?'#f97316':'rgba(255,255,255,.12)',
+        position:'relative', cursor:'pointer', transition:'background .18s', flexShrink:0 }}
+        onClick={() => onChange(!value)}>
+        <div style={{ position:'absolute', top:2, left:value?18:2, width:16, height:16, borderRadius:'50%',
+          background:'#fff', transition:'left .18s', boxShadow:'0 1px 4px rgba(0,0,0,.35)' }}/>
+      </div>
+    </div>
+  );
+}
+
+function SwatchRow({ label, value, onChange, presets }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {label && <div style={{ fontSize:'.68rem', color:'rgba(255,255,255,.4)', letterSpacing:'.08em', marginBottom:8 }}>{label}</div>}
+      <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+        {presets.map(c => (
+          <div key={c} onClick={() => onChange(c)} style={{
+            width:22, height:22, borderRadius:'50%', background:c, cursor:'pointer', flexShrink:0,
+            border: c === value ? '2.5px solid #fff' : '2px solid rgba(255,255,255,.1)',
+            boxShadow: c === value ? '0 0 0 2px #f97316' : 'none', transition:'box-shadow .15s' }}/>
+        ))}
+        <label style={{ display:'flex', cursor:'pointer' }}>
+          <input type="color" value={value} onChange={e => onChange(e.target.value)}
+            style={{ width:22, height:22, borderRadius:'50%', border:'2px solid rgba(255,255,255,.15)',
+              cursor:'pointer', padding:0, background:'transparent' }}/>
+        </label>
+      </div>
+    </div>
+  );
+}
+
+// ── Live Preview Card ─────────────────────────────────────────────────────────
+function EditorPreview({ act, state, W, H, cardRef, selected, onSelect, onDragStart }) {
+  const fn = n => Math.round(n * W / 270);
+  const f  = n => fn(n) + 'px';
+  const { bg, fx, elements: el, style: st } = state;
+  const dist     = fmtKm(act.distanceKm);
+  const durFmt   = fmtDur(act.movingTimeSec);
+  const paceFmt  = fmtPace(act.avgPaceSecKm) + '/km';
+  const hasRoute = act.route && act.route.length > 2;
+  const runName  = (act.name || 'Activity').substring(0, 28);
+
+  const bgStyle = useMemo(() => {
+    if (bg.type === 'gradient') return { background: `linear-gradient(${bg.gradAngle}deg,${bg.gradStop1},${bg.gradStop2})` };
+    if (bg.type === 'image' && bg.imageData) return {
+      backgroundImage: `url(${bg.imageData})`, backgroundSize: `${bg.imageZoom}%`,
+      backgroundPosition: `${bg.imageX}% ${bg.imageY}%`, backgroundRepeat: 'no-repeat',
+      filter: `brightness(${bg.brightness / 100}) blur(${bg.blur}px)`,
+    };
+    return { background: bg.color };
+  }, [bg]);
+
+  const SNAP_THRESH = 3.5;
+  const SNAP_PTS = [0, 25, 33.3, 50, 66.7, 75, 100];
+
+  const dragProps = useCallback((key) => ({
+    onPointerDown: e => { e.preventDefault(); e.stopPropagation(); onDragStart(key, e, SNAP_PTS, SNAP_THRESH); },
+    onClick: e => { e.stopPropagation(); onSelect(key); },
+    style: {
+      position: 'absolute',
+      left: `${el[key].x}%`, top: `${el[key].y}%`,
+      transform: `translate(-50%,-50%) scale(${el[key].scale})`,
+      transformOrigin: 'center center',
+      cursor: 'grab', touchAction: 'none', userSelect: 'none',
+      outline: selected === key ? '2px solid rgba(59,130,246,.75)' : 'none',
+      outlineOffset: 4, borderRadius: 3,
+      filter: selected === key ? 'drop-shadow(0 0 6px rgba(59,130,246,.4))' : 'none',
+      transition: 'outline .1s, filter .1s',
+    },
+  }), [el, selected, onDragStart, onSelect]);
+
+  return (
+    <div ref={cardRef} onClick={() => onSelect(null)}
+      style={{ width: W, height: H, borderRadius: fn(18) + 'px', overflow: 'hidden',
+        position: 'relative', flexShrink: 0, boxShadow: '0 12px 50px rgba(0,0,0,.75)', cursor: 'default' }}>
+
+      {/* Background */}
+      <div style={{ position:'absolute', inset:0, ...bgStyle }}/>
+
+      {/* BG overlay */}
+      {bg.overlayOpacity > 0 && (
+        <div style={{ position:'absolute', inset:0, background:bg.overlayColor, opacity:bg.overlayOpacity, pointerEvents:'none' }}/>
+      )}
+
+      {/* Vignette */}
+      {fx.vignette > 0 && (
+        <div style={{ position:'absolute', inset:0, background:`radial-gradient(ellipse at 50% 50%,transparent 28%,rgba(0,0,0,${fx.vignette}) 100%)`, pointerEvents:'none' }}/>
+      )}
+
+      {/* Glow overlay */}
+      {fx.glowActive && (
+        <div style={{ position:'absolute', left:`${fx.glowX}%`, top:`${fx.glowY}%`,
+          transform:'translate(-50%,-50%)', width:`${fx.glowRadius * 2}%`, height:`${fx.glowRadius}%`,
+          background:`radial-gradient(ellipse at center,${hexToRgba(fx.glowColor, fx.glowOpacity)} 0%,transparent 70%)`,
+          filter:`blur(${fn(9)}px)`, pointerEvents:'none' }}/>
+      )}
+
+      {/* Grain */}
+      {fx.grain > 0 && (
+        <div style={{ position:'absolute', inset:0, opacity: fx.grain * 0.45, mixBlendMode:'overlay', pointerEvents:'none',
+          backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" }}/>
+      )}
+
+      {/* Route element */}
+      {el.route.visible && hasRoute && (
+        <div {...dragProps('route')}>
+          <MiniRoute route={act.route} W={fn(220 * el.route.scale)} H={fn(121 * el.route.scale)} glowColor={st.accentColor}/>
+        </div>
+      )}
+
+      {/* Distance element */}
+      {el.distance.visible && (
+        <div {...dragProps('distance')}>
+          <div style={{ textAlign:'center', pointerEvents:'none' }}>
+            <div style={{ fontSize:f(52), fontWeight:900, color:st.textColor, lineHeight:.84, letterSpacing:'-.04em' }}>{dist}</div>
+            <div style={{ fontSize:f(7), fontWeight:700, color:st.accentColor, letterSpacing:'.22em', marginTop:f(5) }}>KILOMETRES</div>
+          </div>
+        </div>
+      )}
+
+      {/* Stats element */}
+      {el.stats.visible && (
+        <div {...dragProps('stats')} style={{ ...dragProps('stats').style, width: f(210) }}>
+          <StatRow W={fn(210 * el.stats.scale)} durFmt={durFmt} paceFmt={paceFmt}/>
+        </div>
+      )}
+
+      {/* Name element */}
+      {el.name.visible && (
+        <div {...dragProps('name')}>
+          <div style={{ fontSize:f(7.5), color:st.textColor, opacity:.42, textAlign:'center', maxWidth:f(190),
+            overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', pointerEvents:'none' }}>{runName}</div>
+        </div>
+      )}
+
+      {/* Branding */}
+      {el.branding.visible && (
+        <div {...dragProps('branding')}>
+          <div style={{ fontSize:f(6), fontWeight:700, color:'rgba(255,255,255,.28)', letterSpacing:'.2em', pointerEvents:'none' }}>RUNLYTICS</div>
+        </div>
+      )}
+
+      {/* Snap guide lines (shown when element selected) */}
+      {selected && <>
+        <div style={{ position:'absolute', left:'50%', top:0, bottom:0, width:1, background:'rgba(59,130,246,.2)', pointerEvents:'none' }}/>
+        <div style={{ position:'absolute', top:'50%', left:0, right:0, height:1, background:'rgba(59,130,246,.2)', pointerEvents:'none' }}/>
+        {[33.3, 66.7].map(p => (
+          <div key={p} style={{ position:'absolute', top:`${p}%`, left:0, right:0, height:1, background:'rgba(59,130,246,.1)', pointerEvents:'none' }}/>
+        ))}
+      </>}
+    </div>
+  );
+}
+
+// ── Control Panels ────────────────────────────────────────────────────────────
+function BgTab({ bg, set }) {
+  const fileRef = useRef(null);
+  const onImage = e => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => set({ ...bg, type:'image', imageData:ev.target.result });
+    reader.readAsDataURL(file);
+  };
+  const tabBtn = (type, label) => (
+    <button key={type} onClick={() => set({ ...bg, type })} style={{
+      flex:1, padding:'8px 0', borderRadius:8, fontFamily:'inherit', cursor:'pointer', fontSize:'.72rem', fontWeight:600,
+      border:`1px solid ${bg.type===type?'#f97316':'rgba(255,255,255,.1)'}`,
+      background:bg.type===type?'rgba(249,115,22,.12)':'transparent',
+      color:bg.type===type?'#f97316':'rgba(255,255,255,.38)', transition:'all .15s' }}>
+      {label}
+    </button>
+  );
+  return (
+    <div>
+      <div style={{ display:'flex', gap:6, marginBottom:16 }}>
+        {tabBtn('color','Color')} {tabBtn('gradient','Gradient')} {tabBtn('image','Photo')}
+      </div>
+      {bg.type === 'color' && (
+        <SwatchRow label="Background Color" value={bg.color} onChange={c => set({...bg,color:c})} presets={BG_PRESETS}/>
+      )}
+      {bg.type === 'gradient' && (
+        <div>
+          <div style={{ display:'flex', gap:12, marginBottom:4 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:'.65rem', color:'rgba(255,255,255,.35)', marginBottom:6 }}>From</div>
+              <SwatchRow value={bg.gradStop1} onChange={c => set({...bg,gradStop1:c})} presets={BG_PRESETS}/>
+            </div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:'.65rem', color:'rgba(255,255,255,.35)', marginBottom:6 }}>To</div>
+              <SwatchRow value={bg.gradStop2} onChange={c => set({...bg,gradStop2:c})} presets={['#f97316','#060810','#3b82f6','#a855f7','#22c55e','#faf8f4','#0d0520']}/>
+            </div>
+          </div>
+          <Slider label="Angle" value={bg.gradAngle} min={0} max={360} step={5} onChange={v => set({...bg,gradAngle:v})} unit="°"/>
+        </div>
+      )}
+      {bg.type === 'image' && (
+        <div>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={onImage}/>
+          {bg.imageData ? (
+            <div>
+              <div style={{ width:'100%', height:54, borderRadius:8, backgroundImage:`url(${bg.imageData})`,
+                backgroundSize:'cover', backgroundPosition:'center', marginBottom:10, border:'1px solid rgba(255,255,255,.1)' }}/>
+              <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+                <button onClick={() => fileRef.current?.click()} style={{ flex:1, padding:'7px', borderRadius:8,
+                  border:'1px solid rgba(255,255,255,.15)', background:'transparent',
+                  color:'rgba(255,255,255,.55)', fontSize:'.72rem', cursor:'pointer', fontFamily:'inherit' }}>Change photo</button>
+                <button onClick={() => set({...bg,imageData:null,type:'color'})} style={{ padding:'7px 10px', borderRadius:8,
+                  border:'1px solid rgba(239,68,68,.2)', background:'rgba(239,68,68,.06)',
+                  color:'#ef4444', fontSize:'.72rem', cursor:'pointer', fontFamily:'inherit' }}>Remove</button>
+              </div>
+              <Slider label="Zoom" value={bg.imageZoom} min={80} max={220} step={5} onChange={v => set({...bg,imageZoom:v})} unit="%"/>
+              <Slider label="H Position" value={bg.imageX} min={0} max={100} step={1} onChange={v => set({...bg,imageX:v})} pct/>
+              <Slider label="V Position" value={bg.imageY} min={0} max={100} step={1} onChange={v => set({...bg,imageY:v})} pct/>
+              <Slider label="Brightness" value={bg.brightness} min={40} max={160} step={5} onChange={v => set({...bg,brightness:v})} unit="%"/>
+              <Slider label="Blur" value={bg.blur} min={0} max={16} step={1} onChange={v => set({...bg,blur:v})} unit="px"/>
+            </div>
+          ) : (
+            <button onClick={() => fileRef.current?.click()}
+              style={{ width:'100%', padding:'22px 0', borderRadius:10, border:'2px dashed rgba(255,255,255,.12)',
+                background:'transparent', color:'rgba(255,255,255,.35)', fontSize:'.8rem', cursor:'pointer', fontFamily:'inherit' }}>
+              📷  Upload photo
+            </button>
+          )}
+        </div>
+      )}
+      {bg.type !== 'color' && (
+        <div style={{ marginTop:6, paddingTop:12, borderTop:'1px solid rgba(255,255,255,.06)' }}>
+          <Slider label="Overlay Opacity" value={bg.overlayOpacity} min={0} max={0.88} step={0.04} onChange={v => set({...bg,overlayOpacity:v})} pct/>
+          <SwatchRow label="Overlay Color" value={bg.overlayColor} onChange={c => set({...bg,overlayColor:c})} presets={['#000000','#060810','#0d0520','#1a0a30','#ffffff']}/>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FxTab({ fx, set }) {
+  return (
+    <div>
+      <Slider label="Vignette" value={fx.vignette} min={0} max={0.88} step={0.04} onChange={v => set({...fx,vignette:v})} pct/>
+      <Slider label="Film Grain" value={fx.grain} min={0} max={1} step={0.05} onChange={v => set({...fx,grain:v})} pct/>
+      <div style={{ borderTop:'1px solid rgba(255,255,255,.06)', paddingTop:12, marginTop:4 }}>
+        <EditorToggle label="Glow Overlay" value={fx.glowActive} onChange={v => set({...fx,glowActive:v})}/>
+        {fx.glowActive && (
+          <div>
+            <SwatchRow label="Glow Color" value={fx.glowColor} onChange={c => set({...fx,glowColor:c})} presets={ACCENT_PRESETS}/>
+            <Slider label="X Position" value={fx.glowX} min={0} max={100} step={1} onChange={v => set({...fx,glowX:v})} pct/>
+            <Slider label="Y Position" value={fx.glowY} min={0} max={100} step={1} onChange={v => set({...fx,glowY:v})} pct/>
+            <Slider label="Spread" value={fx.glowRadius} min={10} max={80} step={5} onChange={v => set({...fx,glowRadius:v})} unit="%"/>
+            <Slider label="Intensity" value={fx.glowOpacity} min={0.05} max={0.6} step={0.05} onChange={v => set({...fx,glowOpacity:v})} pct/>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const ELEMENT_META = {
+  route:    { label:'Route Map', icon:'🗺️' },
+  distance: { label:'Distance',  icon:'📍' },
+  stats:    { label:'Stats',     icon:'📊' },
+  name:     { label:'Run Name',  icon:'✏️' },
+  branding: { label:'Branding',  icon:'⚡' },
+};
+
+function ElementsTab({ elements, style, setElements, setStyle, selected, onSelect }) {
+  const setEl = (key, patch) => setElements(prev => ({ ...prev, [key]: { ...prev[key], ...patch } }));
+  const el = selected ? elements[selected] : null;
+  return (
+    <div>
+      {/* Element chips */}
+      <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:14 }}>
+        {Object.entries(ELEMENT_META).map(([key, meta]) => (
+          <button key={key} onClick={() => onSelect(selected === key ? null : key)} style={{
+            display:'flex', alignItems:'center', gap:5, padding:'5px 10px', borderRadius:20, cursor:'pointer', fontFamily:'inherit',
+            border:`1px solid ${selected===key?'#3b82f6':elements[key].visible?'rgba(249,115,22,.3)':'rgba(255,255,255,.08)'}`,
+            background:selected===key?'rgba(59,130,246,.14)':elements[key].visible?'rgba(249,115,22,.05)':'transparent',
+            color:selected===key?'#60a5fa':elements[key].visible?'rgba(255,255,255,.65)':'rgba(255,255,255,.25)',
+            fontSize:'.68rem', fontWeight:500, transition:'all .15s' }}>
+            <span style={{ fontSize:'.8rem' }}>{meta.icon}</span> {meta.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Selected element controls */}
+      {el && selected && (
+        <div style={{ background:'rgba(255,255,255,.03)', borderRadius:10, padding:'12px', border:'1px solid rgba(255,255,255,.07)', marginBottom:14 }}>
+          <div style={{ fontSize:'.68rem', fontWeight:700, color:'rgba(255,255,255,.35)', letterSpacing:'.1em', marginBottom:10 }}>
+            {ELEMENT_META[selected]?.label.toUpperCase()} · drag card to reposition
+          </div>
+          <EditorToggle label="Visible" value={el.visible} onChange={v => setEl(selected, {visible:v})}/>
+          <Slider label="Scale" value={el.scale} min={0.4} max={1.8} step={0.05} onChange={v => setEl(selected, {scale:v})}/>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginTop:4 }}>
+            {[['X', 'x', 0, 100], ['Y', 'y', 0, 100]].map(([lbl, key, min, max]) => (
+              <div key={lbl}>
+                <div style={{ fontSize:'.62rem', color:'rgba(255,255,255,.3)', marginBottom:5 }}>{lbl} %</div>
+                <input type="number" min={min} max={max} value={Math.round(el[key])} step={1}
+                  onChange={e => setEl(selected, {[key]: Math.max(min, Math.min(max, +e.target.value))})}
+                  style={{ width:'100%', background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)',
+                    borderRadius:7, color:'#fff', padding:'7px 8px', fontSize:'.78rem', fontFamily:'monospace', outline:'none' }}/>
+              </div>
+            ))}
+            <div>
+              <div style={{ fontSize:'.62rem', color:'rgba(255,255,255,.3)', marginBottom:5 }}>Center</div>
+              <button onClick={() => setEl(selected, {x:50})} style={{ width:'100%', padding:'8px 0', borderRadius:7,
+                border:'1px solid rgba(255,255,255,.1)', background:'transparent',
+                color:'rgba(255,255,255,.4)', fontSize:'.7rem', cursor:'pointer', fontFamily:'inherit' }}>↔</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Style controls */}
+      <div style={{ borderTop:'1px solid rgba(255,255,255,.06)', paddingTop:12 }}>
+        <SwatchRow label="Accent Color" value={style.accentColor} onChange={c => setStyle(p => ({...p,accentColor:c}))} presets={ACCENT_PRESETS}/>
+        <SwatchRow label="Text Color" value={style.textColor} onChange={c => setStyle(p => ({...p,textColor:c}))} presets={['#ffffff','#f0ede8','#d8e6f7','#0a0a0a','#1a1a1a']}/>
+      </div>
+    </div>
+  );
+}
+
+function PresetsTab({ currentState, onLoad }) {
+  const [presets, setPresets] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(EDITOR_PRESETS_KEY) || '[]'); } catch { return []; }
+  });
+  const [name, setName] = useState('');
+
+  const save = () => {
+    const n = name.trim(); if (!n) return;
+    const updated = [{ name:n, state:currentState, date:new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'}) }, ...presets.slice(0, 7)];
+    setPresets(updated); setName('');
+    try { localStorage.setItem(EDITOR_PRESETS_KEY, JSON.stringify(updated)); } catch {}
+  };
+
+  const remove = i => {
+    const updated = presets.filter((_,j) => j !== i);
+    setPresets(updated);
+    try { localStorage.setItem(EDITOR_PRESETS_KEY, JSON.stringify(updated)); } catch {}
+  };
+
+  return (
+    <div>
+      <div style={{ display:'flex', gap:8, marginBottom:16 }}>
+        <input value={name} onChange={e => setName(e.target.value)}
+          onKeyDown={e => e.key==='Enter'&&save()}
+          placeholder="Name this layout…"
+          style={{ flex:1, background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)',
+            borderRadius:9, color:'#fff', padding:'9px 12px', fontSize:'.8rem', fontFamily:'inherit', outline:'none' }}/>
+        <button onClick={save} disabled={!name.trim()} style={{
+          padding:'9px 16px', borderRadius:9, border:'none', fontFamily:'inherit', fontWeight:700,
+          background:name.trim()?'linear-gradient(135deg,#f97316,#ea580c)':'rgba(255,255,255,.06)',
+          color:name.trim()?'#fff':'rgba(255,255,255,.3)', cursor:name.trim()?'pointer':'default', fontSize:'.8rem' }}>Save</button>
+      </div>
+      {presets.length === 0 && (
+        <div style={{ textAlign:'center', padding:'28px 0', color:'rgba(255,255,255,.22)', fontSize:'.78rem', lineHeight:1.7 }}>
+          No saved layouts yet.<br/>Set up a look you like, then save it here.
+        </div>
+      )}
+      {presets.map((p, i) => (
+        <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 12px', borderRadius:10,
+          background:'rgba(255,255,255,.04)', border:'1px solid rgba(255,255,255,.07)', marginBottom:8 }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:'.82rem', fontWeight:600, color:'rgba(255,255,255,.78)', marginBottom:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.name}</div>
+            <div style={{ fontSize:'.66rem', color:'rgba(255,255,255,.28)' }}>{p.date}</div>
+          </div>
+          <button onClick={() => onLoad(p.state)} style={{ padding:'5px 11px', borderRadius:7, fontFamily:'inherit', fontWeight:600,
+            background:'rgba(249,115,22,.1)', border:'1px solid rgba(249,115,22,.22)', color:'#f97316', fontSize:'.72rem', cursor:'pointer' }}>
+            Load
+          </button>
+          <button onClick={() => remove(i)} style={{ padding:'5px 9px', borderRadius:7, fontFamily:'inherit',
+            background:'rgba(239,68,68,.07)', border:'1px solid rgba(239,68,68,.18)', color:'#ef4444', fontSize:'.72rem', cursor:'pointer' }}>
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Main Share Editor Component ───────────────────────────────────────────────
+function ShareEditor({ act, onClose }) {
+  const PREV_W = 230;
+  const PREV_H = Math.round(PREV_W * 16 / 9); // 409
+
+  const [state, setStateRaw] = useState(EDITOR_DEFAULTS);
+  const [tab,   setTab]       = useState('bg');
+  const [selected, setSelected] = useState(null);
+  const [busy, setBusy]         = useState(false);
+  const cardRef  = useRef(null);
+  const dragRef  = useRef(null);
+
+  const setElements = useCallback(updater =>
+    setStateRaw(prev => ({ ...prev, elements: typeof updater === 'function' ? updater(prev.elements) : updater }))
+  , []);
+
+  const startDrag = useCallback((key, e, snapPoints, snapThresh) => {
+    e.preventDefault(); e.stopPropagation();
+    setSelected(key);
+    const card = cardRef.current; if (!card) return;
+    const rect = card.getBoundingClientRect();
+    const getXY = ev => ({
+      cx: ev.touches ? ev.touches[0].clientX : ev.clientX,
+      cy: ev.touches ? ev.touches[0].clientY : ev.clientY,
+    });
+    const { cx: startCX, cy: startCY } = getXY(e);
+    let startEl;
+    setStateRaw(prev => { startEl = { ...prev.elements[key] }; return prev; });
+    dragRef.current = true;
+
+    const snap = val => { for (const p of snapPoints) if (Math.abs(val - p) < snapThresh) return p; return Math.round(val * 10) / 10; };
+
+    const onMove = ev => {
+      if (!dragRef.current) return;
+      ev.preventDefault();
+      const { cx, cy } = getXY(ev);
+      const nx = snap(Math.max(4, Math.min(96, startEl.x + (cx - startCX) / rect.width  * 100)));
+      const ny = snap(Math.max(3, Math.min(97, startEl.y + (cy - startCY) / rect.height * 100)));
+      setStateRaw(prev => ({ ...prev, elements: { ...prev.elements, [key]: { ...prev.elements[key], x:nx, y:ny } } }));
+    };
+
+    const onUp = () => {
+      dragRef.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchend', onUp);
+    };
+
+    document.addEventListener('mousemove', onMove, { passive:false });
+    document.addEventListener('touchmove', onMove, { passive:false });
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchend', onUp);
+  }, []);
+
+  const doExport = async fmt => {
+    if (busy) return;
+    setBusy(true);
+    try { await exportCustomCard(act, state, fmt); } catch {}
+    setBusy(false);
+  };
+
+  const EDITOR_TABS = [
+    { id:'bg',      label:'BG'       },
+    { id:'fx',      label:'FX'       },
+    { id:'layout',  label:'Elements' },
+    { id:'presets', label:'Saved'    },
+  ];
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:430, background:'#05080f', display:'flex', flexDirection:'column', overscrollBehavior:'contain' }}>
+
+      {/* Header */}
+      <div style={{ flexShrink:0, padding:'12px 18px 11px', display:'flex', alignItems:'center', justifyContent:'space-between', borderBottom:'1px solid rgba(255,255,255,.07)' }}>
+        <button onClick={onClose} style={{ background:'none', border:'none', color:'rgba(255,255,255,.45)', fontSize:'.82rem', cursor:'pointer', fontFamily:'inherit', padding:0 }}>
+          ‹ Back
+        </button>
+        <div style={{ fontWeight:700, fontSize:'.78rem', color:'rgba(255,255,255,.55)', letterSpacing:'.12em' }}>CUSTOM EDITOR</div>
+        <button onClick={() => { setStateRaw(EDITOR_DEFAULTS); setSelected(null); }}
+          style={{ background:'none', border:'none', color:'rgba(255,255,255,.3)', fontSize:'.72rem', cursor:'pointer', fontFamily:'inherit' }}>
+          Reset
+        </button>
+      </div>
+
+      {/* Scrollable body */}
+      <div style={{ flex:1, overflowY:'auto', paddingBottom:78 }}>
+
+        {/* Live preview */}
+        <div style={{ display:'flex', justifyContent:'center', padding:'20px 0 18px', position:'relative' }}>
+          <EditorPreview act={act} state={state} W={PREV_W} H={PREV_H}
+            cardRef={cardRef} selected={selected}
+            onSelect={setSelected} onDragStart={startDrag}/>
+          {selected && (
+            <div style={{ position:'absolute', bottom:4, left:'50%', transform:'translateX(-50%)',
+              background:'rgba(59,130,246,.15)', border:'1px solid rgba(59,130,246,.25)',
+              borderRadius:20, padding:'3px 12px', fontSize:'.62rem', color:'#93c5fd',
+              letterSpacing:'.04em', pointerEvents:'none', whiteSpace:'nowrap' }}>
+              Drag to move · tap elsewhere to deselect
+            </div>
+          )}
+        </div>
+
+        {/* Sticky tab bar */}
+        <div style={{ position:'sticky', top:0, zIndex:5, background:'#05080f', display:'flex',
+          borderTop:'1px solid rgba(255,255,255,.07)', borderBottom:'1px solid rgba(255,255,255,.07)' }}>
+          {EDITOR_TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              flex:1, padding:'10px 2px', border:'none', background:'transparent', fontFamily:'inherit', cursor:'pointer',
+              color: tab===t.id?'#f97316':'rgba(255,255,255,.35)',
+              fontSize:'.64rem', fontWeight:tab===t.id?700:500, letterSpacing:'.08em', textTransform:'uppercase',
+              borderBottom:tab===t.id?'2px solid #f97316':'2px solid transparent', transition:'color .15s' }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Controls */}
+        <div style={{ padding:'16px 18px 20px' }}>
+          {tab === 'bg'     && <BgTab bg={state.bg} set={bg => setStateRaw(p => ({...p,bg}))}/>}
+          {tab === 'fx'     && <FxTab fx={state.fx} set={fx => setStateRaw(p => ({...p,fx}))}/>}
+          {tab === 'layout' && <ElementsTab
+            elements={state.elements} style={state.style}
+            setElements={setElements}
+            setStyle={fn => setStateRaw(p => ({...p, style: typeof fn==='function'?fn(p.style):fn}))}
+            selected={selected} onSelect={setSelected}/>}
+          {tab === 'presets' && <PresetsTab currentState={state} onLoad={s => { setStateRaw(mergeEditorState(s)); setSelected(null); }}/>}
+        </div>
+      </div>
+
+      {/* Fixed export bar */}
+      <div style={{ position:'absolute', bottom:0, left:0, right:0, padding:'11px 18px 24px',
+        background:'rgba(5,8,15,.96)', backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)',
+        borderTop:'1px solid rgba(255,255,255,.07)' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+          <button className="btn b-or" style={{ padding:'13px', fontSize:'.84rem', borderRadius:13, fontWeight:700 }}
+            onClick={() => doExport('jpg')} disabled={busy}>{busy?'Saving…':'Save JPEG'}</button>
+          <button className="btn b-gh" style={{ padding:'13px', fontSize:'.84rem', borderRadius:13 }}
+            onClick={() => doExport('png')} disabled={busy}>Save PNG</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 const TABS=[
   {id:"home",icon:"🏠",label:"Home"},
   {id:"stats",icon:"📊",label:"Stats"},
@@ -1994,6 +2701,8 @@ const App=()=>{
   const[showMonthly,setShowMonthly]=useState(false);
   const[shareAct,setShareAct]=useState(null);
   const[prDetail,setPrDetail]=useState(null);
+  const[showEditor,setShowEditor]=useState(false);
+  const[editorAct,setEditorAct]=useState(null);
   const[stravaAuth,setStravaAuth]=useState(loadStravaAuth);
   const[stravaSync,setStravaSync]=useState({loading:false,msg:""});
   const[hasUnseen,setHasUnseen]=useState(false);
@@ -2002,11 +2711,12 @@ const App=()=>{
   const isSyncingRef=useRef(false),lastSyncRef=useRef(0);
 
   // FIX #1: Removed feedbackRun from deps (was never declared as state — caused ReferenceError)
+  const edRef=useRef(null);
   useEffect(()=>{
     detRef.current=detail;setRef.current=showSettings;
     arRef.current=showAllRuns;monRef.current=showMonthly;upRef.current=showUpload;
-    shaRef.current=shareAct;prRef.current=prDetail;
-  },[detail,showSettings,showAllRuns,showMonthly,showUpload,shareAct,prDetail]);
+    shaRef.current=shareAct;prRef.current=prDetail;edRef.current=showEditor;
+  },[detail,showSettings,showAllRuns,showMonthly,showUpload,shareAct,prDetail,showEditor]);
 
   useEffect(()=>{
     history.replaceState({_rl:"root"},"");history.pushState({_rl:"s"},"");
@@ -2014,6 +2724,7 @@ const App=()=>{
 
   useEffect(()=>{
     const h=(e)=>{
+      if(edRef.current){setShowEditor(false);history.replaceState({_rl:"s"},"");return;}
       if(shaRef.current){setShareAct(null);history.replaceState({_rl:"s"},"");return;}
       if(prRef.current){setPrDetail(null);history.replaceState({_rl:"s"},"");return;}
       if(detRef.current){setDetail(null);history.replaceState({_rl:"s"},"");return;}
@@ -2038,6 +2749,7 @@ const App=()=>{
 
   const openDetail=useCallback(act=>{history.pushState({_rl:"d"},"");setDetail(act);},[]);
   const openShare=useCallback(act=>{history.pushState({_rl:"sh"},"");setShareAct(act);},[]);
+  const openEditor=useCallback(act=>{history.pushState({_rl:"ed"},"");setEditorAct(act);setShowEditor(true);},[]);
   const openPR=useCallback(entry=>{history.pushState({_rl:"pr"},"");setPrDetail(entry);},[]);
   const openSettings=useCallback(()=>{history.pushState({_rl:"se"},"");setShowSettings(true);},[]);
   const openAllRuns=useCallback(()=>{history.pushState({_rl:"a"},"");setShowAllRuns(true);},[]);
@@ -2136,7 +2848,8 @@ const App=()=>{
         ))}
       </div>
       {detail&&<Detail act={detail} hrProfile={hrProfile} onClose={back} onDelete={deleteAct} onShare={()=>openShare(detail)}/>}
-      {shareAct&&<ShareModal act={shareAct} onClose={back}/>}
+      {shareAct&&<ShareModal act={shareAct} onClose={back} onOpenEditor={act=>{back();openEditor(act);}}/>}
+      {showEditor&&editorAct&&<ShareEditor act={editorAct} onClose={back}/>}
       {prDetail&&<PRDetailModal entry={prDetail} onClose={back}
         // FIX #13: onOpenRun receives an ID string; find the activity then open detail
         onOpenRun={id=>{setPrDetail(null);const found=acts.find(a=>a.id===id);if(found)openDetail(found);}}/>}
