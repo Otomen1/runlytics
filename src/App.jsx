@@ -143,21 +143,33 @@ function parseGPX(xmlStr,fileName){
     if(doc.querySelector("parsererror"))return null;
     const nameFallback=fileName?fileName.replace(/\.gpx$/i,""):"Activity";
     const name=doc.querySelector("name")?.textContent?.trim()||nameFallback;
-    const trkpts=Array.from(doc.querySelectorAll("trkpt,rtept,wpt"));
+    // iOS Safari DOMParser (application/xml) won't match namespaced elements via
+    // querySelectorAll("trkpt") when the file has xmlns="…" — use getElementsByTagName
+    // as a universal fallback (ignores namespace prefix, works on all platforms).
+    let trkpts=Array.from(doc.querySelectorAll("trkpt,rtept,wpt"));
+    if(!trkpts.length){
+      trkpts=[
+        ...Array.from(doc.getElementsByTagName("trkpt")),
+        ...Array.from(doc.getElementsByTagName("rtept")),
+        ...Array.from(doc.getElementsByTagName("wpt")),
+      ];
+    }
     if(trkpts.length<2)return null;
+    // Namespace-safe child-element getter: querySelector first, then getElementsByTagName
+    const gEl=(parent,tag)=>parent.querySelector(tag)||parent.getElementsByTagName(tag)[0]||null;
     const pts=[];
     trkpts.forEach((pt,ptIdx)=>{
       const lat=parseFloat(pt.getAttribute("lat")||"");const lon=parseFloat(pt.getAttribute("lon")||"");
       if(!isFinite(lat)||!isFinite(lon)||lat<-90||lat>90||lon<-180||lon>180)return;
-      const ele=parseFloat(pt.querySelector("ele")?.textContent||"0")||0;
-      const timeEl=pt.querySelector("time");
+      const ele=parseFloat(gEl(pt,"ele")?.textContent||"0")||0;
+      const timeEl=gEl(pt,"time");
       const timeMs=timeEl?new Date(timeEl.textContent?.trim()||"").getTime()||0:0;
       // HR: try multiple selectors individually — querySelector with namespaced colons
       // is unreliable on Android DOMParser; fall back to textContent scan
       let hr=null;
-      const extEl=pt.querySelector("extensions");
+      const extEl=gEl(pt,"extensions");
       if(extEl){
-        const hrTry=extEl.querySelector("hr")||extEl.querySelector("heartrate")||
+        const hrTry=gEl(extEl,"hr")||gEl(extEl,"heartrate")||
           Array.from(extEl.querySelectorAll("*")).find(el=>el.localName==="hr"||el.localName==="heartrate");
         if(hrTry){const v=parseInt(hrTry.textContent);if(v>30&&v<250)hr=v;}
       }
@@ -210,16 +222,39 @@ async function getStravaToken(auth){
     const data=await r.json();const updated={...auth,...data};saveStravaAuth(updated);return updated.access_token;
   }catch(e){return null;}
 }
+// Google Polyline Algorithm decoder — Strava returns encoded routes as
+// activity.map.summary_polyline. Produces [{lat,lon}] array.
+function decodePolyline(encoded){
+  if(!encoded||typeof encoded!=='string')return[];
+  const pts=[];let index=0,lat=0,lng=0;
+  try{
+    while(index<encoded.length){
+      let b,shift=0,result=0;
+      do{b=encoded.charCodeAt(index++)-63;result|=(b&0x1f)<<shift;shift+=5;}while(b>=0x20);
+      lat+=(result&1)?~(result>>1):(result>>1);
+      shift=result=0;
+      do{b=encoded.charCodeAt(index++)-63;result|=(b&0x1f)<<shift;shift+=5;}while(b>=0x20);
+      lng+=(result&1)?~(result>>1):(result>>1);
+      pts.push({lat:lat/1e5,lon:lng/1e5});
+    }
+  }catch(e){}
+  return pts;
+}
+
 function mapStravaActivity(a){
   if(!a||a.type&&!["Run","Walk","Hike","TrailRun","VirtualRun"].includes(a.type))return null;
   const distKm=(a.distance||0)/1000;const paceSecKm=distKm>0&&a.moving_time?a.moving_time/distKm:0;
   const d=a.start_date_local||a.start_date||new Date().toISOString();
   const trainingLoad=a.moving_time&&a.average_heartrate?Math.round((a.moving_time/60)*(a.average_heartrate/100)*1.5):Math.round(distKm*8);
+  // Decode Strava's encoded polyline — summary_polyline is the compressed version,
+  // polyline is the full-resolution version. Use whichever is available.
+  const encoded=a.map?.summary_polyline||a.map?.polyline||'';
+  const route=encoded?decodePolyline(encoded):[];
   return migrateActivity({id:"s"+a.id,name:a.name||"Run",type:a.sport_type||a.type||"Run",date:d.slice(0,10),dateTs:new Date(d).getTime(),
     distanceKm:parseFloat(distKm.toFixed(3)),movingTimeSec:a.moving_time||0,
     avgPaceSecKm:parseFloat(paceSecKm.toFixed(1)),avgHR:a.average_heartrate||null,maxHR:a.max_heartrate||null,
     elevGainM:Math.round(a.total_elevation_gain||0),elevLossM:0,
-    runClass:classifyRun(distKm,paceSecKm),hrSamples:[],route:[],source:"strava",trainingLoad});
+    runClass:classifyRun(distKm,paceSecKm),hrSamples:[],route,source:"strava",trainingLoad});
 }
 
 function getMafHR(profile){
