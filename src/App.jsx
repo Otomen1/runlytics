@@ -1,4 +1,4 @@
-import{useState,useEffect,useRef,useMemo,useCallback}from"react";
+import React,{useState,useEffect,useRef,useMemo,useCallback}from"react";
 import{ResponsiveContainer,BarChart,Bar,XAxis,YAxis,CartesianGrid,Tooltip}from"recharts";
 
 function debounce(fn,ms){let t;return function(...a){clearTimeout(t);t=setTimeout(()=>fn.apply(this,a),ms);};}
@@ -2263,7 +2263,7 @@ const MiniMapThumb=React.memo(function MiniMapThumb({route,color}){
     // Elegant placeholder for activities with no GPS data
     return(
       <div style={{...wrap,background:'var(--s3)',boxShadow:'inset 0 0 0 1px rgba(255,255,255,.06)',
-        display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4}}>
+        position:'relative',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4}}>
         <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{position:'absolute',inset:0}}>
           {Array.from({length:7},(_,i)=>(
             <g key={i}>
