@@ -15,7 +15,32 @@ const STRAVA_KEY="runlytics_strava_v1";
 
 // FIX #5: .filter(Boolean) removes null entries from migrateActivity on corrupt data
 function loadActs(){try{return JSON.parse(localStorage.getItem(DATA_KEY)||"[]").map(migrateActivity).filter(Boolean);}catch(e){return[];}}
-function compressRoute(pts){if(!pts||!pts.length)return[];const step=Math.max(1,Math.floor(pts.length/300));return pts.filter((_,i)=>i%step===0||i===pts.length-1).map(p=>({lat:+p.lat.toFixed(4),lon:+p.lon.toFixed(4)}));}
+// ── Route normalisation utility ───────────────────────────────────────────────
+// Single source of truth for point validation and format normalisation.
+// Accepts {lat,lon} OR {lat,lng} (older Strava/Garmin integrations).
+// Rejects: null, undefined, NaN, out-of-range coordinates.
+// Returns: clean [{lat:number, lon:number}] array or [].
+function normalizeRoute(pts){
+  if(!Array.isArray(pts)||!pts.length)return[];
+  const out=[];
+  for(const p of pts){
+    if(!p)continue;
+    const lat=+p.lat;
+    const lon=p.lon!=null?+p.lon:+p.lng; // handle {lat,lng} legacy format
+    if(isFinite(lat)&&isFinite(lon)&&lat>=-90&&lat<=90&&lon>=-180&&lon<=180){
+      out.push({lat,lon});
+    }
+  }
+  return out;
+}
+
+function compressRoute(pts){
+  const clean=normalizeRoute(pts);
+  if(!clean.length)return[];
+  const step=Math.max(1,Math.floor(clean.length/300));
+  return clean.filter((_,i)=>i%step===0||i===clean.length-1)
+    .map(p=>({lat:+p.lat.toFixed(4),lon:+p.lon.toFixed(4)}));
+}
 function compressHR(samples){if(!samples||!samples.length)return[];const step=Math.max(1,Math.floor(samples.length/150));return samples.filter((_,i)=>i%step===0||i===samples.length-1);}
 function prepareForStorage(acts){return acts.map(a=>({...a,route:compressRoute(a.route),hrSamples:compressHR(a.hrSamples)}));}
 // Tiered storage strategy — routes are preserved as long as possible.
@@ -25,7 +50,7 @@ function prepareForStorage(acts){return acts.map(a=>({...a,route:compressRoute(a
 // Tier 4: last resort → strip ALL route+HR (never silently, always logs warning).
 function saveActs(acts){
   const t1=()=>JSON.stringify(prepareForStorage(acts));
-  const aggressiveRoute=pts=>{if(!pts||!pts.length)return[];const step=Math.max(1,Math.floor(pts.length/60));return pts.filter((_,i)=>i%step===0||i===pts.length-1).map(p=>({lat:+p.lat.toFixed(3),lon:+p.lon.toFixed(3)}));};
+  const aggressiveRoute=pts=>{const clean=normalizeRoute(pts);if(!clean.length)return[];const step=Math.max(1,Math.floor(clean.length/60));return clean.filter((_,i)=>i%step===0||i===clean.length-1).map(p=>({lat:+p.lat.toFixed(3),lon:+p.lon.toFixed(3)}));};
   const t2=()=>JSON.stringify(acts.map(a=>({...a,route:aggressiveRoute(a.route),hrSamples:[]})));
   const t3=()=>JSON.stringify(acts.map(a=>({...a,route:[],hrSamples:[]})));
   try{localStorage.setItem(DATA_KEY,t1());return;}catch(_){}
@@ -85,7 +110,7 @@ function migrateActivity(a){
     elevGainM:isFinite(a.elevGainM)?+a.elevGainM:0,elevLossM:isFinite(a.elevLossM)?+a.elevLossM:0,
     runClass:a.runClass||classifyRun(isFinite(a.distanceKm)?+a.distanceKm:0,isFinite(a.avgPaceSecKm)?+a.avgPaceSecKm:0),
     hrSamples:Array.isArray(a.hrSamples)?a.hrSamples.filter(s=>s&&isFinite(s.sec)&&isFinite(s.hr)&&s.hr>30&&s.hr<250).slice(0,500):[],
-    route:Array.isArray(a.route)&&a.route.length>=2?a.route.slice(0,500):[],
+    route:normalizeRoute(a.route).slice(0,500),
     source:a.source||"gpx",
     trainingLoad:isFinite(a.trainingLoad)&&a.trainingLoad>=0?Math.round(+a.trainingLoad):0,
   };
@@ -466,7 +491,7 @@ const PRESET_BGS=[
 function drawRouteCanvas(ctx,route,ox,oy,W,H){
   if(!route||route.length<2)return;
   try{
-    const pts=route.filter(p=>p&&isFinite(p.lat)&&isFinite(p.lon));if(pts.length<2)return;
+    const pts=normalizeRoute(route);if(pts.length<2)return;
     let x0=pts[0].lon,x1=pts[0].lon,y0=pts[0].lat,y1=pts[0].lat;
     for(const p of pts){if(p.lon<x0)x0=p.lon;if(p.lon>x1)x1=p.lon;if(p.lat<y0)y0=p.lat;if(p.lat>y1)y1=p.lat;}
     const pad=16,dx=x1-x0||.001,dy=y1-y0||.001;
@@ -781,7 +806,7 @@ function MiniRoute({route,W=160,H=110,glowColor='#f97316',bgColor=null}){
   }
 
   try{
-    const pts=route.filter(p=>p&&isFinite(p.lat)&&isFinite(p.lon));
+    const pts=normalizeRoute(route);
     if(pts.length<2)return null;
     let x0=pts[0].lon,x1=pts[0].lon,y0=pts[0].lat,y1=pts[0].lat;
     for(const p of pts){if(p.lon<x0)x0=p.lon;if(p.lon>x1)x1=p.lon;if(p.lat<y0)y0=p.lat;if(p.lat>y1)y1=p.lat;}
@@ -1302,12 +1327,12 @@ function RouteMapSVG({route,act}){
   const[drawn,setDrawn]=useState(false);const[hov,setHov]=useState(null);
   const svgRef=useRef(null);const canvasRef=useRef(null);
   const cumDist=useMemo(()=>{
-    if(!route||route.length<2)return[];const R=6371000;let c=0;
-    return route.map((p,i)=>{if(i>0){const a=route[i-1],dLa=(p.lat-a.lat)*Math.PI/180,dLo=(p.lon-a.lon)*Math.PI/180;const q=Math.sin(dLa/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(p.lat*Math.PI/180)*Math.sin(dLo/2)**2;c+=2*R*Math.asin(Math.sqrt(Math.max(0,q)));}return c;});
+    if(!route||route.length<2)return[];const R=6371000;let c=0;const clean=normalizeRoute(route);
+    return clean.map((p,i)=>{if(i>0){const a=clean[i-1],dLa=(p.lat-a.lat)*Math.PI/180,dLo=(p.lon-a.lon)*Math.PI/180;const q=Math.sin(dLa/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(p.lat*Math.PI/180)*Math.sin(dLo/2)**2;c+=2*R*Math.asin(Math.sqrt(Math.max(0,q)));}return c;});
   },[route]);
   const map=useMemo(()=>{
     if(!route||route.length<2)return null;
-    const clean=route.filter(p=>p&&isFinite(p.lat)&&isFinite(p.lon)&&p.lat>=-90&&p.lat<=90&&p.lon>=-180&&p.lon<=180);
+    const clean=normalizeRoute(route);
     if(clean.length<2)return null;
     const W=360,H=280;
     let minLat=clean[0].lat,maxLat=clean[0].lat,minLon=clean[0].lon,maxLon=clean[0].lon;
@@ -2214,7 +2239,7 @@ const MiniMapThumb=React.memo(function MiniMapThumb({route,color}){
   const W=84,H=84;
   const geo=useMemo(()=>{
     if(!route||route.length<2)return null;
-    const pts=route.filter(p=>p&&isFinite(p.lat)&&isFinite(p.lon));
+    const pts=normalizeRoute(route);
     if(pts.length<2)return null;
     let x0=pts[0].lon,x1=pts[0].lon,y0=pts[0].lat,y1=pts[0].lat;
     for(const p of pts){if(p.lon<x0)x0=p.lon;if(p.lon>x1)x1=p.lon;if(p.lat<y0)y0=p.lat;if(p.lat>y1)y1=p.lat;}
