@@ -14,7 +14,25 @@ const TAB_KEY="runlytics_tab_v1";
 const STRAVA_KEY="runlytics_strava_v1";
 
 // FIX #5: .filter(Boolean) removes null entries from migrateActivity on corrupt data
-function loadActs(){try{return JSON.parse(localStorage.getItem(DATA_KEY)||"[]").map(migrateActivity).filter(Boolean);}catch(e){return[];}}
+function loadActs(){
+  try{
+    const raw=localStorage.getItem(DATA_KEY);
+    if(!raw){console.log('[Runlytics] loadActs: no stored data');return[];}
+    const parsed=JSON.parse(raw);
+    if(!Array.isArray(parsed)){console.warn('[Runlytics] loadActs: stored data is not an array');return[];}
+    const acts=parsed.map(migrateActivity).filter(Boolean);
+    const withRoutes=acts.filter(a=>a.route&&a.route.length>=2).length;
+    const rawKB=storageSizeKB(raw);
+    console.log(`[Runlytics] loadActs: ${acts.length} acts loaded, ${withRoutes} have routes, storage=${rawKB}KB`);
+    if(withRoutes<acts.length){
+      console.warn(`[Runlytics] ${acts.length-withRoutes} act(s) have NO route data — Strava runs may need re-sync, GPX runs may need re-upload`);
+    }
+    return acts;
+  }catch(e){
+    console.error('[Runlytics] loadActs failed:',e.message||e);
+    return[];
+  }
+}
 // ── Route normalisation utility ───────────────────────────────────────────────
 // Single source of truth for point validation and format normalisation.
 // Accepts {lat,lon} OR {lat,lng} (older Strava/Garmin integrations).
@@ -41,21 +59,75 @@ function compressRoute(pts){
   return clean.filter((_,i)=>i%step===0||i===clean.length-1)
     .map(p=>({lat:+p.lat.toFixed(4),lon:+p.lon.toFixed(4)}));
 }
-function compressHR(samples){if(!samples||!samples.length)return[];const step=Math.max(1,Math.floor(samples.length/150));return samples.filter((_,i)=>i%step===0||i===samples.length-1);}
-function prepareForStorage(acts){return acts.map(a=>({...a,route:compressRoute(a.route),hrSamples:compressHR(a.hrSamples)}));}
+// ── Storage health utilities ──────────────────────────────────────────────────
+function isQuotaError(e){
+  // DOMException name varies by browser: QuotaExceededError (standard),
+  // NS_ERROR_DOM_QUOTA_REACHED (Firefox), code 22 (Safari legacy)
+  return e&&(e.name==='QuotaExceededError'||e.name==='NS_ERROR_DOM_QUOTA_REACHED'||e.code===22||e.code===1014);
+}
+function storageSizeKB(str){return Math.round(str.length*2/1024);} // JS strings are UTF-16
+function logStorage(label,acts,payloadStr){
+  const withRoutes=acts.filter(a=>a.route&&a.route.length>=2).length;
+  const totalPts=acts.reduce((s,a)=>s+(a.route?a.route.length:0),0);
+  console.log(`[Runlytics] ${label}: ${acts.length} acts, ${withRoutes} with routes (${totalPts} pts total), payload=${storageSizeKB(payloadStr)}KB`);
+}
+
 // Tiered storage strategy — routes are preserved as long as possible.
 // Tier 1: normal compressed save (≤300 route pts, 4dp precision).
 // Tier 2: quota exceeded → aggressive compression (≤60 pts, 3dp) keeps routes.
 // Tier 3: still full → strip hrSamples, keep routes at 60 pts.
-// Tier 4: last resort → strip ALL route+HR (never silently, always logs warning).
+// Tier 4: absolute last resort → strip routes (logs error so it's visible).
 function saveActs(acts){
-  const t1=()=>JSON.stringify(prepareForStorage(acts));
   const aggressiveRoute=pts=>{const clean=normalizeRoute(pts);if(!clean.length)return[];const step=Math.max(1,Math.floor(clean.length/60));return clean.filter((_,i)=>i%step===0||i===clean.length-1).map(p=>({lat:+p.lat.toFixed(3),lon:+p.lon.toFixed(3)}));};
-  const t2=()=>JSON.stringify(acts.map(a=>({...a,route:aggressiveRoute(a.route),hrSamples:[]})));
-  const t3=()=>JSON.stringify(acts.map(a=>({...a,route:[],hrSamples:[]})));
-  try{localStorage.setItem(DATA_KEY,t1());return;}catch(_){}
-  try{localStorage.setItem(DATA_KEY,t2());console.warn('Runlytics: storage tight — routes compressed to 60pts');return;}catch(_){}
-  try{localStorage.setItem(DATA_KEY,t3());console.warn('Runlytics: storage full — routes stripped. Consider clearing old runs.');}catch(_){}
+
+  // Build each tier lazily — only serialise what we need
+  let payload;
+  try{
+    payload=JSON.stringify(prepareForStorage(acts));
+    logStorage('save:t1',acts,payload);
+  }catch(e){
+    console.error('[Runlytics] save t1 serialise failed:',e.message||e);
+    try{
+      payload=JSON.stringify(acts.map(a=>({...a,route:aggressiveRoute(a.route),hrSamples:[]})));
+      logStorage('save:t2(serialise-fallback)',acts,payload);
+    }catch(e2){
+      console.error('[Runlytics] save t2 serialise failed:',e2.message||e2);
+      payload=JSON.stringify(acts.map(a=>({...a,route:[],hrSamples:[]})));
+      console.error('[Runlytics] save t3 (routes stripped — serialise failure)');
+    }
+  }
+
+  try{
+    localStorage.setItem(DATA_KEY,payload);
+    return; // success
+  }catch(e){
+    if(!isQuotaError(e)){
+      // Not a quota error — something else went wrong (permissions, private mode lockout, etc.)
+      console.error('[Runlytics] localStorage.setItem failed (non-quota):',e.name,e.message);
+      return;
+    }
+    console.warn(`[Runlytics] Quota hit on t1 (${storageSizeKB(payload)}KB) — trying t2`);
+  }
+
+  // Quota hit — try aggressive compression with HR stripped
+  try{
+    const p2=JSON.stringify(acts.map(a=>({...a,route:aggressiveRoute(a.route),hrSamples:[]})));
+    localStorage.setItem(DATA_KEY,p2);
+    console.warn(`[Runlytics] Saved t2 (${storageSizeKB(p2)}KB, routes compressed to 60pts, HR stripped)`);
+    return;
+  }catch(e){
+    if(!isQuotaError(e)){console.error('[Runlytics] t2 write failed (non-quota):',e.name);return;}
+    console.warn('[Runlytics] Quota hit on t2 — trying t3 (strips routes)');
+  }
+
+  // Last resort — strip everything
+  try{
+    const p3=JSON.stringify(acts.map(a=>({...a,route:[],hrSamples:[]})));
+    localStorage.setItem(DATA_KEY,p3);
+    console.error(`[Runlytics] ROUTES STRIPPED — storage full (${storageSizeKB(p3)}KB). Delete old runs in Settings.`);
+  }catch(e){
+    console.error('[Runlytics] All save tiers failed — data NOT persisted:',e.name,e.message);
+  }
 }
 function loadGoals(){try{return JSON.parse(localStorage.getItem(GOALS_KEY)||"null")||{weekly:40,monthly:160};}catch(e){return{weekly:40,monthly:160};}}
 function saveGoals(g){try{localStorage.setItem(GOALS_KEY,JSON.stringify(g));}catch(e){}}
@@ -2084,8 +2156,18 @@ function Detail({act,hrProfile,onClose,onDelete,onShare}){
         )}
         {tab==="map"&&(
           <div className="card" style={{padding:16}}>
-            {/* FIX #2: was <RouteMap> — correct name is RouteMapSVG */}
-            {act.route&&act.route.length>=2?<RouteMapSVG route={act.route} act={act}/>:<div style={{height:160,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--tx2)"}}>No GPS route</div>}
+            {act.route&&act.route.length>=2
+              ?<RouteMapSVG route={act.route} act={act}/>
+              :<div style={{minHeight:160,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,textAlign:"center",padding:"8px 0"}}>
+                <span style={{fontSize:"2rem",opacity:.5}}>🗺️</span>
+                <div style={{fontWeight:600,fontSize:".88rem",color:"var(--tx2)"}}>No GPS route saved</div>
+                <div style={{fontSize:".74rem",color:"var(--tx3)",lineHeight:1.6,maxWidth:240}}>
+                  {act.source==="strava"
+                    ?"This run was synced from Strava before route decoding was enabled.\nGo to Settings → Strava Sync → Sync to re-import with map data."
+                    :"Route data is missing. Re-upload the original GPX file to restore the map."}
+                </div>
+              </div>
+            }
           </div>
         )}
       </div>
@@ -3248,7 +3330,17 @@ const App=()=>{
   const openUpload=useCallback(()=>{history.pushState({_rl:"u"},"");setShowUpload(true);},[]);
 
   const deleteAct=useCallback(id=>{setActs(p=>p.filter(a=>a.id!==id));if(detRef.current)history.back();},[setActs]);
-  const addAct=useCallback(act=>{setActs(p=>{if(p.some(a=>a.id===act.id))return p;return[act,...p];});},[setActs]);
+  // addAct writes synchronously — NOT through the debounce — because mobile Safari
+  // can suspend the page (bfcache) within the 500ms debounce window, freezing the
+  // timer and losing the route data before it ever reaches localStorage.
+  const addAct=useCallback(act=>{
+    setActsRaw(prev=>{
+      if(prev.some(a=>a.id===act.id))return prev;
+      const next=[act,...prev];
+      saveActs(next); // immediate, synchronous — bypasses debounce
+      return next;
+    });
+  },[]);
 
   // FIX #14: Use \u2713 (Unicode) not &#x2713; (HTML entity) in JS strings
   const doStravaSync=useCallback(async(silent=true)=>{
@@ -3265,7 +3357,12 @@ const App=()=>{
       const data=await r.json();
       const mapped=data.map(mapStravaActivity).filter(Boolean);
       let added=0;
-      setActs(prev=>{const ids=new Set(prev.map(a=>a.id));const fresh=mapped.filter(a=>!ids.has(a.id));added=fresh.length;return fresh.length?[...fresh,...prev]:prev;});
+      setActs(prev=>{const ids=new Set(prev.map(a=>a.id));const fresh=mapped.filter(a=>!ids.has(a.id));added=fresh.length;
+        if(!fresh.length)return prev;
+        const next=[...fresh,...prev];
+        saveActs(next); // immediate save after Strava import — same bfcache safety reason as addAct
+        return next;
+      });
       // FIX #14: \u2713 renders as ✓ when used as a JS string value
       setStravaSync({loading:false,msg:silent&&!added?"":added?("\u2713 "+added+" new run"+(added>1?"s":"")+" synced"):"Already up to date"});
     }catch(e){setStravaSync({loading:false,msg:"Sync failed."});}
