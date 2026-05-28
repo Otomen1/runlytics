@@ -449,6 +449,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .coach-body.open{max-height:120px;opacity:1;}
 .icon-wrap{display:flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:var(--r-md);}
 .screen-title{font-weight:700;font-size:var(--fs-lg);}
+.run-card{display:flex;align-items:center;background:var(--s2);border:1px solid var(--bd);border-radius:var(--r-lg);padding:13px 13px;margin-bottom:9px;cursor:pointer;transition:border-color .18s,background .18s;-webkit-tap-highlight-color:transparent;}
+.run-card:active{background:var(--s3);transform:scale(.99);}
+@media(hover:hover){.run-card:hover{border-color:var(--bd2);background:var(--s3);}}
 `}</style>;
 
 const PRESET_BGS=[
@@ -2203,6 +2206,76 @@ function PRDetailModal({entry,onClose,onOpenRun}){
   );
 }
 
+// ── MiniMapThumb ─────────────────────────────────────────────────────────────
+// Pure SVG route thumbnail. No tiles, no canvas, no network requests.
+// Downsamples stored route to ≤80 pts — trivial CPU even for 200+ card lists.
+// React.memo prevents recomputation unless route/color props change.
+const MiniMapThumb=React.memo(function MiniMapThumb({route,color}){
+  const W=84,H=84;
+  const geo=useMemo(()=>{
+    if(!route||route.length<2)return null;
+    const pts=route.filter(p=>p&&isFinite(p.lat)&&isFinite(p.lon));
+    if(pts.length<2)return null;
+    let x0=pts[0].lon,x1=pts[0].lon,y0=pts[0].lat,y1=pts[0].lat;
+    for(const p of pts){if(p.lon<x0)x0=p.lon;if(p.lon>x1)x1=p.lon;if(p.lat<y0)y0=p.lat;if(p.lat>y1)y1=p.lat;}
+    const pad=9,dLon=x1-x0||0.0005,dLat=y1-y0||0.0005;
+    // uniform scale — preserve route shape, center in square
+    const sc=Math.min((W-pad*2)/dLon,(H-pad*2)/dLat);
+    const ox=(W-dLon*sc)/2,oy=(H-dLat*sc)/2;
+    const tx=lon=>ox+(lon-x0)*sc;
+    const ty=lat=>oy+(y1-lat)*sc; // flip y: higher lat → lower px
+    const step=Math.max(1,Math.floor(pts.length/80));
+    const sp=pts.filter((_,i)=>i%step===0||i===pts.length-1);
+    const d=sp.map((p,i)=>(i===0?'M':'L')+tx(p.lon).toFixed(1)+','+ty(p.lat).toFixed(1)).join(' ');
+    return{d,sx:tx(sp[0].lon),sy:ty(sp[0].lat),ex:tx(sp[sp.length-1].lon),ey:ty(sp[sp.length-1].lat)};
+  },[route]);
+
+  const c=color||'#f97316';
+  // Shared wrapper style
+  const wrap={width:W,height:H,borderRadius:'var(--r-lg)',flexShrink:0,overflow:'hidden'};
+
+  if(!geo){
+    // Elegant placeholder for activities with no GPS data
+    return(
+      <div style={{...wrap,background:'var(--s3)',boxShadow:'inset 0 0 0 1px rgba(255,255,255,.06)',
+        display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4}}>
+        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{position:'absolute',inset:0}}>
+          {Array.from({length:7},(_,i)=>(
+            <g key={i}>
+              <line x1={i*13+3} y1={0} x2={i*13+3} y2={H} stroke="rgba(255,255,255,.03)" strokeWidth={1}/>
+              <line x1={0} y1={i*13+3} x2={W} y2={i*13+3} stroke="rgba(255,255,255,.03)" strokeWidth={1}/>
+            </g>
+          ))}
+        </svg>
+        <span style={{fontSize:'.9rem',opacity:.35,position:'relative'}}>🗺️</span>
+        <span style={{fontSize:'.48rem',fontWeight:700,letterSpacing:'.08em',color:'rgba(255,255,255,.2)',position:'relative'}}>NO GPS</span>
+      </div>
+    );
+  }
+
+  return(
+    <div style={{...wrap,background:'#090e1a',boxShadow:'inset 0 0 0 1px rgba(255,255,255,.07)'}}>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
+        {/* subtle dot-grid background for map feel */}
+        {Array.from({length:6},(_,i)=>(
+          <g key={i}>
+            <line x1={i*14+5} y1={0} x2={i*14+5} y2={H} stroke="rgba(255,255,255,.04)" strokeWidth={1}/>
+            <line x1={0} y1={i*14+5} x2={W} y2={i*14+5} stroke="rgba(255,255,255,.04)" strokeWidth={1}/>
+          </g>
+        ))}
+        {/* soft glow halo beneath the route */}
+        <path d={geo.d} fill="none" stroke={c} strokeWidth={6} strokeOpacity={.16} strokeLinecap="round" strokeLinejoin="round"/>
+        {/* main route polyline */}
+        <path d={geo.d} fill="none" stroke={c} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"/>
+        {/* start dot — green */}
+        <circle cx={geo.sx} cy={geo.sy} r={3.8} fill="#22c55e" stroke="#090e1a" strokeWidth={1.5}/>
+        {/* finish dot — red */}
+        <circle cx={geo.ex} cy={geo.ey} r={3.8} fill="#ef4444" stroke="#090e1a" strokeWidth={1.5}/>
+      </svg>
+    </div>
+  );
+});
+
 // FIX #12: Renamed prop onSelect → onSelectAct to match how App calls this component
 function AllRunsView({acts,onSelectAct,onClose}){
   const[filter,setFilter]=useState("all");const[search,setSearch]=useState("");
@@ -2225,25 +2298,38 @@ function AllRunsView({acts,onSelectAct,onClose}){
           {types.map(t=><button key={t} className={"pill "+(filter===t?"on":"")} onClick={()=>setFilter(t)} style={{flexShrink:0,textTransform:"capitalize"}}>{t==="all"?"All ("+acts.length+")":t}</button>)}
         </div>
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:"12px 18px",paddingBottom:"max(32px,calc(env(safe-area-inset-bottom)+16px))"}}>
-        {list.map(a=>{const clr=ACT_CLR[a.type]||"#6b7280";return(
-          <div key={a.id} className="card2 tap" style={{padding:"12px 14px",marginBottom:8,cursor:"pointer"}} onClick={()=>onSelectAct(a)}>
-            <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <div style={{width:36,height:36,borderRadius:10,background:clr+"20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1rem",flexShrink:0}}>{ACT_ICN[a.type]||"🏃"}</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:".83rem",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:3}}>{a.name}</div>
-                <div style={{display:"flex",gap:10,fontSize:".7rem",color:"var(--tx2)"}}>
-                  <span>{fmtDateS(a.date)}</span>
-                  <span style={{color:clr,fontWeight:600}}>{fmtKm(a.distanceKm)} km</span>
-                  <span>{fmtPace(a.avgPaceSecKm)}/km</span>
-                  {a.avgHR&&<span>HR {a.avgHR}</span>}
+      <div style={{flex:1,overflowY:"auto",padding:"10px 14px",paddingBottom:"max(32px,calc(env(safe-area-inset-bottom)+16px))"}}>
+        {list.map(a=>{
+          const clr=ACT_CLR[a.type]||"#6b7280";
+          return(
+            <div key={a.id} className="run-card" onClick={()=>onSelectAct(a)}>
+              {/* ── Left: activity info ── */}
+              <div style={{flex:1,minWidth:0,paddingRight:11}}>
+                {/* name row with type icon */}
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+                  <span style={{fontSize:".82rem",flexShrink:0}}>{ACT_ICN[a.type]||"🏃"}</span>
+                  <div style={{fontWeight:700,fontSize:".88rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--tx)"}}>{a.name}</div>
                 </div>
+                {/* hero distance */}
+                <div style={{fontSize:"1.32rem",fontWeight:800,color:clr,lineHeight:1,marginBottom:5,letterSpacing:"-.01em"}}>
+                  {fmtKm(a.distanceKm)}<span style={{fontSize:".68rem",fontWeight:500,color:"var(--tx3)",marginLeft:3}}>km</span>
+                </div>
+                {/* stats row */}
+                <div style={{display:"flex",flexWrap:"wrap",gap:5,fontSize:".7rem",color:"var(--tx2)",marginBottom:3}}>
+                  <span>{fmtDur(a.movingTimeSec)}</span>
+                  <span style={{color:"var(--tx3)"}}>·</span>
+                  <span>{fmtPace(a.avgPaceSecKm)}/km</span>
+                  {a.avgHR&&<><span style={{color:"var(--tx3)"}}>·</span><span>HR {a.avgHR}</span></>}
+                </div>
+                {/* date */}
+                <div style={{fontSize:".66rem",color:"var(--tx3)"}}>{fmtDateS(a.date)}</div>
               </div>
-              <span style={{color:"var(--tx3)",fontSize:".8rem"}}>›</span>
+              {/* ── Right: mini route map ── */}
+              <MiniMapThumb route={a.route} color={clr}/>
             </div>
-          </div>
-        );})}
-        <div style={{textAlign:"center",fontSize:".72rem",color:"var(--tx3)",padding:"8px 0"}}>{list.length} runs</div>
+          );
+        })}
+        <div style={{textAlign:"center",fontSize:".7rem",color:"var(--tx3)",padding:"10px 0"}}>{list.length} {list.length===1?"run":"runs"}</div>
       </div>
     </div>
   );
