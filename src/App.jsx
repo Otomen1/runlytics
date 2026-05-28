@@ -18,7 +18,20 @@ function loadActs(){try{return JSON.parse(localStorage.getItem(DATA_KEY)||"[]").
 function compressRoute(pts){if(!pts||!pts.length)return[];const step=Math.max(1,Math.floor(pts.length/300));return pts.filter((_,i)=>i%step===0||i===pts.length-1).map(p=>({lat:+p.lat.toFixed(4),lon:+p.lon.toFixed(4)}));}
 function compressHR(samples){if(!samples||!samples.length)return[];const step=Math.max(1,Math.floor(samples.length/150));return samples.filter((_,i)=>i%step===0||i===samples.length-1);}
 function prepareForStorage(acts){return acts.map(a=>({...a,route:compressRoute(a.route),hrSamples:compressHR(a.hrSamples)}));}
-function saveActs(acts){try{localStorage.setItem(DATA_KEY,JSON.stringify(prepareForStorage(acts)));}catch(e){try{const stripped=acts.map(a=>({...a,route:[],hrSamples:[]}));localStorage.setItem(DATA_KEY,JSON.stringify(stripped));}catch(e2){}}}
+// Tiered storage strategy — routes are preserved as long as possible.
+// Tier 1: normal compressed save (≤300 route pts, 4dp precision).
+// Tier 2: quota exceeded → aggressive compression (≤60 pts, 3dp) keeps routes.
+// Tier 3: still full → strip hrSamples, keep routes at 60 pts.
+// Tier 4: last resort → strip ALL route+HR (never silently, always logs warning).
+function saveActs(acts){
+  const t1=()=>JSON.stringify(prepareForStorage(acts));
+  const aggressiveRoute=pts=>{if(!pts||!pts.length)return[];const step=Math.max(1,Math.floor(pts.length/60));return pts.filter((_,i)=>i%step===0||i===pts.length-1).map(p=>({lat:+p.lat.toFixed(3),lon:+p.lon.toFixed(3)}));};
+  const t2=()=>JSON.stringify(acts.map(a=>({...a,route:aggressiveRoute(a.route),hrSamples:[]})));
+  const t3=()=>JSON.stringify(acts.map(a=>({...a,route:[],hrSamples:[]})));
+  try{localStorage.setItem(DATA_KEY,t1());return;}catch(_){}
+  try{localStorage.setItem(DATA_KEY,t2());console.warn('Runlytics: storage tight — routes compressed to 60pts');return;}catch(_){}
+  try{localStorage.setItem(DATA_KEY,t3());console.warn('Runlytics: storage full — routes stripped. Consider clearing old runs.');}catch(_){}
+}
 function loadGoals(){try{return JSON.parse(localStorage.getItem(GOALS_KEY)||"null")||{weekly:40,monthly:160};}catch(e){return{weekly:40,monthly:160};}}
 function saveGoals(g){try{localStorage.setItem(GOALS_KEY,JSON.stringify(g));}catch(e){}}
 function loadHRProfile(){try{return JSON.parse(localStorage.getItem(HR_KEY)||"null")||{age:30,overrideMAF:null,modifier:0};}catch(e){return{age:30,overrideMAF:null,modifier:0};}}
@@ -108,18 +121,32 @@ function parseGPX(xmlStr,fileName){
     const trkpts=Array.from(doc.querySelectorAll("trkpt,rtept,wpt"));
     if(trkpts.length<2)return null;
     const pts=[];
-    trkpts.forEach(pt=>{
+    trkpts.forEach((pt,ptIdx)=>{
       const lat=parseFloat(pt.getAttribute("lat")||"");const lon=parseFloat(pt.getAttribute("lon")||"");
       if(!isFinite(lat)||!isFinite(lon)||lat<-90||lat>90||lon<-180||lon>180)return;
       const ele=parseFloat(pt.querySelector("ele")?.textContent||"0")||0;
-      const timeEl=pt.querySelector("time");const timeMs=timeEl?new Date(timeEl.textContent).getTime():0;
-      const hrEl=pt.querySelector("extensions hr,heartrate,ns3\\:hr,gpxtpx\\:hr");
-      const hr=hrEl?parseInt(hrEl.textContent)||null:null;
-      pts.push({lat,lon,ele,time:timeMs,hr,sec:0});
+      const timeEl=pt.querySelector("time");
+      const timeMs=timeEl?new Date(timeEl.textContent?.trim()||"").getTime()||0:0;
+      // HR: try multiple selectors individually — querySelector with namespaced colons
+      // is unreliable on Android DOMParser; fall back to textContent scan
+      let hr=null;
+      const extEl=pt.querySelector("extensions");
+      if(extEl){
+        const hrTry=extEl.querySelector("hr")||extEl.querySelector("heartrate")||
+          Array.from(extEl.querySelectorAll("*")).find(el=>el.localName==="hr"||el.localName==="heartrate");
+        if(hrTry){const v=parseInt(hrTry.textContent);if(v>30&&v<250)hr=v;}
+      }
+      pts.push({lat,lon,ele,time:timeMs,hr,ptIdx});
     });
     if(pts.length<2)return null;
-    const t0=pts[0].time;
-    pts.forEach((p,i)=>{p.sec=p.time&&t0?Math.max(0,Math.round((p.time-t0)/1000)):i;});
+    // Build sec offsets: prefer timestamps; fall back to even spacing across 1 hour
+    const validTimes=pts.filter(p=>p.time>0);
+    const hasTimestamps=validTimes.length>=2;
+    const t0=hasTimestamps?validTimes[0].time:0;
+    const totalFallbackSec=3600;
+    pts.forEach((p,i)=>{
+      p.sec=hasTimestamps&&p.time>0?Math.max(0,Math.round((p.time-t0)/1000)):Math.round(i/(pts.length-1)*totalFallbackSec);
+    });
     const R=6371000;let distM=0,elevGain=0,elevLoss=0;
     for(let i=1;i<pts.length;i++){
       const a=pts[i-1],b=pts[i];
@@ -129,12 +156,13 @@ function parseGPX(xmlStr,fileName){
       const de=b.ele-a.ele;if(de>0)elevGain+=de;else elevLoss+=Math.abs(de);
     }
     const distKm=distM/1000;
-    const timeSec=pts[pts.length-1].sec||((pts[pts.length-1].time-pts[0].time)/1000)||1;
+    const timeSec=hasTimestamps?Math.max(1,(pts[pts.length-1].sec||0)):totalFallbackSec;
     const paceSecKm=distKm>0?timeSec/distKm:0;
     const hrPts=pts.filter(p=>p.hr&&p.hr>40&&p.hr<220);
     const avgHR=hrPts.length?Math.round(hrPts.reduce((s,p)=>s+p.hr,0)/hrPts.length):null;
     const maxHR=hrPts.length?hrPts.reduce((m,p)=>p.hr>m?p.hr:m,0):null;
-    const d=pts[0].time?new Date(pts[0].time):new Date();
+    const firstValidTime=validTimes.length?validTimes[0].time:0;
+    const d=firstValidTime?new Date(firstValidTime):new Date();
     const dateStr=d.toISOString().slice(0,10);
     const trainingLoad=timeSec&&avgHR?Math.round((timeSec/60)*(avgHR/100)*1.5):Math.round(distKm*8);
     const step=Math.max(1,Math.floor(pts.length/400));
@@ -317,17 +345,17 @@ function computeEarnedBadges(acts){return BADGE_DEFS.filter(b=>{try{return b.che
 
 const SH=({title,sub})=>(
   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-    <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)"}}>{title}</div>
-    {sub&&<div style={{fontSize:".62rem",color:"var(--tx3)"}}>{sub}</div>}
+    <div className="sl">{title}</div>
+    {sub&&<div style={{fontSize:".66rem",color:"var(--tx3)"}}>{sub}</div>}
   </div>
 );
-function Ring({pct=0,size=64,color="var(--or)",children}){
-  const r=(size-7)/2,c=2*Math.PI*r,off=c*(1-Math.min(1,Math.max(0,pct)));const done=pct>=1;
+function Ring({pct=0,size=64,color="var(--or)",children,sw=7}){
+  const r=(size-sw)/2,c=2*Math.PI*r,off=c*(1-Math.min(1,Math.max(0,pct)));const done=pct>=1;
   return(
     <div style={{position:"relative",width:size,height:size,flexShrink:0,transition:"transform .3s cubic-bezier(.34,1.56,.64,1)",transform:done?"scale(1.06)":"scale(1)"}}>
       <svg width={size} height={size} style={{transform:"rotate(-90deg)"}}>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--bd)" strokeWidth={7}/>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={pct>0?color:"var(--bd)"} strokeWidth={7}
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--bd)" strokeWidth={sw}/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={pct>0?color:"var(--bd)"} strokeWidth={sw}
           strokeLinecap="round" strokeDasharray={c} strokeDashoffset={off}
           style={{transition:"stroke-dashoffset 1s cubic-bezier(.4,0,.2,1),stroke .3s ease"}}/>
       </svg>
@@ -343,8 +371,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   --bg:#06080f;--s1:#0b0f1a;--s2:#101622;--s3:#141c2a;--bd:#1c2538;--bd2:#232f48;
   --or:#f97316;--or2:rgba(249,115,22,.14);--or3:rgba(249,115,22,.07);
   --gn:#22c55e;--gn2:rgba(34,197,94,.13);--rd:#ef4444;--rd2:rgba(239,68,68,.12);
-  --bl:#3b82f6;--yw:#eab308;--tx:#d8e6f7;--tx2:#5a729a;--tx3:#2e3d55;
+  --bl:#3b82f6;--yw:#eab308;--tx:#d8e6f7;--tx2:#6e8aab;--tx3:#4a6580;
   --r-sm:10px;--r-md:12px;--r-lg:14px;--r-xl:18px;
+  /* Typography scale */
+  --fs-xs:.72rem;--fs-sm:.8rem;--fs-base:.88rem;
+  --fs-lg:1.05rem;--fs-xl:1.25rem;--fs-2xl:1.5rem;
+  /* Spacing rhythm */
+  --gap-card:14px;--pad-card:16px;
 }
 ::-webkit-scrollbar{width:0;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
@@ -355,9 +388,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
 .a0{animation:fadeUp .24s ease both}.a1{animation:fadeUp .24s .05s ease both}.a2{animation:fadeUp .24s .1s ease both}.a3{animation:fadeUp .24s .15s ease both}
 .tab-in{animation:tabIn .18s cubic-bezier(.4,0,.2,1) both}
-.card{background:var(--s1);border:1px solid var(--bd);border-radius:var(--r-lg);}
-.card2{background:var(--s2);border:1px solid var(--bd);border-radius:var(--r-lg);}
-@media(hover:hover){.card:hover{border-color:var(--bd2);}}
+.card{background:var(--s1);border:1px solid var(--bd);border-radius:var(--r-lg);transition:border-color .18s;}
+.card2{background:var(--s2);border:1px solid var(--bd);border-radius:var(--r-lg);transition:border-color .18s;}
+@media(hover:hover){.card:hover{border-color:var(--bd2);}.card2:hover{border-color:var(--bd2);}}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:var(--r-lg);font-family:inherit;font-weight:600;cursor:pointer;transition:opacity .15s,transform .12s,box-shadow .15s;white-space:nowrap;font-size:.84rem;}
 .btn:active{opacity:.78;transform:scale(.965);}
 .btn:disabled,.btn[disabled]{opacity:.38;cursor:not-allowed;pointer-events:none;transform:none;}
@@ -377,7 +410,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .tab-btn::after{content:'';position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:0;height:2px;border-radius:1px;background:var(--or);transition:width .22s cubic-bezier(.4,0,.2,1);}
 .tab-btn.on::after{width:22px;}
 .sl{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--tx3);}
-.pb{height:5px;background:var(--bd);border-radius:3px;overflow:hidden;}
+.pb{height:6px;background:var(--bd);border-radius:3px;overflow:hidden;}
 .pf{height:100%;border-radius:3px;transition:width .85s cubic-bezier(.4,0,.2,1);}
 .chart-tip{background:var(--s1);border:1px solid var(--bd2);border-radius:var(--r-sm);padding:8px 12px;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.4);}
 .chart-tip-val{font-weight:700;font-size:.88rem;color:var(--or);}
@@ -403,6 +436,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .slide-up2{animation:slideUp2 .24s ease both}
 .success-pop{animation:successPop .4s ease}
 .bounce-in{animation:bounceIn .45s cubic-bezier(.34,1.56,.64,1)}
+@keyframes slideUpSheet{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes fadeOverlay{from{opacity:0}to{opacity:1}}
+.sheet{animation:slideUpSheet .28s cubic-bezier(.32,.72,0,1) both}
+.fade-overlay{animation:fadeOverlay .2s ease both}
+.spinner{width:16px;height:16px;border-radius:50%;border:2px solid var(--bd2);border-top-color:var(--or);animation:spin .75s linear infinite;flex-shrink:0;display:inline-block}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:0.01ms!important;animation-iteration-count:1!important;transition-duration:0.01ms!important;}
+  .pf{transition:none!important;}
+}
+.coach-body{overflow:hidden;max-height:0;opacity:0;transition:max-height .24s ease,opacity .2s ease;}
+.coach-body.open{max-height:120px;opacity:1;}
+.icon-wrap{display:flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:var(--r-md);}
+.screen-title{font-weight:700;font-size:var(--fs-lg);}
 `}</style>;
 
 const PRESET_BGS=[
@@ -430,19 +476,18 @@ function drawRouteCanvas(ctx,route,ox,oy,W,H){
 }
 function CoachCard({insight}){
   const[open,setOpen]=useState(false);if(!insight)return null;
-  const col=IC[insight.type]||"var(--tx2)";const bg=IC_BG[insight.type]||"rgba(255,255,255,.04)";const bd=IC_BD[insight.type]||"rgba(255,255,255,.1)";
+  const col=IC[insight.type]||"var(--tx2)";
   const body=insight.detail||insight.body||null;
   return(
-    <div style={{background:bg,border:"1px solid "+bd,borderRadius:12,cursor:body?"pointer":"default"}} onClick={()=>body&&setOpen(o=>!o)}>
-      <div style={{padding:"12px 14px",display:"flex",alignItems:"center",gap:11}}>
-        <span style={{fontSize:"1.15rem",flexShrink:0}}>{insight.icon||""}</span>
+    <div className="card" style={{borderColor:IC_BD[insight.type]||"var(--bd)",background:IC_BG[insight.type]||"rgba(255,255,255,.04)",cursor:body?"pointer":"default"}} onClick={()=>body&&setOpen(o=>!o)}>
+      <div style={{padding:"13px 15px",display:"flex",alignItems:"center",gap:12}}>
+        <span style={{fontSize:"1.2rem",flexShrink:0}}>{insight.icon||""}</span>
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontWeight:700,fontSize:".88rem"}}>{insight.title}</div>
-          {!open&&body&&<div style={{fontSize:".73rem",color:"var(--tx2)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{body}</div>}
+          <div style={{fontWeight:700,fontSize:"var(--fs-base)"}}>{insight.title}</div>
+          <div style={{fontSize:"var(--fs-sm)",color:"var(--tx2)",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:open?"normal":"nowrap"}}>{body||""}</div>
         </div>
-        {body&&<span style={{color:col,fontSize:".7rem",transform:open?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>}
+        {body&&<span style={{color:col,fontSize:".7rem",transform:open?"rotate(180deg)":"none",transition:"transform .22s cubic-bezier(.4,0,.2,1)",flexShrink:0}}>▾</span>}
       </div>
-      {open&&body&&<div style={{padding:"0 14px 12px 49px"}}><div style={{fontSize:".8rem",color:"var(--tx2)",lineHeight:1.6}}>{body}</div></div>}
     </div>
   );
 }
@@ -824,7 +869,7 @@ function ShareCard({type,act,W=270,H=480}){
   const dist=fmtKm(act.distanceKm);
   const durFmt=fmtDur(act.movingTimeSec);
   const paceFmt=fmtPace(act.avgPaceSecKm)+"/km";
-  const hasRoute=act.route&&act.route.length>2;
+  const hasRoute=act.route&&act.route.length>=2;
   const runName=act.name||"Activity";
   const d=act.dateTs?new Date(act.dateTs):null;
   const dateStr=d?d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):fmtDate(act.date);
@@ -1136,7 +1181,7 @@ function ShareModal({act,onClose,onOpenEditor}){
       await downloadExport(act,SHARE_TEMPLATES[idx].id,fmt);
       setExportState('success');
       successTimerRef.current=setTimeout(()=>setExportState('idle'),2500);
-    }catch{setExportState('idle');}
+    }catch{setExportState('error');successTimerRef.current=setTimeout(()=>setExportState('idle'),3000);}
   };
 
   const tmpl=SHARE_TEMPLATES[idx];
@@ -1206,11 +1251,18 @@ function ShareModal({act,onClose,onOpenEditor}){
           <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:12,padding:'14px',
             borderRadius:14,background:'rgba(255,255,255,.05)',border:'1px solid rgba(255,255,255,.08)',
             marginBottom:8}}>
-            <div style={{width:18,height:18,borderRadius:'50%',border:'2px solid rgba(255,255,255,.15)',
-              borderTopColor:'#f97316',animation:'spin .7s linear infinite',flexShrink:0}}/>
+            <div className="spinner" style={{borderTopColor:'#f97316'}}/>
             <span style={{color:'rgba(255,255,255,.52)',fontSize:'.84rem'}}>
               Preparing {exportFmt.toUpperCase()}…
             </span>
+          </div>
+        )}
+        {exportState==='error'&&(
+          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:10,padding:'14px',
+            borderRadius:14,background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.25)',
+            marginBottom:8,animation:'slideUp2 .22s ease'}}>
+            <span style={{fontSize:'1rem'}}>⚠️</span>
+            <span style={{color:'#f87171',fontSize:'.84rem',fontWeight:600}}>Export failed — try again</span>
           </div>
         )}
         {exportState==='success'&&(
@@ -1348,7 +1400,7 @@ function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUpl
     </div>
     <div className="a1" style={{marginBottom:14}}>
       <div className="sl" style={{marginBottom:7}}>Today's Recommendation</div>
-      <div style={{background:IC_BG[rec.type]||"rgba(255,255,255,.04)",border:"1px solid "+(IC_BD[rec.type]||"rgba(255,255,255,.1)"),borderRadius:12,padding:"13px 15px",display:"flex",alignItems:"center",gap:12}}>
+      <div style={{background:IC_BG[rec.type]||"rgba(255,255,255,.04)",border:"1px solid "+(IC_BD[rec.type]||"rgba(255,255,255,.1)"),borderRadius:"var(--r-lg)",padding:"13px 15px",display:"flex",alignItems:"center",gap:12}}>
         <span style={{fontSize:"1.35rem",flexShrink:0}}>{rec.icon}</span>
         <div><div style={{fontWeight:700,fontSize:".88rem",marginBottom:2}}>{rec.title}</div><div style={{fontSize:".77rem",color:"var(--tx2)",lineHeight:1.5}}>{rec.sub}</div></div>
       </div>
@@ -1377,7 +1429,7 @@ function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUpl
     {!lastRun&&(
       <div className="card a2" style={{padding:28,textAlign:"center",marginBottom:14,borderStyle:"dashed"}}>
         <div style={{fontSize:"2.8rem",marginBottom:12}}>🏃</div>
-        <div style={{fontWeight:700,fontSize:".95rem",marginBottom:6}}>No runs yet</div>
+        <div style={{fontWeight:700,fontSize:"var(--fs-base)",marginBottom:6}}>No runs yet</div>
         <div style={{fontSize:".8rem",color:"var(--tx2)",marginBottom:18,lineHeight:1.6}}>Upload a GPX file to get started</div>
         <button className="btn b-or" style={{padding:"11px 24px"}} onClick={onUpload}>Upload GPX</button>
       </div>
@@ -1439,8 +1491,8 @@ function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR}){
       <div className="a0" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:18}}>
         {[{l:"Total km",v:parseFloat(totalKm.toFixed(0)).toLocaleString(),c:"var(--or)"},{l:"Runs",v:runs.length,c:"var(--bl)"},{l:"Time",v:fmtDur(runs.reduce((s,a)=>s+a.movingTimeSec,0)),c:"var(--gn)"}].map(s=>(
           <div key={s.l} className="card2" style={{padding:"14px 10px",textAlign:"center"}}>
-            <div style={{fontSize:"1.3rem",fontWeight:700,color:s.c,lineHeight:1,marginBottom:4}}>{s.v}</div>
-            <div style={{fontSize:".62rem",color:"var(--tx2)",letterSpacing:".04em"}}>{s.l}</div>
+            <div style={{fontSize:"var(--fs-xl)",fontWeight:700,color:s.c,lineHeight:1,marginBottom:4}}>{s.v}</div>
+            <div style={{fontSize:"var(--fs-xs)",color:"var(--tx2)",letterSpacing:".04em"}}>{s.l}</div>
           </div>
         ))}
       </div>
@@ -1460,7 +1512,7 @@ function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR}){
                   <stop offset="100%" stopColor="#ea580c" stopOpacity={0.65}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--bd)" vertical={false}/>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.06)" vertical={false}/>
               <XAxis dataKey="week" tick={{fill:"var(--tx3)",fontSize:9}} axisLine={false} tickLine={false}
                 tickFormatter={w=>w?w.slice(5):''}/>
               <YAxis tick={{fill:"var(--tx3)",fontSize:9}} axisLine={false} tickLine={false} width={32}/>
@@ -1514,16 +1566,16 @@ function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR}){
             {[{l:"Longest",v:fmtKm(overallPRs.longest&&overallPRs.longest.distanceKm||0)+" km",c:"var(--or)",sub:overallPRs.longest?fmtDateS(overallPRs.longest.date):""},
               {l:"Best Pace",v:fmtPace(overallPRs.fastest&&overallPRs.fastest.avgPaceSecKm||0)+"/km",c:"var(--bl)",sub:overallPRs.fastest?fmtDateS(overallPRs.fastest.date):""}].map(s=>(
               <div key={s.l} className="card2" style={{padding:"13px 11px"}}>
-                <div style={{fontSize:".62rem",color:"var(--tx3)",marginBottom:6,letterSpacing:".04em"}}>{s.l}</div>
-                <div style={{fontSize:"1.25rem",fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</div>
-                <div style={{fontSize:".64rem",color:"var(--tx3)",marginTop:5}}>{s.sub}</div>
+                <div style={{fontSize:"var(--fs-xs)",color:"var(--tx3)",marginBottom:6,letterSpacing:".04em"}}>{s.l}</div>
+                <div style={{fontSize:"var(--fs-xl)",fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</div>
+                <div style={{fontSize:"var(--fs-xs)",color:"var(--tx3)",marginTop:5}}>{s.sub}</div>
               </div>
             ))}
           </div>
         </div>
       )}
       {runs.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><button className="btn b-gh" style={{padding:"12px"}} onClick={onViewAll}>All Runs ({acts.length})</button><button className="btn b-gh" style={{padding:"12px"}} onClick={onViewMonthly}>Monthly</button></div>}
-      {!runs.length&&<div style={{textAlign:"center",padding:"48px 0",color:"var(--tx2)"}}><div style={{fontSize:"2.5rem",marginBottom:12}}>📊</div><div style={{fontWeight:600,marginBottom:6}}>No runs yet</div><div style={{fontSize:".8rem"}}>Upload a GPX file to see your stats</div></div>}
+      {!runs.length&&<div style={{textAlign:"center",padding:"56px 0",color:"var(--tx2)"}}><div style={{fontSize:"2.8rem",marginBottom:14}}>📊</div><div style={{fontWeight:700,fontSize:"var(--fs-base)",marginBottom:6,color:"var(--tx)"}}>Your stats start here</div><div style={{fontSize:".8rem",lineHeight:1.6}}>Upload a GPX or sync Strava to see your distance, pace, and PRs.</div></div>}
     </div>
   );
 }
@@ -1550,8 +1602,8 @@ function HRTab({acts,hrProfile,onEditHR}){
             <div style={{fontSize:".5rem",color:"var(--or)",opacity:.7,marginTop:2}}>BPM</div>
           </div>
           <div style={{flex:1}}>
-            <div style={{fontSize:".6rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:4}}>MAF Heart Rate</div>
-            <div style={{fontWeight:700,fontSize:".95rem",marginBottom:4}}>Aerobic Zone Target</div>
+            <div className="sl" style={{marginBottom:4}}>MAF Heart Rate</div>
+            <div style={{fontWeight:700,fontSize:"var(--fs-base)",marginBottom:4}}>Aerobic Zone Target</div>
             <div style={{fontSize:".74rem",color:"var(--tx2)",lineHeight:1.5}}>{hrProfile&&hrProfile.age?"180 − "+hrProfile.age+" = "+mafHR+" bpm":"Set age in Settings"}</div>
           </div>
         </div>
@@ -1576,7 +1628,7 @@ function HRTab({acts,hrProfile,onEditHR}){
         </div>
       )}
       <div className="a2" style={{marginBottom:14}}><SH title="Coach Assessment"/><CoachCard insight={insight}/></div>
-      {!runsWithHR.length&&<div style={{textAlign:"center",padding:"40px 0",color:"var(--tx2)"}}><div style={{fontSize:"2rem",marginBottom:8}}>❤️</div><div style={{marginBottom:12}}>No HR data yet</div><button className="btn b-or" style={{padding:"10px 20px"}} onClick={onEditHR}>Set up MAF Profile</button></div>}
+      {!runsWithHR.length&&<div style={{textAlign:"center",padding:"56px 0"}}><div style={{fontSize:"2.8rem",marginBottom:14}}>❤️</div><div style={{fontWeight:700,fontSize:"var(--fs-base)",marginBottom:6,color:"var(--tx)"}}>Train smarter with MAF</div><div style={{fontSize:".8rem",color:"var(--tx2)",marginBottom:20,lineHeight:1.6}}>Set your age to unlock heart-rate zone analysis and aerobic coaching.</div><button className="btn b-or" style={{padding:"11px 24px"}} onClick={onEditHR}>Set up MAF Profile</button></div>}
     </div>
   );
 }
@@ -1600,11 +1652,11 @@ function TasksTab({tasks,setTasks,hrProfile}){
   const totalEnabled=tasks.filter(t=>t.enabled).length;
   const last7=Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(6-i));d.setHours(0,0,0,0);return{key:d.toISOString().split("T")[0],label:d.toLocaleDateString("en-GB",{weekday:"short"}).slice(0,1)};});
   return(
-    <div style={{padding:"4px 0 32px"}}>
+    <div style={{padding:"10px 0 32px"}}>
       <div className="a0" style={{marginBottom:18}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:8}}>
           <div>
-            <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:4}}>Today's Habits</div>
+            <div className="sl" style={{marginBottom:4}}>Today's Habits</div>
             <div style={{fontSize:"1.3rem",fontWeight:700,lineHeight:1}}>
               <span style={{color:todayDone===totalEnabled?"var(--gn)":"var(--or)"}}>{todayDone}</span>
               <span style={{fontSize:".9rem",color:"var(--tx2)",fontWeight:400}}> / {totalEnabled}</span>
@@ -1733,7 +1785,7 @@ function AchievementsTab({earnedBadges,acts,analytics,tierProgress,newTiers}){
       {earned.length>0&&(
         <div className="card a2" style={{padding:16,marginBottom:14}}>
           <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:10}}>Achievement Badges</div>
-          <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:4}} className="scroll-x">
+          <div style={{display:"flex",gap:8,overflowX:"auto",paddingBottom:4,paddingRight:4}} className="scroll-x">
             {earned.slice(-6).reverse().map((b,i)=>(
               <div key={b.id} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,padding:"10px 9px",minWidth:64,borderRadius:12,flexShrink:0,background:b.color+"15",border:"1.5px solid "+b.color+"30",animation:"pop .4s "+(i*.06)+"s both"}}>
                 <span style={{fontSize:"1.6rem"}}>{b.icon}</span>
@@ -1744,11 +1796,11 @@ function AchievementsTab({earnedBadges,acts,analytics,tierProgress,newTiers}){
         </div>
       )}
       <div className="a3" style={{marginBottom:14}}>
-        <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:8}}>Locked ({BADGE_DEFS.filter(b=>!earnedBadges.has(b.id)).length})</div>
+        <div className="sl" style={{marginBottom:8}}>Locked ({BADGE_DEFS.filter(b=>!earnedBadges.has(b.id)).length})</div>
         <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
           {BADGE_DEFS.filter(b=>!earnedBadges.has(b.id)).map(b=>(
-            <div key={b.id} style={{padding:"5px 9px",borderRadius:20,border:"1px solid var(--bd)",background:"var(--s2)",display:"flex",alignItems:"center",gap:5,opacity:.6}}>
-              <span style={{fontSize:".85rem",filter:"grayscale(1)"}}>{b.icon}</span>
+            <div key={b.id} style={{padding:"5px 9px",borderRadius:20,border:"1px solid var(--bd)",background:"var(--s2)",display:"flex",alignItems:"center",gap:5}}>
+              <span style={{fontSize:".85rem",filter:"grayscale(1)",opacity:.7}}>{b.icon}</span>
               <span style={{fontSize:".68rem",color:"var(--tx3)"}}>{b.name}</span>
             </div>
           ))}
@@ -1769,8 +1821,8 @@ function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSave
   const prevMaf=useOv&&parseInt(ov)?parseInt(ov):ageNum?180-ageNum:null;
   const backBtn=<button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.1rem"}} onClick={()=>setView("main")}>‹</button>;
   return(
-    <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,.6)"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div className="glass" style={{width:"100%",maxWidth:430,borderRadius:"22px 22px 0 0",padding:"22px 20px 40px",maxHeight:"92vh",overflowY:"auto",border:"1px solid var(--bd)"}}>
+    <div className="fade-overlay" style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,.6)"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="glass sheet" style={{width:"100%",maxWidth:430,borderRadius:"22px 22px 0 0",padding:"22px 20px",paddingBottom:"max(40px,calc(env(safe-area-inset-bottom)+20px))",maxHeight:"92vh",overflowY:"auto",border:"1px solid var(--bd)"}}>
         <div style={{width:36,height:4,borderRadius:2,background:"var(--bd2)",margin:"0 auto 18px"}}/>
         {view==="main"&&(
           <div>
@@ -1798,7 +1850,7 @@ function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSave
         )}
         {view==="profile"&&(
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}<div style={{fontWeight:700,fontSize:"1.05rem"}}>Profile</div></div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}<div className="screen-title">Profile</div></div>
             <label style={{fontSize:".76rem",fontWeight:600,display:"block",marginBottom:7}}>Your name</label>
             <input className="inp" value={nm} onChange={e=>setNm(e.target.value)} placeholder="e.g. Alex" style={{marginBottom:18}}/>
             <button className="btn b-or" style={{width:"100%",padding:"12px"}} onClick={()=>{onSaveProfile({name:nm||"Runner"});setView("main");}}>Save</button>
@@ -1806,7 +1858,7 @@ function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSave
         )}
         {view==="hr"&&(
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}<div style={{fontWeight:700,fontSize:"1.05rem"}}>MAF HR Profile</div></div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}<div className="screen-title">MAF HR Profile</div></div>
             <label style={{fontSize:".76rem",fontWeight:600,display:"block",marginBottom:7}}>Age · 180 − age formula</label>
             <input className="inp" type="number" min="10" max="100" placeholder="e.g. 32" value={age} onChange={e=>setAge(e.target.value)} style={{marginBottom:ageNum&&!useOv?6:14}}/>
             {ageNum&&!useOv&&<div style={{fontSize:".72rem",color:"var(--gn)",marginBottom:14}}>✓ MAF HR: {180-ageNum} bpm</div>}
@@ -1837,7 +1889,7 @@ function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSave
         )}
         {view==="goals"&&(
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}<div style={{fontWeight:700,fontSize:"1.05rem"}}>Distance Goals</div></div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}<div className="screen-title">Distance Goals</div></div>
             {[["Weekly (km)",wk,setWk],["Monthly (km)",mo,setMo]].map(([l,v,sv])=>(
               <div key={l} style={{marginBottom:16}}>
                 <label style={{fontSize:".76rem",fontWeight:600,display:"block",marginBottom:7}}>{l}</label>
@@ -1849,7 +1901,7 @@ function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSave
         )}
         {view==="strava"&&(
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>{backBtn}<div style={{fontWeight:700,fontSize:"1.05rem"}}>Strava Sync</div></div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>{backBtn}<div className="screen-title">Strava Sync</div></div>
             {stravaAuth?(
               <div>
                 <div style={{padding:"12px 14px",borderRadius:12,background:"rgba(34,197,94,.1)",border:"1px solid rgba(34,197,94,.2)",marginBottom:14,display:"flex",alignItems:"center",gap:12}}>
@@ -1904,7 +1956,7 @@ function Detail({act,hrProfile,onClose,onDelete,onShare}){
         <div style={{display:"flex"}}>
           {["overview","heartrate","map"].map(t=>(
             <button key={t} onClick={()=>setTab(t)}
-              style={{padding:"8px 14px",border:"none",background:"transparent",color:tab===t?"var(--or)":"var(--tx2)",fontFamily:"inherit",fontSize:".76rem",fontWeight:tab===t?600:400,cursor:"pointer",textTransform:"capitalize",borderBottom:tab===t?"2px solid var(--or)":"2px solid transparent",transition:"color .15s"}}>
+              style={{padding:"8px 14px",border:"none",background:"transparent",color:tab===t?"var(--or)":"var(--tx2)",fontFamily:"inherit",fontSize:".78rem",fontWeight:tab===t?600:400,cursor:"pointer",textTransform:"capitalize",borderBottom:tab===t?"2px solid var(--or)":"2px solid transparent",transition:"color .15s"}}>
               {t}
             </button>
           ))}
@@ -1937,8 +1989,8 @@ function Detail({act,hrProfile,onClose,onDelete,onShare}){
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
                 {[{l:"Avg HR",v:act.avgHR+" bpm",c:"var(--rd)"},{l:"MAF HR",v:mafHR+" bpm",c:act.avgHR<=mafHR?"var(--gn)":"var(--yw)"}].map(s=>(
                   <div key={s.l} className="card2" style={{padding:"14px 12px",textAlign:"center"}}>
-                    <div style={{fontSize:"1.6rem",fontWeight:700,color:s.c,lineHeight:1,marginBottom:5}}>{s.v}</div>
-                    <div style={{fontSize:".62rem",color:"var(--tx2)"}}>{s.l}</div>
+                    <div style={{fontSize:"1.35rem",fontWeight:700,color:s.c,lineHeight:1,marginBottom:5}}>{s.v}</div>
+                    <div style={{fontSize:".65rem",color:"var(--tx2)",letterSpacing:".04em"}}>{s.l}</div>
                   </div>
                 ))}
               </div>
@@ -1970,7 +2022,7 @@ function Detail({act,hrProfile,onClose,onDelete,onShare}){
         {tab==="map"&&(
           <div className="card" style={{padding:16}}>
             {/* FIX #2: was <RouteMap> — correct name is RouteMapSVG */}
-            {act.route&&act.route.length>2?<RouteMapSVG route={act.route} act={act}/>:<div style={{height:160,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--tx2)"}}>No GPS route</div>}
+            {act.route&&act.route.length>=2?<RouteMapSVG route={act.route} act={act}/>:<div style={{height:160,display:"flex",alignItems:"center",justifyContent:"center",color:"var(--tx2)"}}>No GPS route</div>}
           </div>
         )}
       </div>
@@ -1978,7 +2030,18 @@ function Detail({act,hrProfile,onClose,onDelete,onShare}){
   );
 }
 
-// FIX #6b: parseGPX call now passes only (text, filename) — removed stray hrProfile arg
+// FileReader fallback for file.text() — file.text() is ES2019+ and missing
+// in iOS Safari <14, older Android WebView, and some Samsung Browser versions.
+// This is the primary cause of silent mobile upload failures.
+function readFileText(file){
+  if(typeof file.text==='function')return file.text();
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=e=>resolve(e.target.result);
+    reader.onerror=()=>reject(new Error('File read failed'));
+    reader.readAsText(file,'UTF-8');
+  });
+}
 function Upload({acts,hrProfile,onAdd,onClearAll}){
   const[queue,setQueue]=useState([]);const[drag,setDrag]=useState(false);const ref=useRef(null);
   const process=useCallback(async files=>{
@@ -1988,7 +2051,7 @@ function Upload({acts,hrProfile,onAdd,onClearAll}){
     setQueue(items);
     const res=await Promise.all(items.map(async item=>{
       try{
-        const text=await item.file.text();
+        const text=await readFileText(item.file);
         // FIX #6b: only pass text + filename (no hrProfile — parseGPX doesn't use it)
         const parsed=parseGPX(text,item.file.name);
         if(!parsed)return{...item,status:"error",error:"Could not parse GPX file"};
@@ -2005,10 +2068,14 @@ function Upload({acts,hrProfile,onAdd,onClearAll}){
     setQueue([]);
   };
   return(
-    <div style={{padding:"18px 0 32px"}}>
-      <div style={{fontWeight:700,fontSize:"1.1rem",marginBottom:4}}>Upload Runs</div>
+    <div style={{position:"fixed",inset:0,zIndex:210,background:"var(--bg)",display:"flex",flexDirection:"column"}}>
+      <div className="glass" style={{padding:"max(14px,calc(env(safe-area-inset-top)+8px)) 18px 12px",borderBottom:"1px solid var(--bd)",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+        <div className="screen-title">Upload Runs</div>
+        <button className="btn b-gh" style={{padding:"6px 13px"}} onClick={()=>onAdd([])}>✕ Close</button>
+      </div>
+      <div style={{flex:1,overflowY:"auto",padding:"18px 16px",paddingBottom:"max(32px,calc(env(safe-area-inset-bottom)+16px))"}}>
       <div style={{fontSize:".82rem",color:"var(--tx2)",marginBottom:18}}>Import GPX files from Garmin, Strava or any GPS watch</div>
-      <div className={"dz a0 "+(drag?"ov":"")} style={{padding:"32px 20px",textAlign:"center",marginBottom:14,cursor:"pointer"}}
+      <div className={"dz a0 "+(drag?"ov":"")} style={{padding:"28px 20px",textAlign:"center",marginBottom:14,cursor:"pointer"}}
         onDragOver={e=>{e.preventDefault();setDrag(true);}}
         onDragLeave={()=>setDrag(false)}
         onDrop={e=>{e.preventDefault();setDrag(false);process(e.dataTransfer.files);}}
@@ -2024,7 +2091,7 @@ function Upload({acts,hrProfile,onAdd,onClearAll}){
           {queue.map((item,idx)=>(
             <div key={idx} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:idx<queue.length-1?"1px solid var(--bd)":"none"}}>
               <div style={{width:34,height:34,borderRadius:10,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",background:item.status==="preview"?"var(--gn2)":item.status==="error"?"var(--rd2)":"var(--s3)"}}>
-                {item.status==="parsing"?<div style={{width:14,height:14,borderRadius:"50%",border:"2px solid var(--bd2)",borderTopColor:"var(--or)",animation:"spin 1s linear infinite"}}/>:item.status==="preview"?"✓":item.status==="error"?"✗":"≈"}
+                {item.status==="parsing"?<div className="spinner"/>:item.status==="preview"?"✓":item.status==="error"?"✗":"≈"}
               </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:".82rem",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.file.name}</div>
@@ -2058,6 +2125,7 @@ function Upload({acts,hrProfile,onAdd,onClearAll}){
           {acts.length>5&&<div style={{fontSize:".74rem",color:"var(--tx2)",textAlign:"center",padding:"6px 0"}}>+{acts.length-5} more</div>}
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -2068,11 +2136,11 @@ function MonthlyReport({acts,onClose}){
   return(
     <div style={{position:"fixed",inset:0,zIndex:220,background:"var(--bg)",display:"flex",flexDirection:"column"}}>
       <div className="glass" style={{padding:"14px 18px 12px",borderBottom:"1px solid var(--bd)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <div style={{fontWeight:700,fontSize:"1.05rem"}}>Monthly Report</div>
+        <div className="screen-title">Monthly Report</div>
         <button className="btn b-gh" style={{padding:"6px 13px",fontSize:".8rem"}} onClick={onClose}>✕ Close</button>
       </div>
       <div style={{flex:1,overflowY:"auto",padding:"18px 18px 32px"}}>
-        {monthly.length===0&&<div style={{textAlign:"center",padding:"60px 0",color:"var(--tx2)"}}><div style={{fontSize:"2.5rem",marginBottom:12}}>📅</div><div>No data yet</div></div>}
+        {monthly.length===0&&<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60vh",color:"var(--tx2)"}}><div style={{fontSize:"2.8rem",marginBottom:14}}>📅</div><div style={{fontWeight:700,fontSize:"var(--fs-base)",marginBottom:6,color:"var(--tx)"}}>Nothing logged yet</div><div style={{fontSize:".8rem"}}>Upload runs to see your monthly summaries.</div></div>}
         {[...monthly].reverse().map(m=>(
           <div key={m.month} className="card" style={{padding:16,marginBottom:12}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
@@ -2082,7 +2150,7 @@ function MonthlyReport({acts,onClose}){
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
               {[{l:"Distance",v:fmtKm(m.km)+" km",c:"var(--or)"},{l:"Time",v:fmtDur(m.timeSec),c:"var(--tx)"},{l:"Avg/run",v:fmtKm(m.km/m.runs)+" km",c:"var(--bl)"}].map(s=>(
                 <div key={s.l} className="card2" style={{padding:"10px 8px",textAlign:"center"}}>
-                  <div style={{fontSize:".95rem",fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</div>
+                  <div style={{fontSize:"var(--fs-base)",fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</div>
                   <div style={{fontSize:".62rem",color:"var(--tx2)",marginTop:4,letterSpacing:".04em"}}>{s.l}</div>
                 </div>
               ))}
@@ -2099,8 +2167,8 @@ function PRDetailModal({entry,onClose,onOpenRun}){
   const{cat,top3}=entry;
   const medals=["🥇","🥈","🥉"];
   return(
-    <div style={{position:"fixed",inset:0,zIndex:260,background:"rgba(0,0,0,.8)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div className="glass" style={{width:"100%",maxWidth:430,borderRadius:"20px 20px 0 0",padding:"20px 18px 40px",border:"1px solid var(--bd)",maxHeight:"80vh",overflowY:"auto"}}>
+    <div className="fade-overlay" style={{position:"fixed",inset:0,zIndex:260,background:"rgba(0,0,0,.8)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="glass sheet" style={{width:"100%",maxWidth:430,borderRadius:"22px 22px 0 0",padding:"20px 18px",paddingBottom:"max(40px,calc(env(safe-area-inset-bottom)+20px))",border:"1px solid var(--bd)",maxHeight:"80vh",overflowY:"auto"}}>
         <div style={{width:36,height:4,borderRadius:2,background:"var(--bd2)",margin:"0 auto 14px"}}/>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
           <span style={{fontSize:"1.4rem"}}>{cat.icon}</span>
@@ -2149,7 +2217,7 @@ function AllRunsView({acts,onSelectAct,onClose}){
     <div style={{position:"fixed",inset:0,zIndex:220,background:"var(--bg)",display:"flex",flexDirection:"column"}}>
       <div className="glass" style={{padding:"14px 18px 0",borderBottom:"1px solid var(--bd)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <div style={{fontWeight:700,fontSize:"1.05rem"}}>All Runs</div>
+          <div className="screen-title">All Runs</div>
           <button className="btn b-gh" style={{padding:"6px 12px",fontSize:".8rem"}} onClick={onClose}>✕ Close</button>
         </div>
         <input className="inp" value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search runs..." style={{marginBottom:12}}/>
@@ -2157,7 +2225,7 @@ function AllRunsView({acts,onSelectAct,onClose}){
           {types.map(t=><button key={t} className={"pill "+(filter===t?"on":"")} onClick={()=>setFilter(t)} style={{flexShrink:0,textTransform:"capitalize"}}>{t==="all"?"All ("+acts.length+")":t}</button>)}
         </div>
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:"12px 18px 32px"}}>
+      <div style={{flex:1,overflowY:"auto",padding:"12px 18px",paddingBottom:"max(32px,calc(env(safe-area-inset-bottom)+16px))"}}>
         {list.map(a=>{const clr=ACT_CLR[a.type]||"#6b7280";return(
           <div key={a.id} className="card2 tap" style={{padding:"12px 14px",marginBottom:8,cursor:"pointer"}} onClick={()=>onSelectAct(a)}>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -2936,7 +3004,7 @@ function ShareEditor({ act, onClose }) {
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
           <button className="btn b-or" style={{ padding:'13px', fontSize:'.84rem', borderRadius:14, fontWeight:700 }}
             onClick={() => doExport('jpg')} disabled={busy}>
-            {busy ? <><span style={{width:14,height:14,borderRadius:'50%',border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',animation:'spin .7s linear infinite',display:'inline-block',flexShrink:0}}/> Saving…</> : 'Save JPEG'}
+            {busy ? <><span className="spinner" style={{borderTopColor:'#fff'}}/> Saving…</> : 'Save JPEG'}
           </button>
           <button className="btn b-gh" style={{ padding:'13px', fontSize:'.84rem', borderRadius:14 }}
             onClick={() => doExport('png')} disabled={busy}>{busy?'Saving…':'Save PNG'}</button>
@@ -3098,7 +3166,7 @@ const App=()=>{
       <div style={{padding:"max(14px,calc(env(safe-area-inset-top)+8px)) 16px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,borderBottom:"1px solid var(--bd)"}}>
         <div style={{fontWeight:800,fontSize:"1.05rem",letterSpacing:".06em",color:"var(--or)"}}>RUNLYTICS</div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          {stravaSync.loading&&<div style={{width:15,height:15,borderRadius:"50%",border:"2px solid var(--bd2)",borderTopColor:"var(--or)",animation:"spin .8s linear infinite"}}/>}
+          {stravaSync.loading&&<div className="spinner"/>}
           {stravaAuth&&!stravaSync.loading&&stravaSync.msg&&(
             <div style={{fontSize:".68rem",color:"var(--gn)",background:"var(--gn2)",padding:"2px 8px",borderRadius:20,fontWeight:600}}>{stravaSync.msg}</div>
           )}
