@@ -207,32 +207,36 @@ function classifyRun(distKm,paceSecKm){if(distKm>=15)return"long";if(paceSecKm&&
 
 // FIX #6: Accept optional fileName as fallback name when GPX has no <name> element
 function parseGPX(xmlStr,fileName){
-  if(!xmlStr||typeof xmlStr!=="string"||xmlStr.length<100)return null;
-  if(xmlStr.length>10*1024*1024)return null;
+  const pfx=`[GPX:${fileName||'?'}]`;
+  if(!xmlStr||typeof xmlStr!=="string"||xmlStr.length<100){console.warn(pfx,'empty/short input');return null;}
+  if(xmlStr.length>10*1024*1024){console.warn(pfx,'file >10MB');return null;}
   try{
     const parser=new DOMParser();
     const doc=parser.parseFromString(xmlStr,"application/xml");
-    if(doc.querySelector("parsererror"))return null;
+    const parseErr=doc.querySelector("parsererror");
+    if(parseErr){console.error(pfx,'XML parse error:',parseErr.textContent?.slice(0,200));return null;}
     const nameFallback=fileName?fileName.replace(/\.gpx$/i,""):"Activity";
     const name=doc.querySelector("name")?.textContent?.trim()||nameFallback;
     // iOS Safari DOMParser (application/xml) won't match namespaced elements via
     // querySelectorAll("trkpt") when the file has xmlns="…" — use getElementsByTagName
     // as a universal fallback (ignores namespace prefix, works on all platforms).
     let trkpts=Array.from(doc.querySelectorAll("trkpt,rtept,wpt"));
-    if(!trkpts.length){
+    const usedFallback=!trkpts.length;
+    if(usedFallback){
       trkpts=[
         ...Array.from(doc.getElementsByTagName("trkpt")),
         ...Array.from(doc.getElementsByTagName("rtept")),
         ...Array.from(doc.getElementsByTagName("wpt")),
       ];
     }
-    if(trkpts.length<2)return null;
+    console.log(pfx,`${trkpts.length} trackpoints via ${usedFallback?'getElementsByTagName(fallback)':'querySelectorAll'}`);
+    if(trkpts.length<2){console.warn(pfx,'<2 trackpoints — not a valid track');return null;}
     // Namespace-safe child-element getter: querySelector first, then getElementsByTagName
     const gEl=(parent,tag)=>parent.querySelector(tag)||parent.getElementsByTagName(tag)[0]||null;
-    const pts=[];
+    const pts=[];let skipped=0;
     trkpts.forEach((pt,ptIdx)=>{
       const lat=parseFloat(pt.getAttribute("lat")||"");const lon=parseFloat(pt.getAttribute("lon")||"");
-      if(!isFinite(lat)||!isFinite(lon)||lat<-90||lat>90||lon<-180||lon>180)return;
+      if(!isFinite(lat)||!isFinite(lon)||lat<-90||lat>90||lon<-180||lon>180){skipped++;return;}
       const ele=parseFloat(gEl(pt,"ele")?.textContent||"0")||0;
       const timeEl=gEl(pt,"time");
       const timeMs=timeEl?new Date(timeEl.textContent?.trim()||"").getTime()||0:0;
@@ -247,7 +251,8 @@ function parseGPX(xmlStr,fileName){
       }
       pts.push({lat,lon,ele,time:timeMs,hr,ptIdx});
     });
-    if(pts.length<2)return null;
+    if(skipped)console.warn(pfx,`${skipped} points skipped (invalid coords)`);
+    if(pts.length<2){console.warn(pfx,`only ${pts.length} valid pts after coord filter`);return null;}
     // Build sec offsets: prefer timestamps; fall back to even spacing across 1 hour
     const validTimes=pts.filter(p=>p.time>0);
     const hasTimestamps=validTimes.length>=2;
@@ -277,12 +282,13 @@ function parseGPX(xmlStr,fileName){
     const step=Math.max(1,Math.floor(pts.length/400));
     const route=pts.filter((_,i)=>i%step===0||i===pts.length-1).map(p=>({lat:p.lat,lon:p.lon}));
     const hrSamples=hrPts.filter((_,i)=>i%Math.max(1,Math.floor(hrPts.length/200))===0).map(p=>({sec:p.sec,hr:p.hr}));
+    console.log(pfx,`✓ "${name}" | route:${route.length}pts | hr:${hrSamples.length}pts | ${distKm.toFixed(2)}km`);
     return migrateActivity({id:"g"+Date.now(),name,type:"Run",date:dateStr,dateTs:d.getTime(),
       distanceKm:parseFloat(distKm.toFixed(3)),movingTimeSec:Math.round(timeSec),
       avgPaceSecKm:parseFloat(paceSecKm.toFixed(1)),avgHR,maxHR,
       elevGainM:Math.round(elevGain),elevLossM:Math.round(elevLoss),
       runClass:classifyRun(distKm,paceSecKm),hrSamples,route,source:"gpx",trainingLoad});
-  }catch(e){return null;}
+  }catch(e){console.error('[GPX] exception:',e?.message||e);return null;}
 }
 
 async function getStravaToken(auth){
@@ -2348,6 +2354,59 @@ function PRDetailModal({entry,onClose,onOpenRun}){
   );
 }
 
+// ── Debug Panel — tap RUNLYTICS header 5× to open ────────────────────────────
+function DebugPanel({acts,onClose,onRepairRoutes}){
+  const storageSize=useMemo(()=>{try{const r=localStorage.getItem(DATA_KEY);return r?storageSizeKB(r):0;}catch{return 0;}},[acts]);
+  const withRoutes=acts.filter(a=>a.route&&a.route.length>=2).length;
+  const strava=acts.filter(a=>a.source==='strava');
+  const stravaNoRoute=strava.filter(a=>!a.route||a.route.length<2).length;
+  const ua=navigator.userAgent;
+  const isIOS=/iPhone|iPad|iPod/.test(ua);
+  const isSafari=/Safari/.test(ua)&&!/Chrome/.test(ua);
+  const isAndroid=/Android/.test(ua);
+  const row=(label,val,warn)=>(
+    <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'1px solid var(--bd)',gap:8}}>
+      <span style={{fontSize:'.72rem',color:'var(--tx3)',flexShrink:0}}>{label}</span>
+      <span style={{fontSize:'.72rem',fontWeight:600,color:warn?'var(--rd)':'var(--or)',textAlign:'right',wordBreak:'break-all'}}>{val}</span>
+    </div>
+  );
+  return(
+    <div style={{position:'fixed',inset:0,zIndex:500,background:'rgba(0,0,0,.85)',display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{width:'100%',maxWidth:430,background:'var(--s1)',borderRadius:'18px 18px 0 0',padding:'20px 18px',paddingBottom:'max(32px,calc(env(safe-area-inset-bottom)+16px))',maxHeight:'85vh',overflowY:'auto',border:'1px solid var(--bd)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+          <div style={{fontWeight:700,fontSize:'.95rem',color:'var(--or)'}}>🔬 Route Diagnostics</div>
+          <button className="btn b-gh" style={{padding:'4px 10px',fontSize:'.72rem'}} onClick={onClose}>Close</button>
+        </div>
+        {row('Platform',`${isIOS?'iOS ':isAndroid?'Android ':''}${isSafari?'Safari':'Chrome/Other'}`,false)}
+        {row('User Agent',ua.slice(0,80),false)}
+        {row('Total activities',acts.length,false)}
+        {row('Activities WITH route',`${withRoutes} / ${acts.length}`,withRoutes<acts.length)}
+        {row('Activities missing route',acts.length-withRoutes,(acts.length-withRoutes)>0)}
+        {row('Strava acts missing route',`${stravaNoRoute} / ${strava.length}`,stravaNoRoute>0)}
+        {row('Storage used',`${storageSize} KB`,storageSize>3000)}
+        <div style={{marginTop:14,marginBottom:8,fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.1em',color:'var(--tx3)'}}>Per-activity route status</div>
+        {acts.slice(0,15).map(a=>(
+          <div key={a.id} style={{display:'flex',gap:8,padding:'4px 0',borderBottom:'1px solid rgba(255,255,255,.04)'}}>
+            <span style={{fontSize:'.62rem',color:a.route&&a.route.length>=2?'var(--gn)':'var(--rd)',flexShrink:0,width:14}}>{a.route&&a.route.length>=2?'✓':'✗'}</span>
+            <span style={{fontSize:'.62rem',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'var(--tx2)'}}>{a.name}</span>
+            <span style={{fontSize:'.62rem',color:'var(--tx3)',flexShrink:0}}>{a.source==='strava'?'S':'G'} {a.route?.length||0}pts</span>
+          </div>
+        ))}
+        {acts.length>15&&<div style={{fontSize:'.6rem',color:'var(--tx3)',marginTop:4}}>+{acts.length-15} more</div>}
+        {stravaNoRoute>0&&(
+          <button className="btn b-or" style={{width:'100%',padding:'12px',marginTop:16,fontSize:'.84rem'}} onClick={()=>{onRepairRoutes();onClose();}}>
+            🔄 Re-sync Strava to restore {stravaNoRoute} missing route{stravaNoRoute!==1?'s':''}
+          </button>
+        )}
+        <div style={{marginTop:12,fontSize:'.62rem',color:'var(--tx3)',lineHeight:1.6,textAlign:'center'}}>
+          Open Safari DevTools: iPhone Settings → Safari → Advanced → Web Inspector → connect to Mac Safari.
+          All route events log as [GPX:…] and [Runlytics:…].
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── MiniMapThumb ─────────────────────────────────────────────────────────────
 // Pure SVG route thumbnail. No tiles, no canvas, no network requests.
 // Downsamples stored route to ≤80 pts — trivial CPU even for 200+ card lists.
@@ -3270,6 +3329,8 @@ const App=()=>{
   const[stravaAuth,setStravaAuth]=useState(loadStravaAuth);
   const[stravaSync,setStravaSync]=useState({loading:false,msg:""});
   const[hasUnseen,setHasUnseen]=useState(false);
+  const[showDebug,setShowDebug]=useState(false);
+  const debugTapRef=useRef(0);
 
   const detRef=useRef(null),setRef=useRef(null),arRef=useRef(null),monRef=useRef(null),upRef=useRef(null),shaRef=useRef(null),prRef=useRef(null);
   const isSyncingRef=useRef(false),lastSyncRef=useRef(0);
@@ -3356,15 +3417,31 @@ const App=()=>{
       if(!r.ok){setStravaSync({loading:false,msg:"Sync failed ("+r.status+")."});isSyncingRef.current=false;return;}
       const data=await r.json();
       const mapped=data.map(mapStravaActivity).filter(Boolean);
-      let added=0;
-      setActs(prev=>{const ids=new Set(prev.map(a=>a.id));const fresh=mapped.filter(a=>!ids.has(a.id));added=fresh.length;
-        if(!fresh.length)return prev;
-        const next=[...fresh,...prev];
-        saveActs(next); // immediate save after Strava import — same bfcache safety reason as addAct
+      let added=0,routesFixed=0;
+      setActsRaw(prev=>{
+        const idMap=new Map(prev.map(a=>[a.id,a]));
+        // 1. Patch routes into existing activities that have route:[]
+        //    This is the PRIMARY FIX — previous dedup silently discarded decoded routes.
+        const patched=prev.map(a=>{
+          const fresh=idMap.has(a.id)?mapped.find(m=>m.id===a.id):null;
+          if(fresh&&(!a.route||a.route.length<2)&&fresh.route&&fresh.route.length>=2){
+            routesFixed++;
+            console.log(`[Runlytics] route restored for "${a.name}": ${fresh.route.length}pts`);
+            return{...a,route:fresh.route};
+          }
+          return a;
+        });
+        // 2. Add truly new activities not yet in storage
+        const existingIds=new Set(prev.map(a=>a.id));
+        const newActs=mapped.filter(a=>!existingIds.has(a.id));
+        added=newActs.length;
+        if(!newActs.length&&!routesFixed)return prev; // nothing changed
+        const next=newActs.length?[...newActs,...patched]:patched;
+        saveActs(next);
+        console.log(`[Runlytics] Strava sync: +${added} new, ${routesFixed} routes fixed, total=${next.length}`);
         return next;
       });
-      // FIX #14: \u2713 renders as ✓ when used as a JS string value
-      setStravaSync({loading:false,msg:silent&&!added?"":added?("\u2713 "+added+" new run"+(added>1?"s":"")+" synced"):"Already up to date"});
+      setStravaSync({loading:false,msg:(!added&&!routesFixed)?'':added?`\u2713 ${added} new run${added!==1?'s':''} synced`:(routesFixed?`\u2713 ${routesFixed} route${routesFixed!==1?'s':''} restored`:'Already up to date')});
     }catch(e){setStravaSync({loading:false,msg:"Sync failed."});}
     isSyncingRef.current=false;
   },[setActs]);
@@ -3407,7 +3484,8 @@ const App=()=>{
     <div style={{maxWidth:480,margin:"0 auto",minHeight:"100vh",display:"flex",flexDirection:"column",background:"var(--bg)"}}>
       <Styles/>
       <div style={{padding:"max(14px,calc(env(safe-area-inset-top)+8px)) 16px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,borderBottom:"1px solid var(--bd)"}}>
-        <div style={{fontWeight:800,fontSize:"1.05rem",letterSpacing:".06em",color:"var(--or)"}}>RUNLYTICS</div>
+        <div style={{fontWeight:800,fontSize:"1.05rem",letterSpacing:".06em",color:"var(--or)",cursor:"pointer",userSelect:"none"}}
+          onClick={()=>{debugTapRef.current++;if(debugTapRef.current>=5){setShowDebug(true);debugTapRef.current=0;}setTimeout(()=>{debugTapRef.current=0;},1500);}}>RUNLYTICS</div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           {stravaSync.loading&&<div className="spinner"/>}
           {stravaAuth&&!stravaSync.loading&&stravaSync.msg&&(
@@ -3458,6 +3536,21 @@ const App=()=>{
         onClose={back}/>}
       {showAllRuns&&<AllRunsView acts={acts} onClose={back} onSelectAct={act=>{setShowAllRuns(false);openDetail(act);}}/>}
       {showMonthly&&<MonthlyReport acts={acts} onClose={back}/>}
+      {showDebug&&<DebugPanel acts={acts} onClose={()=>setShowDebug(false)}
+        onRepairRoutes={()=>{
+          // Force-remove Strava activities that have no route — next Strava sync will
+          // re-import them WITH the decoded polyline.  GPX activities are kept as-is.
+          setActsRaw(prev=>{
+            const fixed=prev.filter(a=>!(a.source==='strava'&&(!a.route||a.route.length<2)));
+            const removed=prev.length-fixed.length;
+            console.log(`[Runlytics] repairRoutes: removed ${removed} Strava acts with no route`);
+            saveActs(fixed);
+            return fixed;
+          });
+          // Trigger a fresh Strava sync immediately with the throttle bypassed
+          lastSyncRef.current=0;
+          setTimeout(()=>doStravaSync(false),300);
+        }}/>}
     </div>
   );
 };
