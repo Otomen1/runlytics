@@ -339,48 +339,64 @@ function Ring({pct=0,size=64,color="var(--or)",children}){
 const Styles=()=><style>{`
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#06080f;color:#d8e6f7;-webkit-font-smoothing:antialiased;line-height:1.5;}
-:root{--bg:#06080f;--s1:#0b0f1a;--s2:#101622;--s3:#141c2a;--bd:#1c2538;--bd2:#232f48;--or:#f97316;--or2:rgba(249,115,22,.14);--or3:rgba(249,115,22,.07);--gn:#22c55e;--gn2:rgba(34,197,94,.13);--rd:#ef4444;--rd2:rgba(239,68,68,.12);--bl:#3b82f6;--yw:#eab308;--tx:#d8e6f7;--tx2:#5a729a;--tx3:#2e3d55;}
+:root{
+  --bg:#06080f;--s1:#0b0f1a;--s2:#101622;--s3:#141c2a;--bd:#1c2538;--bd2:#232f48;
+  --or:#f97316;--or2:rgba(249,115,22,.14);--or3:rgba(249,115,22,.07);
+  --gn:#22c55e;--gn2:rgba(34,197,94,.13);--rd:#ef4444;--rd2:rgba(239,68,68,.12);
+  --bl:#3b82f6;--yw:#eab308;--tx:#d8e6f7;--tx2:#5a729a;--tx3:#2e3d55;
+  --r-sm:10px;--r-md:12px;--r-lg:14px;--r-xl:18px;
+}
 ::-webkit-scrollbar{width:0;}
-@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-@keyframes tabIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes tabIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 @keyframes pop{0%{transform:scale(.5);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
 @keyframes spin{to{transform:rotate(360deg)}}
-.a0{animation:fadeUp .28s ease both}.a1{animation:fadeUp .28s .07s ease both}.a2{animation:fadeUp .28s .14s ease both}.a3{animation:fadeUp .28s .21s ease both}
-.tab-in{animation:tabIn .2s cubic-bezier(.4,0,.2,1) both}
-.card{background:var(--s1);border:1px solid var(--bd);border-radius:16px;}
-.card2{background:var(--s2);border:1px solid var(--bd);border-radius:12px;}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.a0{animation:fadeUp .24s ease both}.a1{animation:fadeUp .24s .05s ease both}.a2{animation:fadeUp .24s .1s ease both}.a3{animation:fadeUp .24s .15s ease both}
+.tab-in{animation:tabIn .18s cubic-bezier(.4,0,.2,1) both}
+.card{background:var(--s1);border:1px solid var(--bd);border-radius:var(--r-lg);}
+.card2{background:var(--s2);border:1px solid var(--bd);border-radius:var(--r-lg);}
 @media(hover:hover){.card:hover{border-color:var(--bd2);}}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:12px;font-family:inherit;font-weight:600;cursor:pointer;transition:opacity .15s,transform .12s;white-space:nowrap;}
-.btn:active{opacity:.8;transform:scale(.97);}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:none;border-radius:var(--r-lg);font-family:inherit;font-weight:600;cursor:pointer;transition:opacity .15s,transform .12s,box-shadow .15s;white-space:nowrap;font-size:.84rem;}
+.btn:active{opacity:.78;transform:scale(.965);}
+.btn:disabled,.btn[disabled]{opacity:.38;cursor:not-allowed;pointer-events:none;transform:none;}
 .b-or{background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;box-shadow:0 2px 12px rgba(249,115,22,.25);}
-@media(hover:hover){.b-or:hover{box-shadow:0 4px 18px rgba(249,115,22,.38);}}
-.b-gh{background:var(--s2);color:var(--tx2);border:1px solid var(--bd2);}
-.b-rd{background:var(--rd2);color:var(--rd);border:1px solid rgba(239,68,68,.2);}
-.inp{width:100%;background:var(--s2);border:1.5px solid var(--bd);border-radius:11px;color:var(--tx);font-family:inherit;font-size:.88rem;padding:12px 14px;outline:none;transition:border-color .15s;}
+@media(hover:hover){.b-or:hover{box-shadow:0 4px 20px rgba(249,115,22,.42);transform:translateY(-1px);}}
+.b-gh{background:var(--s2);color:var(--tx2);border:1px solid var(--bd2);transition:opacity .15s,transform .12s,background .15s,border-color .15s,color .15s;}
+@media(hover:hover){.b-gh:hover{background:var(--s3);border-color:rgba(255,255,255,.14);color:var(--tx);}}
+.b-rd{background:var(--rd2);color:var(--rd);border:1px solid rgba(239,68,68,.2);transition:opacity .15s,transform .12s,background .15s;}
+@media(hover:hover){.b-rd:hover{background:rgba(239,68,68,.18);border-color:rgba(239,68,68,.3);}}
+.share-close{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.7);width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;font-size:.82rem;transition:background .15s,transform .12s;}
+.share-close:active{background:rgba(255,255,255,.2);transform:scale(.92);}
+@media(hover:hover){.share-close:hover{background:rgba(255,255,255,.16);}}
+.inp{width:100%;background:var(--s2);border:1.5px solid var(--bd);border-radius:var(--r-md);color:var(--tx);font-family:inherit;font-size:.88rem;padding:12px 14px;outline:none;transition:border-color .15s;}
 .inp:focus{border-color:var(--or);box-shadow:0 0 0 3px rgba(249,115,22,.1);}
-.tab-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:8px 2px 10px;border:none;background:transparent;color:var(--tx3);cursor:pointer;font-size:.6rem;font-weight:600;font-family:inherit;letter-spacing:.04em;text-transform:uppercase;position:relative;transition:color .18s;}
+.tab-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:9px 2px 10px;border:none;background:transparent;color:var(--tx3);cursor:pointer;font-size:.62rem;font-weight:600;font-family:inherit;letter-spacing:.04em;text-transform:uppercase;position:relative;transition:color .18s;-webkit-tap-highlight-color:transparent;}
 .tab-btn.on{color:var(--or);}
-.tab-btn::after{content:'';position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:0;height:2.5px;border-radius:2px;background:var(--or);transition:width .22s cubic-bezier(.4,0,.2,1);}
-.tab-btn.on::after{width:20px;}
+.tab-btn::after{content:'';position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:0;height:2px;border-radius:1px;background:var(--or);transition:width .22s cubic-bezier(.4,0,.2,1);}
+.tab-btn.on::after{width:22px;}
+.sl{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--tx3);}
 .pb{height:5px;background:var(--bd);border-radius:3px;overflow:hidden;}
-.pf{height:100%;border-radius:3px;transition:width .9s cubic-bezier(.4,0,.2,1);}
+.pf{height:100%;border-radius:3px;transition:width .85s cubic-bezier(.4,0,.2,1);}
+.chart-tip{background:var(--s1);border:1px solid var(--bd2);border-radius:var(--r-sm);padding:8px 12px;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.4);}
+.chart-tip-val{font-weight:700;font-size:.88rem;color:var(--or);}
+.chart-tip-sub{font-size:.66rem;color:var(--tx3);margin-top:2px;}
 .glass{background:rgba(6,8,14,.92);backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,.05);}
-.tap{cursor:pointer;transition:opacity .15s,transform .12s;}.tap:active{opacity:.72;transform:scale(.98);}
+.tap{cursor:pointer;transition:opacity .15s,transform .12s;-webkit-tap-highlight-color:transparent;}.tap:active{opacity:.72;transform:scale(.98);}
 @media(hover:hover){.tap:hover{opacity:.88;}}
-.dz{border:2px dashed var(--bd2);border-radius:16px;transition:all .2s;}
+.dz{border:2px dashed var(--bd2);border-radius:var(--r-lg);transition:all .2s;}
 .dz.ov{border-color:var(--or);background:var(--or3);}
 .scroll-x{overflow-x:auto;scrollbar-width:none;}.scroll-x::-webkit-scrollbar{display:none;}
-.pill{display:inline-flex;align-items:center;padding:5px 13px;border-radius:20px;border:1px solid var(--bd);background:transparent;cursor:pointer;font-size:.74rem;font-family:inherit;transition:all .15s;}
-.pill.on{background:var(--or3);border-color:var(--or);color:var(--or);font-weight:600;}
+.pill{display:inline-flex;align-items:center;padding:4px 10px;border-radius:20px;border:1px solid var(--bd);background:transparent;cursor:pointer;font-size:.7rem;font-family:inherit;font-weight:500;transition:all .15s;-webkit-tap-highlight-color:transparent;}
+.pill.on{background:var(--or3);border-color:var(--or);color:var(--or);font-weight:700;}
+@media(hover:hover){.pill:hover:not(.on){border-color:var(--bd2);background:var(--s2);}}
 @keyframes cardEntrance{from{opacity:0;transform:translateY(18px) scale(.95)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes floatCard{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
-@keyframes successPop{0%{transform:scale(1)}35%{transform:scale(1.06)}100%{transform:scale(1)}}
+@keyframes successPop{0%{transform:scale(.97)}35%{transform:scale(1.05)}100%{transform:scale(1)}}
 @keyframes bounceIn{0%{transform:scale(.35);opacity:0}60%{transform:scale(1.14)}100%{transform:scale(1);opacity:1}}
 @keyframes slideDown{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}
 @keyframes slideUp2{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
-@keyframes pressDot{0%{transform:scale(1)}40%{transform:scale(.72)}100%{transform:scale(1)}}
-@keyframes exportRing{to{stroke-dashoffset:0}}
 .card-entrance{animation:cardEntrance .38s cubic-bezier(.34,1.56,.64,1) both}
 .float-card{animation:floatCard 4s ease-in-out infinite}
 .slide-down{animation:slideDown .22s ease both}
@@ -526,16 +542,34 @@ function cRenderVelocity(ctx,act,W,H){
   cDrawBg(ctx,W,H,'#faf8f4');
   cDrawLinGrad(ctx,W,H, 0,H*0.55,0,H, [[0,'transparent'],[1,'rgba(249,115,22,.07)']]);
   cDrawBranding(ctx,W,H,'rgba(0,0,0,.2)');
+  // Distance hero
   ctx.save(); ctx.textAlign='center';
   ctx.fillStyle='#0a0a0a'; ctx.font=cFont(H,'hero');
   ctx.fillText(fmtKm(act.distanceKm),W/2,H*CANVAS_LAYOUT.heroY);
   ctx.fillStyle='rgba(0,0,0,.28)'; ctx.font=`600 ${Math.round(H*.018)}px system-ui`;
   ctx.fillText('KILOMETRES',W/2,H*(CANVAS_LAYOUT.unitY+.008));
   ctx.restore();
-  ctx.fillStyle='#f97316'; ctx.fillRect(W*0.07,H*CANVAS_LAYOUT.divY,W*0.1,3);
-  ctx.fillStyle='rgba(0,0,0,.09)'; ctx.fillRect(W*0.07+W*0.1+W*0.015,H*CANVAS_LAYOUT.divY,W*0.555,1);
-  cDrawTitle(ctx,W,H,act.name||'Run','rgba(0,0,0,.75)');
-  cDrawCaption(ctx,W,H,act.date+' · '+fmtPace(act.avgPaceSecKm)+'/km','rgba(0,0,0,.36)');
+  // Asymmetric accent rule
+  const px=W*CANVAS_LAYOUT.padX;
+  ctx.fillStyle='#f97316'; ctx.fillRect(px,H*CANVAS_LAYOUT.divY,W*0.09,3);
+  ctx.fillStyle='rgba(0,0,0,.08)'; ctx.fillRect(px+W*0.104,H*CANVAS_LAYOUT.divY,W*0.563,1);
+  // Run name — left-aligned
+  ctx.save(); ctx.textAlign='left'; ctx.fillStyle='rgba(0,0,0,.62)'; ctx.font=cFont(H,'title');
+  ctx.fillText((act.name||'Run').substring(0,26),px,H*CANVAS_LAYOUT.nameY);
+  ctx.restore();
+  // Stats row — DURATION and PACE (mirrors React StatRow)
+  const rX=W*(1-CANVAS_LAYOUT.padX);
+  const vF=`700 ${Math.round(H*.025)}px monospace`;
+  const lF=`600 ${Math.round(H*.013)}px system-ui`;
+  [[H*0.638,'DURATION',fmtDur(act.movingTimeSec)],[H*0.682,'PACE',fmtPace(act.avgPaceSecKm)+'/km']].forEach(([y,lbl,val])=>{
+    ctx.save();
+    ctx.textAlign='left'; ctx.fillStyle='rgba(0,0,0,.22)'; ctx.font=lF; ctx.fillText(lbl,px,y);
+    ctx.textAlign='right'; ctx.fillStyle='#1a1a1a'; ctx.font=vF; ctx.fillText(val,rX,y);
+    ctx.restore();
+  });
+  // Date caption
+  ctx.save(); ctx.textAlign='center'; ctx.fillStyle='rgba(0,0,0,.18)'; ctx.font=cFont(H,'caption');
+  ctx.fillText(act.date||'',W/2,H*0.752); ctx.restore();
 }
 
 function cRenderRaceDay(ctx,act,W,H){
@@ -636,6 +670,17 @@ function renderToCanvas(ctx,act,templateId,W,H){
   try{render(ctx,act,W,H);}catch(e){}
 }
 
+// Clip context to a rounded rectangle — call once before any drawing so the
+// exported image has the same corner radius as the React card preview.
+function cClipRounded(ctx,W,H,r){
+  ctx.beginPath();
+  ctx.moveTo(r,0); ctx.lineTo(W-r,0); ctx.quadraticCurveTo(W,0,W,r);
+  ctx.lineTo(W,H-r); ctx.quadraticCurveTo(W,H,W-r,H);
+  ctx.lineTo(r,H); ctx.quadraticCurveTo(0,H,0,H-r);
+  ctx.lineTo(0,r); ctx.quadraticCurveTo(0,0,r,0);
+  ctx.closePath(); ctx.clip();
+}
+
 // ── Export Pipeline ───────────────────────────────────────────────────────────
 // Single place to change canvas dimensions, quality, or MIME handling.
 const EXPORT_CONFIG = { W: 1080, H: 1920, quality: 0.92 };
@@ -649,14 +694,22 @@ async function downloadExport(act, templateId, format) {
   const { W, H } = EXPORT_CONFIG;
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
-  renderToCanvas(canvas.getContext('2d'), act, templateId, W, H);
+  const ctx = canvas.getContext('2d');
+  // Clip to rounded rect so exported image matches the preview card corners
+  cClipRounded(ctx, W, H, 48);
+  renderToCanvas(ctx, act, templateId, W, H);
   const blob = await canvasToBlob(canvas, format);
-  if (!blob) return;
+  // Free the large canvas buffer promptly — 1080×1920×4 bytes ≈ 8 MB
+  canvas.width = 0; canvas.height = 0;
+  if (!blob) throw new Error('Canvas export produced an empty blob');
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = `runlytics-share.${format === 'jpg' ? 'jpg' : 'png'}`;
+  // Must be in the DOM for Firefox to trigger the download
+  document.body.appendChild(a);
   a.click();
+  document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
@@ -977,11 +1030,6 @@ function ShareCard({type,act,W=270,H=480}){
 // ── Share Modal UI Style Constants ────────────────────────────────────────────
 const SHARE_UI={
   shell:      {position:"fixed",inset:0,zIndex:420,background:"#060810",display:"flex",flexDirection:"column",overscrollBehavior:"contain"},
-  floatClose: {position:"absolute",top:16,right:16,zIndex:10,background:"rgba(255,255,255,.1)",
-    backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)",
-    border:"1px solid rgba(255,255,255,.12)",color:"rgba(255,255,255,.7)",
-    width:34,height:34,borderRadius:"50%",fontSize:".8rem",cursor:"pointer",
-    display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"inherit"},
   carousel:   {flex:1,display:"flex",overflowX:"auto",scrollSnapType:"x mandatory",
     scrollbarWidth:"none",WebkitOverflowScrolling:"touch",alignItems:"center",paddingTop:8},
   slide:      {minWidth:"100%",scrollSnapAlign:"center",display:"flex",
@@ -1009,16 +1057,32 @@ function ShareModal({act,onClose,onOpenEditor}){
   const[exportFmt,setExportFmt]=useState('');
   const[mounted,setMounted]=useState(false);
   const scrollRef=useRef(null);
-  const slideRefs=useRef([]);  // direct DOM refs for depth scaling
+  const slideRefs=useRef([]);
   const rafRef=useRef(null);
   const scrollTimerRef=useRef(null);
+  const successTimerRef=useRef(null); // tracked so we can cancel if modal unmounts
 
   useEffect(()=>{const t=requestAnimationFrame(()=>setMounted(true));return()=>cancelAnimationFrame(t);},[]);
+
+  // Escape key closes the modal
+  useEffect(()=>{
+    const onKey=e=>{if(e.key==='Escape')onClose();};
+    document.addEventListener('keydown',onKey);
+    return()=>document.removeEventListener('keydown',onKey);
+  },[onClose]);
+
+  // Clean up the success-state timer if the modal unmounts mid-countdown
+  useEffect(()=>()=>{
+    clearTimeout(successTimerRef.current);
+    cancelAnimationFrame(rafRef.current);
+    clearTimeout(scrollTimerRef.current);
+  },[]);
 
   // Depth carousel: scale slides via direct DOM manipulation to avoid React re-renders on every scroll frame
   useEffect(()=>{
     if(!mounted||!scrollRef.current)return;
     const carousel=scrollRef.current;
+    const N=SHARE_TEMPLATES.length;
 
     const updateScales=()=>{
       const{scrollLeft,offsetWidth}=carousel;
@@ -1030,15 +1094,14 @@ function ShareModal({act,onClose,onOpenEditor}){
         el.style.transform=`scale(${(1-dist*0.09).toFixed(3)})`;
         el.style.opacity=(1-dist*0.28).toFixed(3);
       });
-      setIdx(Math.round(pos));
+      // Clamp to [0, N-1] so SHARE_TEMPLATES[idx] is always defined
+      setIdx(Math.max(0,Math.min(N-1,Math.round(pos))));
     };
 
     const onScroll=()=>{
-      // Drop transitions during scroll so scaling tracks finger without lag
       slideRefs.current.forEach(el=>{if(el)el.style.transition='none';});
       cancelAnimationFrame(rafRef.current);
       rafRef.current=requestAnimationFrame(updateScales);
-      // Restore transitions ~150ms after scroll settles (for programmatic jumps)
       clearTimeout(scrollTimerRef.current);
       scrollTimerRef.current=setTimeout(()=>{
         slideRefs.current.forEach(el=>{if(el)el.style.transition='transform .3s ease,opacity .3s ease';});
@@ -1055,7 +1118,7 @@ function ShareModal({act,onClose,onOpenEditor}){
   },[mounted]);
 
   if(!act||typeof act.distanceKm!=='number')return(
-    <div style={SHARE_UI.shell}><button style={SHARE_UI.floatClose} onClick={onClose}>✕</button></div>
+    <div style={SHARE_UI.shell}><button className="share-close" style={{position:"absolute",top:16,right:16,zIndex:10}} onClick={onClose}>✕</button></div>
   );
 
   const jumpTo=i=>{
@@ -1072,7 +1135,7 @@ function ShareModal({act,onClose,onOpenEditor}){
     try{
       await downloadExport(act,SHARE_TEMPLATES[idx].id,fmt);
       setExportState('success');
-      setTimeout(()=>setExportState('idle'),2500);
+      successTimerRef.current=setTimeout(()=>setExportState('idle'),2500);
     }catch{setExportState('idle');}
   };
 
@@ -1080,7 +1143,7 @@ function ShareModal({act,onClose,onOpenEditor}){
 
   return(
     <div style={SHARE_UI.shell}>
-      <button style={SHARE_UI.floatClose} onClick={onClose}>✕</button>
+      <button className="share-close" style={{position:"absolute",top:16,right:16,zIndex:10,backdropFilter:"blur(8px)",WebkitBackdropFilter:"blur(8px)"}} onClick={onClose}>✕</button>
 
       {/* Depth carousel — previews scale with scroll position via direct DOM manipulation */}
       <div ref={scrollRef} style={SHARE_UI.carousel}>
@@ -1098,16 +1161,15 @@ function ShareModal({act,onClose,onOpenEditor}){
           </div>
         )):(
           <div style={{minWidth:'100%',display:'flex',alignItems:'center',justifyContent:'center'}}>
-            {/* Animated shimmer skeleton */}
             <div style={{...SHARE_UI.skeleton,
-              background:'linear-gradient(90deg,rgba(255,255,255,.04) 25%,rgba(255,255,255,.08) 50%,rgba(255,255,255,.04) 75%)',
-              backgroundSize:'200% 100%',animation:'shimmer 1.6s ease infinite'}}/>
+              background:'linear-gradient(90deg,rgba(255,255,255,.04) 25%,rgba(255,255,255,.09) 50%,rgba(255,255,255,.04) 75%)',
+              backgroundSize:'400% 100%',animation:'shimmer 1.8s ease-in-out infinite'}}/>
           </div>
         )}
       </div>
 
       {/* Bottom panel */}
-      <div style={SHARE_UI.footer}>
+      <div style={{...SHARE_UI.footer, paddingBottom:'max(30px, calc(env(safe-area-inset-bottom) + 12px))' }}>
 
         {/* Template label — re-animates on idx change via key */}
         <div key={tmpl.id} style={{textAlign:'center',marginBottom:14,animation:'slideDown .2s ease'}}>
@@ -1270,67 +1332,67 @@ function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUpl
   const todayDone=todayTasks.filter(t=>!!(t.completions&&t.completions[todayStr])).length;
   const greetPfx=profile.name==="Runner"?"Welcome back":"Welcome back, "+profile.name;
   const weekLeft=parseFloat((goals.weekly-thisWeekKm).toFixed(1));
-  return(<div style={{padding:"4px 0 32px"}}>
-    <div className="a0" style={{marginBottom:20,paddingTop:4}}>
-      <div style={{fontSize:".7rem",color:"var(--tx3)",marginBottom:3}}>{greet()}</div>
+  return(<div style={{padding:"10px 0 32px"}}>
+    <div className="a0" style={{marginBottom:20}}>
+      <div className="sl" style={{marginBottom:4}}>{greet()}</div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-        <div style={{fontSize:"1.45rem",fontWeight:700,lineHeight:1.2}}>{greetPfx}</div>
+        <div style={{fontSize:"1.4rem",fontWeight:700,lineHeight:1.2,letterSpacing:"-.01em"}}>{greetPfx}</div>
         {analytics.streak>=2&&(
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"8px 11px",borderRadius:12,background:"rgba(249,115,22,.1)",border:"1.5px solid rgba(249,115,22,.25)",flexShrink:0}}>
-            <span style={{fontSize:"1.2rem"}}>🔥</span>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"8px 11px",borderRadius:12,background:"rgba(249,115,22,.1)",border:"1.5px solid rgba(249,115,22,.22)",flexShrink:0,marginLeft:12}}>
+            <span style={{fontSize:"1.15rem"}}>🔥</span>
             <span style={{fontSize:"1rem",fontWeight:800,color:"var(--or)",lineHeight:1}}>{analytics.streak}</span>
-            <span style={{fontSize:".5rem",color:"var(--or)",fontWeight:600}}>DAYS</span>
+            <span style={{fontSize:".55rem",color:"var(--or)",fontWeight:700,letterSpacing:".04em"}}>DAYS</span>
           </div>
         )}
       </div>
     </div>
     <div className="a1" style={{marginBottom:14}}>
-      <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:7}}>Today's Recommendation</div>
+      <div className="sl" style={{marginBottom:7}}>Today's Recommendation</div>
       <div style={{background:IC_BG[rec.type]||"rgba(255,255,255,.04)",border:"1px solid "+(IC_BD[rec.type]||"rgba(255,255,255,.1)"),borderRadius:12,padding:"13px 15px",display:"flex",alignItems:"center",gap:12}}>
-        <span style={{fontSize:"1.4rem",flexShrink:0}}>{rec.icon}</span>
+        <span style={{fontSize:"1.35rem",flexShrink:0}}>{rec.icon}</span>
         <div><div style={{fontWeight:700,fontSize:".88rem",marginBottom:2}}>{rec.title}</div><div style={{fontSize:".77rem",color:"var(--tx2)",lineHeight:1.5}}>{rec.sub}</div></div>
       </div>
     </div>
     {lastRun&&(
-      <div className="card a2 tap" style={{padding:18,marginBottom:14,cursor:"pointer"}} onClick={()=>onSelectAct(lastRun)}>
+      <div className="card a2 tap" style={{padding:16,marginBottom:14,cursor:"pointer"}} onClick={()=>onSelectAct(lastRun)}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
-          <div>
-            <div style={{fontSize:".6rem",fontWeight:700,color:ACT_CLR[lastRun.type]||"var(--or)",marginBottom:3,textTransform:"uppercase"}}>{lastRun.type}</div>
-            <div style={{fontWeight:600,fontSize:".88rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:200}}>{lastRun.name}</div>
-            <div style={{fontSize:".7rem",color:"var(--tx2)",marginTop:2}}>{fmtDate(lastRun.date)}</div>
+          <div style={{minWidth:0,flex:1}}>
+            <div style={{fontSize:".6rem",fontWeight:700,color:ACT_CLR[lastRun.type]||"var(--or)",marginBottom:3,textTransform:"uppercase",letterSpacing:".06em"}}>{lastRun.type}</div>
+            <div style={{fontWeight:600,fontSize:".92rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:2}}>{lastRun.name}</div>
+            <div style={{fontSize:".72rem",color:"var(--tx2)"}}>{fmtDate(lastRun.date)}</div>
           </div>
-          <span style={{background:(ACT_CLR[lastRun.type]||"var(--or)")+"20",color:ACT_CLR[lastRun.type]||"var(--or)",padding:"2px 9px",borderRadius:20,fontSize:".66rem",fontWeight:700}}>{lastRun.runClass}</span>
+          <span style={{background:(ACT_CLR[lastRun.type]||"var(--or)")+"1a",color:ACT_CLR[lastRun.type]||"var(--or)",padding:"3px 10px",borderRadius:20,fontSize:".66rem",fontWeight:700,flexShrink:0,marginLeft:8}}>{lastRun.runClass}</span>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
           {[{v:fmtKm(lastRun.distanceKm),l:"km",c:"var(--or)"},{v:fmtPace(lastRun.avgPaceSecKm)+"/km",l:"pace",c:"var(--tx)"},{v:lastRun.avgHR?lastRun.avgHR+" bpm":"--",l:"HR",c:lastRun.avgHR&&lastRun.avgHR>mafHR?"var(--yw)":"var(--gn)"}].map(s=>(
-            <div key={s.l} style={{textAlign:"center",padding:"9px 6px",background:"rgba(0,0,0,.25)",borderRadius:10}}>
-              <div style={{fontSize:"1rem",fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</div>
-              <div style={{fontSize:".58rem",color:"var(--tx3)",marginTop:3}}>{s.l}</div>
+            <div key={s.l} style={{textAlign:"center",padding:"10px 6px",background:"rgba(0,0,0,.22)",borderRadius:10}}>
+              <div style={{fontSize:"1.05rem",fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</div>
+              <div style={{fontSize:".62rem",color:"var(--tx3)",marginTop:4,letterSpacing:".04em"}}>{s.l}</div>
             </div>
           ))}
         </div>
-        {acts.length>1&&<div style={{marginTop:10,textAlign:"center",fontSize:".7rem"}}><span className="tap" style={{color:"var(--or)",fontWeight:600}} onClick={e=>{e.stopPropagation();onViewAll();}}>View all {acts.length} runs</span></div>}
+        {acts.length>1&&<div style={{marginTop:10,textAlign:"center",fontSize:".72rem"}}><span className="tap" style={{color:"var(--or)",fontWeight:600}} onClick={e=>{e.stopPropagation();onViewAll();}}>View all {acts.length} runs →</span></div>}
       </div>
     )}
     {!lastRun&&(
-      <div className="card a2" style={{padding:24,textAlign:"center",marginBottom:14,borderStyle:"dashed"}}>
-        <div style={{fontSize:"2.5rem",marginBottom:10}}>🏃</div>
-        <div style={{fontWeight:600,marginBottom:6}}>No runs yet</div>
-        <div style={{fontSize:".82rem",color:"var(--tx2)",marginBottom:14}}>Upload your first GPX file to get started</div>
-        <button className="btn b-or" style={{padding:"10px 22px",fontSize:".86rem"}} onClick={onUpload}>Upload GPX</button>
+      <div className="card a2" style={{padding:28,textAlign:"center",marginBottom:14,borderStyle:"dashed"}}>
+        <div style={{fontSize:"2.8rem",marginBottom:12}}>🏃</div>
+        <div style={{fontWeight:700,fontSize:".95rem",marginBottom:6}}>No runs yet</div>
+        <div style={{fontSize:".8rem",color:"var(--tx2)",marginBottom:18,lineHeight:1.6}}>Upload a GPX file to get started</div>
+        <button className="btn b-or" style={{padding:"11px 24px"}} onClick={onUpload}>Upload GPX</button>
       </div>
     )}
     <div className="a3" style={{marginBottom:14}}>
-      <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:7}}>Coach Insight</div>
+      <div className="sl" style={{marginBottom:7}}>Coach Insight</div>
       <CoachCard insight={insight}/>
     </div>
     <div className="card a3" style={{padding:16,marginBottom:14}}>
       <div style={{display:"flex",alignItems:"center",gap:14}}>
-        <Ring pct={weekPct} size={62} color={weekPct>=1?"var(--gn)":"var(--or)"}>
+        <Ring pct={weekPct} size={60} color={weekPct>=1?"var(--gn)":"var(--or)"}>
           <span style={{fontSize:".58rem",fontWeight:700,color:weekPct>=1?"var(--gn)":"var(--or)"}}>{Math.round(weekPct*100)+"%"}</span>
         </Ring>
-        <div style={{flex:1}}>
-          <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)",marginBottom:5}}>Weekly Goal</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div className="sl" style={{marginBottom:5}}>Weekly Goal</div>
           <div style={{fontSize:"1.15rem",fontWeight:700,lineHeight:1,marginBottom:4}}>
             <span style={{color:"var(--or)"}}>{fmtKm(thisWeekKm)}</span>
             <span style={{fontSize:".76rem",color:"var(--tx2)",fontWeight:400}}> / {goals.weekly} km</span>
@@ -1338,27 +1400,27 @@ function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUpl
           {weekPct>=1&&<span style={{background:"var(--gn2)",color:"var(--gn)",padding:"2px 9px",borderRadius:20,fontSize:".66rem",fontWeight:700}}>✓ Goal reached!</span>}
           {weekPct<1&&<div style={{fontSize:".74rem",color:"var(--tx2)"}}>{weekLeft} km to go</div>}
         </div>
-        <button className="tap" style={{background:"none",border:"none",color:"var(--tx3)",fontSize:".8rem"}} onClick={onEditGoals}>Edit</button>
+        <button className="tap" style={{background:"none",border:"none",color:"var(--tx3)",fontSize:".78rem",padding:"4px 6px"}} onClick={onEditGoals}>Edit</button>
       </div>
     </div>
     {todayTasks.length>0&&(
       <div className="card a3" style={{padding:16,marginBottom:14}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}>
-          <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)"}}>Today's Habits</div>
-          <span style={{fontSize:".7rem",color:"var(--tx2)"}}>{todayDone}/{todayTasks.length}</span>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <div className="sl">Today's Habits</div>
+          <span style={{fontSize:".72rem",color:"var(--tx2)",fontWeight:600}}>{todayDone}/{todayTasks.length}</span>
         </div>
         {todayTasks.map(t=>{const done=!!(t.completions&&t.completions[todayStr]);return(
-          <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+          <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:9}}>
             <div style={{width:20,height:20,borderRadius:6,flexShrink:0,border:"2px solid "+(done?"var(--gn)":"var(--bd2)"),background:done?"var(--gn)":"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>
               {done&&<span style={{fontSize:".6rem",color:"#fff",fontWeight:700}}>✓</span>}
             </div>
-            <span style={{fontSize:".82rem",flex:1,color:done?"var(--tx3)":"var(--tx)",textDecoration:done?"line-through":"none"}}>{t.title}</span>
+            <span style={{fontSize:".84rem",flex:1,color:done?"var(--tx3)":"var(--tx)",textDecoration:done?"line-through":"none"}}>{t.title}</span>
           </div>
         );})}
-        <div className="pb" style={{marginTop:10}}><div className="pf" style={{width:Math.round(todayDone/(todayTasks.length||1)*100)+"%",background:"var(--gn)"}}/></div>
+        <div className="pb" style={{marginTop:8}}><div className="pf" style={{width:Math.round(todayDone/(todayTasks.length||1)*100)+"%",background:"var(--gn)"}}/></div>
       </div>
     )}
-    {acts.length>0&&<button className="btn b-gh" style={{width:"100%",padding:"11px",fontSize:".82rem",borderRadius:13,marginTop:4}} onClick={onViewMonthly}>📅 Monthly Report</button>}
+    {acts.length>0&&<button className="btn b-gh" style={{width:"100%",padding:"12px"}} onClick={onViewMonthly}>📅 Monthly Report</button>}
   </div>);
 }
 
@@ -1373,12 +1435,12 @@ function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR}){
     fastest:runs.filter(r=>r.avgPaceSecKm>0).reduce((b,r)=>r.avgPaceSecKm<b.avgPaceSecKm?r:b,runs.find(r=>r.avgPaceSecKm>0)||runs[0])
   }:null;
   return(
-    <div style={{padding:"4px 0 32px"}}>
+    <div style={{padding:"10px 0 32px"}}>
       <div className="a0" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:18}}>
         {[{l:"Total km",v:parseFloat(totalKm.toFixed(0)).toLocaleString(),c:"var(--or)"},{l:"Runs",v:runs.length,c:"var(--bl)"},{l:"Time",v:fmtDur(runs.reduce((s,a)=>s+a.movingTimeSec,0)),c:"var(--gn)"}].map(s=>(
-          <div key={s.l} className="card2" style={{padding:"13px 10px",textAlign:"center"}}>
-            <div style={{fontSize:"1.25rem",fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</div>
-            <div style={{fontSize:".6rem",color:"var(--tx2)",marginTop:4}}>{s.l}</div>
+          <div key={s.l} className="card2" style={{padding:"14px 10px",textAlign:"center"}}>
+            <div style={{fontSize:"1.3rem",fontWeight:700,color:s.c,lineHeight:1,marginBottom:4}}>{s.v}</div>
+            <div style={{fontSize:".62rem",color:"var(--tx2)",letterSpacing:".04em"}}>{s.l}</div>
           </div>
         ))}
       </div>
@@ -1387,16 +1449,33 @@ function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR}){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
             <SH title="Weekly Distance"/>
             <div style={{display:"flex",gap:5}}>
-              {[4,8,12].map(w=><button key={w} className={"pill "+(range===w?"on":"")} onClick={()=>setRange(w)} style={{padding:"3px 9px",fontSize:".68rem"}}>{w}w</button>)}
+              {[4,8,12].map(w=><button key={w} className={"pill "+(range===w?"on":"")} onClick={()=>setRange(w)}>{w}w</button>)}
             </div>
           </div>
-          <ResponsiveContainer width="100%" height={100}>
-            <BarChart data={weeklyData} barSize={20} margin={{top:0,right:0,bottom:0,left:-28}}>
+          <ResponsiveContainer width="100%" height={148}>
+            <BarChart data={weeklyData} barSize={18} margin={{top:4,right:4,bottom:0,left:-20}}>
+              <defs>
+                <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#f97316" stopOpacity={0.9}/>
+                  <stop offset="100%" stopColor="#ea580c" stopOpacity={0.65}/>
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--bd)" vertical={false}/>
-              <XAxis dataKey="week" tick={{fill:"var(--tx3)",fontSize:9}} axisLine={false} tickLine={false}/>
-              <YAxis tick={{fill:"var(--tx3)",fontSize:9}} axisLine={false} tickLine={false}/>
-              <Tooltip content={({active,payload})=>{if(!active||!payload||!payload.length)return null;return<div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"6px 10px"}}><div style={{color:"var(--or)",fontWeight:700}}>{payload[0].value+" km"}</div></div>;}}/>
-              <Bar dataKey="km" fill="var(--or)" radius={[5,5,0,0]}/>
+              <XAxis dataKey="week" tick={{fill:"var(--tx3)",fontSize:9}} axisLine={false} tickLine={false}
+                tickFormatter={w=>w?w.slice(5):''}/>
+              <YAxis tick={{fill:"var(--tx3)",fontSize:9}} axisLine={false} tickLine={false} width={32}/>
+              <Tooltip
+                cursor={{fill:"rgba(255,255,255,.04)"}}
+                content={({active,payload,label})=>{
+                  if(!active||!payload||!payload.length)return null;
+                  return(
+                    <div className="chart-tip">
+                      <div className="chart-tip-val">{payload[0].value} km</div>
+                      <div className="chart-tip-sub">{label}</div>
+                    </div>
+                  );
+                }}/>
+              <Bar dataKey="km" fill="url(#barGrad)" radius={[5,5,0,0]}/>
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -1410,24 +1489,23 @@ function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR}){
           {racePRs.map(pr=>{const best=pr.best;return(
             <div key={pr.cat} className="tap"
               style={{borderRadius:14,overflow:"hidden",border:"1.5px solid "+(best?pr.color+"45":"var(--bd)"),background:best?pr.color+"08":"var(--s2)",cursor:"pointer"}}
-              // FIX #11/#13: pass properly shaped object that PRDetailModal expects
               onClick={()=>best&&onOpenPR({cat:{icon:"🏅",label:pr.cat,color:pr.color},top3:pr.top3||[]})}>
               <div style={{padding:"12px 12px 8px",borderBottom:"1px solid "+(best?pr.color+"20":"var(--bd)")}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                   <div>
-                    <div style={{fontSize:".6rem",fontWeight:700,color:best?pr.color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".1em",marginBottom:3}}>{pr.cat}</div>
-                    <div style={{fontSize:"1.25rem",fontWeight:800,color:best?pr.color:"var(--tx3)",fontFamily:"monospace",lineHeight:1}}>{best?fmtPace(best.avgPaceSecKm)+"/km":"--:--"}</div>
+                    <div style={{fontSize:".6rem",fontWeight:700,color:best?pr.color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".1em",marginBottom:4}}>{pr.cat}</div>
+                    <div style={{fontSize:"1.2rem",fontWeight:800,color:best?pr.color:"var(--tx3)",fontFamily:"monospace",lineHeight:1}}>{best?fmtPace(best.avgPaceSecKm)+"/km":"--:--"}</div>
                   </div>
-                  <span style={{fontSize:"1.2rem",opacity:best?1:.35}}>🏅</span>
+                  <span style={{fontSize:"1.1rem",opacity:best?1:.3}}>🏅</span>
                 </div>
               </div>
               <div style={{padding:"8px 12px 10px"}}>
-                {best?<div><div style={{fontSize:".72rem",fontWeight:600,color:"var(--tx)",marginBottom:3}}>{fmtKm(best.distanceKm)+" km"}</div><div style={{fontSize:".62rem",color:"var(--tx3)"}}>{fmtDateS(best.date)}</div></div>:<div style={{fontSize:".7rem",color:"var(--tx3)"}}>No record yet</div>}
+                {best?<div><div style={{fontSize:".74rem",fontWeight:600,color:"var(--tx)",marginBottom:2}}>{fmtKm(best.distanceKm)+" km"}</div><div style={{fontSize:".64rem",color:"var(--tx3)"}}>{fmtDateS(best.date)}</div></div>:<div style={{fontSize:".7rem",color:"var(--tx3)"}}>No record yet</div>}
               </div>
             </div>
           );})}
         </div>
-        {!racePRs.length&&acts.length>0&&<div style={{marginTop:12,padding:"12px 14px",borderRadius:11,background:"var(--s2)",fontSize:".78rem",color:"var(--tx2)",lineHeight:1.7}}>Run near standard race distances (5K, 10K, 21K, 42K) to see PRs here.</div>}
+        {!racePRs.length&&acts.length>0&&<div style={{marginTop:12,padding:"12px 14px",borderRadius:12,background:"var(--s2)",fontSize:".78rem",color:"var(--tx2)",lineHeight:1.7}}>Run near standard race distances (5K, 10K, 21K, 42K) to see PRs here.</div>}
       </div>
       {overallPRs&&(
         <div className="card a3" style={{padding:16,marginBottom:14}}>
@@ -1436,16 +1514,16 @@ function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR}){
             {[{l:"Longest",v:fmtKm(overallPRs.longest&&overallPRs.longest.distanceKm||0)+" km",c:"var(--or)",sub:overallPRs.longest?fmtDateS(overallPRs.longest.date):""},
               {l:"Best Pace",v:fmtPace(overallPRs.fastest&&overallPRs.fastest.avgPaceSecKm||0)+"/km",c:"var(--bl)",sub:overallPRs.fastest?fmtDateS(overallPRs.fastest.date):""}].map(s=>(
               <div key={s.l} className="card2" style={{padding:"13px 11px"}}>
-                <div style={{fontSize:".6rem",color:"var(--tx3)",marginBottom:7}}>{s.l}</div>
-                <div style={{fontSize:"1.3rem",fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</div>
-                <div style={{fontSize:".62rem",color:"var(--tx3)",marginTop:4}}>{s.sub}</div>
+                <div style={{fontSize:".62rem",color:"var(--tx3)",marginBottom:6,letterSpacing:".04em"}}>{s.l}</div>
+                <div style={{fontSize:"1.25rem",fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</div>
+                <div style={{fontSize:".64rem",color:"var(--tx3)",marginTop:5}}>{s.sub}</div>
               </div>
             ))}
           </div>
         </div>
       )}
-      {runs.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><button className="btn b-gh" style={{padding:"12px",fontSize:".8rem",borderRadius:13}} onClick={onViewAll}>All Runs ({acts.length})</button><button className="btn b-gh" style={{padding:"12px",fontSize:".8rem",borderRadius:13}} onClick={onViewMonthly}>Monthly</button></div>}
-      {!runs.length&&<div style={{textAlign:"center",padding:"40px 0",color:"var(--tx2)"}}><div style={{fontSize:"2rem",marginBottom:8}}>📊</div><div>Upload runs to see stats</div></div>}
+      {runs.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><button className="btn b-gh" style={{padding:"12px"}} onClick={onViewAll}>All Runs ({acts.length})</button><button className="btn b-gh" style={{padding:"12px"}} onClick={onViewMonthly}>Monthly</button></div>}
+      {!runs.length&&<div style={{textAlign:"center",padding:"48px 0",color:"var(--tx2)"}}><div style={{fontSize:"2.5rem",marginBottom:12}}>📊</div><div style={{fontWeight:600,marginBottom:6}}>No runs yet</div><div style={{fontSize:".8rem"}}>Upload a GPX file to see your stats</div></div>}
     </div>
   );
 }
@@ -1486,9 +1564,9 @@ function HRTab({acts,hrProfile,onEditHR}){
             <div key={z.zone} style={{marginBottom:i<4?11:0}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                 <div style={{display:"flex",alignItems:"center",gap:7}}>
-                  <div style={{width:8,height:8,borderRadius:2,background:z.color}}/>
-                  <span style={{fontSize:".78rem",fontWeight:600}}>{z.zone}</span>
-                  <span style={{fontSize:".7rem",color:"var(--tx2)"}}>{z.label}</span>
+                  <div style={{width:10,height:10,borderRadius:3,background:z.color,flexShrink:0}}/>
+                  <span style={{fontSize:".8rem",fontWeight:600}}>{z.zone}</span>
+                  <span style={{fontSize:".72rem",color:"var(--tx2)"}}>{z.label}</span>
                 </div>
                 <span style={{fontSize:".88rem",color:z.color,fontWeight:700}}>{z.pct}%</span>
               </div>
@@ -1560,11 +1638,11 @@ function TasksTab({tasks,setTasks,hrProfile}){
                     </div>
                     {task.streak>0&&<div style={{textAlign:"center",flexShrink:0}}><div style={{fontSize:".7rem",fontWeight:700,color:"var(--or)"}}>{task.streak}🔥</div></div>}
                   </div>
-                  <div style={{display:"flex",gap:4,marginTop:9}}>
+                  <div style={{display:"flex",gap:5,marginTop:9}}>
                     {last7.map(({key,label})=>{const comp=!!(task.completions&&task.completions[key]),isToday=key===todayStr;return(
-                      <div key={key} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                        <div style={{width:8,height:8,borderRadius:"50%",background:comp?task.color:isToday?"var(--bd2)":"var(--bd)"}}/>
-                        <div style={{fontSize:".46rem",color:"var(--tx3)"}}>{label}</div>
+                      <div key={key} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
+                        <div style={{width:10,height:10,borderRadius:"50%",background:comp?task.color:isToday?"var(--bd2)":"var(--bd)",flexShrink:0}}/>
+                        <div style={{fontSize:".6rem",color:isToday?"var(--tx2)":"var(--tx3)",fontWeight:isToday?600:400}}>{label}</div>
                       </div>
                     );})}
                   </div>
@@ -1838,8 +1916,8 @@ function Detail({act,hrProfile,onClose,onDelete,onShare}){
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
               {[{l:"Distance",v:fmtKm(act.distanceKm)+" km",c:col},{l:"Pace",v:fmtPace(act.avgPaceSecKm)+"/km",c:"var(--tx)"},{l:"Time",v:fmtDur(act.movingTimeSec),c:"var(--tx)"}].map(s=>(
                 <div key={s.l} className="card2" style={{padding:"12px 8px",textAlign:"center"}}>
-                  <div style={{fontSize:"1.05rem",fontWeight:700,color:s.c,lineHeight:1,marginBottom:4}}>{s.v}</div>
-                  <div style={{fontSize:".6rem",color:"var(--tx2)"}}>{s.l}</div>
+                  <div style={{fontSize:"1.1rem",fontWeight:700,color:s.c,lineHeight:1,marginBottom:5}}>{s.v}</div>
+                  <div style={{fontSize:".65rem",color:"var(--tx2)",letterSpacing:".04em"}}>{s.l}</div>
                 </div>
               ))}
             </div>
@@ -1871,9 +1949,9 @@ function Detail({act,hrProfile,onClose,onDelete,onShare}){
                     <div key={z.zone} style={{marginBottom:i<4?10:0}}>
                       <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
                         <div style={{display:"flex",alignItems:"center",gap:7}}>
-                          <div style={{width:8,height:8,borderRadius:2,background:z.color}}/>
-                          <span style={{fontSize:".78rem",fontWeight:600}}>Zone {z.zone}</span>
-                          <span style={{fontSize:".7rem",color:"var(--tx2)"}}>{z.label}</span>
+                          <div style={{width:10,height:10,borderRadius:3,background:z.color,flexShrink:0}}/>
+                          <span style={{fontSize:".8rem",fontWeight:600}}>Zone {z.zone}</span>
+                          <span style={{fontSize:".72rem",color:"var(--tx2)"}}>{z.label}</span>
                         </div>
                         <span style={{fontSize:".88rem",color:z.color,fontWeight:700}}>{z.pct}%</span>
                       </div>
@@ -2005,7 +2083,7 @@ function MonthlyReport({acts,onClose}){
               {[{l:"Distance",v:fmtKm(m.km)+" km",c:"var(--or)"},{l:"Time",v:fmtDur(m.timeSec),c:"var(--tx)"},{l:"Avg/run",v:fmtKm(m.km/m.runs)+" km",c:"var(--bl)"}].map(s=>(
                 <div key={s.l} className="card2" style={{padding:"10px 8px",textAlign:"center"}}>
                   <div style={{fontSize:".95rem",fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</div>
-                  <div style={{fontSize:".58rem",color:"var(--tx3)",marginTop:3}}>{s.l}</div>
+                  <div style={{fontSize:".62rem",color:"var(--tx2)",marginTop:4,letterSpacing:".04em"}}>{s.l}</div>
                 </div>
               ))}
             </div>
@@ -2111,6 +2189,16 @@ function AllRunsView({acts,onSelectAct,onClose}){
 // drawRouteCanvas, EXPORT_CONFIG, canvasToBlob, hexToRgba)
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Convert a #rrggbb hex color + 0-1 alpha → "rgba(r,g,b,a)" string.
+// Used by EditorPreview and exportCustomCard for the radial-glow layer.
+function hexToRgba(hex, alpha) {
+  const h = (hex||'#000000').replace('#','');
+  const r = parseInt(h.slice(0,2),16)||0;
+  const g = parseInt(h.slice(2,4),16)||0;
+  const b = parseInt(h.slice(4,6),16)||0;
+  return `rgba(${r},${g},${b},${+alpha||0})`;
+}
+
 const EDITOR_PRESETS_KEY = 'runlytics_share_presets_v1';
 
 const ACCENT_PRESETS = ['#f97316','#22c55e','#3b82f6','#a855f7','#ef4444','#eab308','#06b6d4','#ec4899','#ffffff'];
@@ -2163,24 +2251,35 @@ async function exportCustomCard(act, state, format) {
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
+  // Clip to rounded rect — matches the React card preview corner radius
+  cClipRounded(ctx, W, H, 48);
   const { bg, fx, elements: el, style: st } = state;
 
   // 1. Background
   if (bg.type === 'gradient') {
-    const ang = bg.gradAngle * Math.PI / 180;
-    const len = Math.sqrt(W * W + H * H) * 0.55;
-    const gr = ctx.createLinearGradient(W/2 - Math.cos(ang)*len, H/2 - Math.sin(ang)*len, W/2 + Math.cos(ang)*len, H/2 + Math.sin(ang)*len);
+    // Convert CSS gradient angle (0°=north, clockwise) to canvas vector.
+    // CSS formula: gradient direction = (sin θ, -cos θ) in canvas coords (y-down).
+    const rad = bg.gradAngle * Math.PI / 180;
+    const len = Math.sqrt(W * W + H * H) * 0.6;
+    const dx = Math.sin(rad) * len, dy = -Math.cos(rad) * len;
+    const gr = ctx.createLinearGradient(W/2 - dx, H/2 - dy, W/2 + dx, H/2 + dy);
     gr.addColorStop(0, bg.gradStop1); gr.addColorStop(1, bg.gradStop2);
     ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
   } else if (bg.type === 'image' && bg.imageData) {
     await new Promise(res => {
       const img = new Image();
       img.onload = () => {
-        if (bg.brightness !== 100) ctx.filter = `brightness(${bg.brightness / 100})`;
-        const sc = Math.max(W / img.width, H / img.height) * (bg.imageZoom / 100);
+        // Apply brightness AND blur in one compound filter string — must match CSS preview
+        const filters = [];
+        if (bg.brightness !== 100) filters.push(`brightness(${bg.brightness / 100})`);
+        if (bg.blur > 0) filters.push(`blur(${bg.blur}px)`);
+        if (filters.length) ctx.filter = filters.join(' ');
+        const zoom = Math.max(10, bg.imageZoom || 100); // clamp: zoom=0 would produce scale=0
+        const sc = Math.max(W / img.width, H / img.height) * (zoom / 100);
         const dw = img.width * sc, dh = img.height * sc;
         ctx.drawImage(img, (W - dw) * bg.imageX / 100, (H - dh) * bg.imageY / 100, dw, dh);
-        ctx.filter = 'none'; res();
+        ctx.filter = 'none';
+        res();
       };
       img.onerror = () => { cDrawBg(ctx, W, H, '#060810'); res(); };
       img.src = bg.imageData;
@@ -2242,18 +2341,34 @@ async function exportCustomCard(act, state, format) {
     ctx.restore();
   }
 
-  // 5. Grain (last — applied to pixel data)
+  // 5. Grain — crypto.getRandomValues on a typed buffer is ~20× faster than
+  //    per-pixel Math.random() which would take 500–2000ms on a 1080×1920 canvas.
   if (fx.grain > 0) {
-    const id = ctx.getImageData(0, 0, W, H); const d = id.data; const str = fx.grain * 55;
-    for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - 0.5) * str; d[i] += n; d[i+1] += n; d[i+2] += n; }
+    const id = ctx.getImageData(0, 0, W, H);
+    const d = id.data;
+    const str = fx.grain * 55;
+    const noise = new Uint8Array(W * H); // one value per pixel
+    crypto.getRandomValues(noise);
+    for (let i = 0; i < d.length; i += 4) {
+      const n = (noise[i >> 2] - 127.5) / 127.5 * str;
+      d[i]   = Math.max(0, Math.min(255, d[i]   + n));
+      d[i+1] = Math.max(0, Math.min(255, d[i+1] + n));
+      d[i+2] = Math.max(0, Math.min(255, d[i+2] + n));
+    }
     ctx.putImageData(id, 0, 0);
   }
 
   const blob = await canvasToBlob(canvas, format);
-  if (!blob) return;
+  // Free the ~8 MB canvas buffer before awaiting the download
+  canvas.width = 0; canvas.height = 0;
+  if (!blob) throw new Error('Canvas export produced an empty blob');
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `runlytics-custom.${format === 'jpg' ? 'jpg' : 'png'}`; a.click();
+  a.href = url;
+  a.download = `runlytics-custom.${format === 'jpg' ? 'jpg' : 'png'}`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
@@ -2678,6 +2793,10 @@ function ShareEditor({ act, onClose }) {
     setStateRaw(prev => ({ ...prev, elements: typeof updater === 'function' ? updater(prev.elements) : updater }))
   , []);
 
+  // Cancel any in-flight drag if the editor unmounts while the user's finger is still down
+  const dragCleanupRef = useRef(null);
+  useEffect(() => () => { if (dragCleanupRef.current) dragCleanupRef.current(); }, []);
+
   const startDrag = useCallback((key, e, snapPoints, snapThresh) => {
     e.preventDefault(); e.stopPropagation();
     setSelected(key);
@@ -2703,24 +2822,40 @@ function ShareEditor({ act, onClose }) {
       setStateRaw(prev => ({ ...prev, elements: { ...prev.elements, [key]: { ...prev.elements[key], x:nx, y:ny } } }));
     };
 
-    const onUp = () => {
+    const cleanup = () => {
       dragRef.current = false;
+      dragCleanupRef.current = null;
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('touchmove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      document.removeEventListener('touchend', onUp);
+      document.removeEventListener('mouseup', cleanup);
+      document.removeEventListener('touchend', cleanup);
     };
+    dragCleanupRef.current = cleanup;
 
     document.addEventListener('mousemove', onMove, { passive:false });
     document.addEventListener('touchmove', onMove, { passive:false });
-    document.addEventListener('mouseup', onUp);
-    document.addEventListener('touchend', onUp);
+    document.addEventListener('mouseup', cleanup);
+    document.addEventListener('touchend', cleanup);
   }, []);
+
+  // Close editor on Escape
+  useEffect(()=>{
+    const onKey=e=>{if(e.key==='Escape')onClose();};
+    document.addEventListener('keydown',onKey);
+    return()=>document.removeEventListener('keydown',onKey);
+  },[onClose]);
+
+  const [exportErr, setExportErr] = useState('');
 
   const doExport = async fmt => {
     if (busy) return;
     setBusy(true);
-    try { await exportCustomCard(act, state, fmt); } catch {}
+    setExportErr('');
+    try {
+      await exportCustomCard(act, state, fmt);
+    } catch(e) {
+      setExportErr('Export failed — please try again.');
+    }
     setBusy(false);
   };
 
@@ -2736,12 +2871,12 @@ function ShareEditor({ act, onClose }) {
 
       {/* Header */}
       <div style={{ flexShrink:0, padding:'12px 18px 11px', display:'flex', alignItems:'center', justifyContent:'space-between', borderBottom:'1px solid rgba(255,255,255,.07)' }}>
-        <button onClick={onClose} style={{ background:'none', border:'none', color:'rgba(255,255,255,.45)', fontSize:'.82rem', cursor:'pointer', fontFamily:'inherit', padding:0 }}>
+        <button onClick={onClose} className="tap" style={{ background:'none', border:'none', color:'rgba(255,255,255,.5)', fontSize:'.82rem', cursor:'pointer', fontFamily:'inherit', padding:'4px 8px 4px 0', letterSpacing:'.01em' }}>
           ‹ Back
         </button>
         <div style={{ fontWeight:700, fontSize:'.78rem', color:'rgba(255,255,255,.55)', letterSpacing:'.12em' }}>CUSTOM EDITOR</div>
-        <button onClick={() => { setStateRaw(EDITOR_DEFAULTS); setSelected(null); }}
-          style={{ background:'none', border:'none', color:'rgba(255,255,255,.3)', fontSize:'.72rem', cursor:'pointer', fontFamily:'inherit' }}>
+        <button onClick={() => { setStateRaw(EDITOR_DEFAULTS); setSelected(null); }} className="tap"
+          style={{ background:'none', border:'none', color:'rgba(255,255,255,.32)', fontSize:'.72rem', cursor:'pointer', fontFamily:'inherit', padding:'4px 0 4px 8px' }}>
           Reset
         </button>
       </div>
@@ -2792,14 +2927,19 @@ function ShareEditor({ act, onClose }) {
       </div>
 
       {/* Fixed export bar */}
-      <div style={{ position:'absolute', bottom:0, left:0, right:0, padding:'11px 18px 24px',
+      <div style={{ position:'absolute', bottom:0, left:0, right:0,
+        padding:'11px 18px',
+        paddingBottom:'max(22px, calc(env(safe-area-inset-bottom) + 10px))',
         background:'rgba(5,8,15,.96)', backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)',
         borderTop:'1px solid rgba(255,255,255,.07)' }}>
+        {exportErr&&<div style={{fontSize:'.72rem',color:'#f87171',textAlign:'center',marginBottom:8,fontWeight:600}}>{exportErr}</div>}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-          <button className="btn b-or" style={{ padding:'13px', fontSize:'.84rem', borderRadius:13, fontWeight:700 }}
-            onClick={() => doExport('jpg')} disabled={busy}>{busy?'Saving…':'Save JPEG'}</button>
-          <button className="btn b-gh" style={{ padding:'13px', fontSize:'.84rem', borderRadius:13 }}
-            onClick={() => doExport('png')} disabled={busy}>Save PNG</button>
+          <button className="btn b-or" style={{ padding:'13px', fontSize:'.84rem', borderRadius:14, fontWeight:700 }}
+            onClick={() => doExport('jpg')} disabled={busy}>
+            {busy ? <><span style={{width:14,height:14,borderRadius:'50%',border:'2px solid rgba(255,255,255,.3)',borderTopColor:'#fff',animation:'spin .7s linear infinite',display:'inline-block',flexShrink:0}}/> Saving…</> : 'Save JPEG'}
+          </button>
+          <button className="btn b-gh" style={{ padding:'13px', fontSize:'.84rem', borderRadius:14 }}
+            onClick={() => doExport('png')} disabled={busy}>{busy?'Saving…':'Save PNG'}</button>
         </div>
       </div>
     </div>
@@ -2955,18 +3095,17 @@ const App=()=>{
   return(
     <div style={{maxWidth:480,margin:"0 auto",minHeight:"100vh",display:"flex",flexDirection:"column",background:"var(--bg)"}}>
       <Styles/>
-      <div style={{padding:"12px 16px 8px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-        <div style={{fontWeight:800,fontSize:"1.1rem",letterSpacing:".04em",color:"var(--or)"}}>RUNLYTICS</div>
+      <div style={{padding:"max(14px,calc(env(safe-area-inset-top)+8px)) 16px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,borderBottom:"1px solid var(--bd)"}}>
+        <div style={{fontWeight:800,fontSize:"1.05rem",letterSpacing:".06em",color:"var(--or)"}}>RUNLYTICS</div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
-          {stravaSync.loading&&<div style={{width:16,height:16,borderRadius:"50%",border:"2px solid var(--or)",borderTopColor:"transparent",animation:"spin .8s linear infinite"}}/>}
-          {/* FIX #14: plain {stravaSync.msg} — no dangerouslySetInnerHTML needed now msg uses unicode */}
+          {stravaSync.loading&&<div style={{width:15,height:15,borderRadius:"50%",border:"2px solid var(--bd2)",borderTopColor:"var(--or)",animation:"spin .8s linear infinite"}}/>}
           {stravaAuth&&!stravaSync.loading&&stravaSync.msg&&(
-            <div style={{fontSize:".68rem",color:"var(--gn)",background:"var(--gn2)",padding:"2px 8px",borderRadius:20}}>{stravaSync.msg}</div>
+            <div style={{fontSize:".68rem",color:"var(--gn)",background:"var(--gn2)",padding:"2px 8px",borderRadius:20,fontWeight:600}}>{stravaSync.msg}</div>
           )}
-          <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.1rem",cursor:"pointer",padding:"4px 8px"}} onClick={openSettings} aria-label="Settings">⚙️</button>
+          <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.05rem",cursor:"pointer",padding:"4px 6px"}} onClick={openSettings} aria-label="Settings">⚙️</button>
         </div>
       </div>
-      <div style={{flex:1,overflowY:"auto",padding:"0 14px",paddingBottom:80}}>
+      <div style={{flex:1,overflowY:"auto",padding:"0 14px",paddingBottom:"max(88px,calc(env(safe-area-inset-bottom)+72px))"}}>
         <div key={tab} className="tab-in">
           {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} tasks={tasks} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings}/>}
           {tab==="stats"&&<StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR}/>}
@@ -2975,7 +3114,7 @@ const App=()=>{
           {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={[]}/>}
         </div>
       </div>
-      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(6,8,15,.97)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",borderTop:"1px solid var(--bd)",display:"flex",zIndex:100}}>
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(6,8,15,.97)",backdropFilter:"blur(16px)",WebkitBackdropFilter:"blur(16px)",borderTop:"1px solid var(--bd)",display:"flex",zIndex:100,paddingBottom:"env(safe-area-inset-bottom)"}}>
         {TABS.map(t=>(
           <button key={t.id} className={"tab-btn"+(tab===t.id?" on":"")} onClick={()=>setTab(t.id)} style={{position:"relative"}}>
             {t.id==="awards"&&hasUnseen&&<div style={{position:"absolute",top:6,right:"20%",width:7,height:7,borderRadius:"50%",background:"var(--or)",animation:"pulse 1.5s ease infinite"}}/>}
