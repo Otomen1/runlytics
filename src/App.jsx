@@ -66,15 +66,6 @@ function defaultTasks(){
     {id:"t4",title:"Sleep 7-8 hours",icon:"😴",color:"#f97316",category:"wellness",desc:"Prioritise 7-8 hours of quality sleep",enabled:true,streak:0,completions:{}},
   ];
 }
-function todayKey(){return new Date().toISOString().slice(0,10);}
-
-const TABS=[
-  {id:"home",icon:"🏠",label:"Home"},
-  {id:"stats",icon:"📊",label:"Stats"},
-  {id:"hr",icon:"❤️",label:"HR Zones"},
-  {id:"tasks",icon:"✅",label:"Habits"},
-  {id:"awards",icon:"🏆",label:"Awards"},
-];
 
 const App=()=>{
   // Activities start empty — populated async from IndexedDB in useEffect below.
