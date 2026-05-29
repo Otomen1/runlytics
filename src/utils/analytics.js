@@ -53,7 +53,7 @@ export function buildAnalytics(acts){
 }
 
 export function computeRacePRs(acts){
-  const cats=[{cat:"5K",min:4.5,max:5.5,color:"#22c55e"},{cat:"10K",min:9,max:11,color:"#f97316"},{cat:"HM",min:20,max:22,color:"#8b5cf6"},{cat:"Marathon",min:41,max:43,color:"#ef4444"}];
+  const cats=[{cat:"5K",min:4.2,max:5.8,color:"#22c55e"},{cat:"10K",min:8.5,max:11.5,color:"#f97316"},{cat:"HM",min:19,max:23,color:"#8b5cf6"},{cat:"Marathon",min:40,max:44,color:"#ef4444"}];
   return cats.map(c=>{
     const candidates=acts.filter(a=>a.distanceKm>=c.min&&a.distanceKm<=c.max&&a.movingTimeSec>0).sort((a,b)=>a.avgPaceSecKm-b.avgPaceSecKm);
     if(!candidates.length)return{...c,best:null,top3:[]};

@@ -264,6 +264,8 @@ export function canvasToBlob(canvas, format) {
 
 export async function downloadExport(act, templateId, format) {
   const { W, H } = EXPORT_CONFIG;
+  // Yield to the UI thread so the exporting spinner renders before we block
+  await new Promise(r => setTimeout(r, 0));
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
