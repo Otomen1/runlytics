@@ -27,6 +27,7 @@ export const SHARE_TEMPLATES=[
   {id:"endurance", label:"Endurance",  sub:"Cinematic poster"},
   {id:"cinematic", label:"Cinematic",  sub:"Atmospheric"},
   {id:"glass",     label:"Glass",      sub:"Frosted luxury"},
+  {id:"minimal",   label:"Minimal",    sub:"Typographic"},
 ];
 
 export const EDITOR_PRESETS_KEY = 'runlytics_share_presets_v1';

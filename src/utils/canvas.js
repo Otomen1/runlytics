@@ -2,24 +2,24 @@ import { normalizeRoute } from './activity.js';
 import { fmtKm, fmtDur, fmtPace } from './formatters.js';
 
 export const CANVAS_TYPE = {
-  hero:    { ratio: 0.11,  weight: 'bold', family: 'system-ui' }, // big distance number
-  unit:    { ratio: 0.026, weight: 600,    family: 'system-ui' }, // "KM" unit label
-  title:   { ratio: 0.022, weight: 600,    family: 'system-ui' }, // activity name
-  brand:   { ratio: 0.016, weight: 'bold', family: 'system-ui' }, // RUNLYTICS wordmark
-  caption: { ratio: 0.016, weight: 400,    family: 'system-ui' }, // date · pace line
+  hero:    { ratio: 0.11,  weight: 'bold', family: 'system-ui' },
+  unit:    { ratio: 0.026, weight: 600,    family: 'system-ui' },
+  title:   { ratio: 0.022, weight: 600,    family: 'system-ui' },
+  brand:   { ratio: 0.016, weight: 'bold', family: 'system-ui' },
+  caption: { ratio: 0.016, weight: 400,    family: 'system-ui' },
 };
 
 export const CANVAS_LAYOUT = {
-  padX:     0.07,   // horizontal padding (fraction of W)
-  brandY:   0.068,  // RUNLYTICS baseline (fraction of H)
-  heroY:    0.45,   // distance number baseline
-  unitY:    0.48,   // "KM" baseline
-  divX:     0.20,   // divider left edge (fraction of W)
-  divY:     0.52,   // divider Y
-  divW:     0.60,   // divider width (fraction of W)
-  nameY:    0.58,   // activity name baseline
-  captionY: 0.62,   // date/pace baseline
-  routeH:   0.55,   // route occupies top fraction of H
+  padX:     0.07,
+  brandY:   0.068,
+  heroY:    0.45,
+  unitY:    0.48,
+  divX:     0.20,
+  divY:     0.52,
+  divW:     0.60,
+  nameY:    0.58,
+  captionY: 0.62,
+  routeH:   0.55,
 };
 
 export const EXPORT_CONFIG = { W: 1080, H: 1920, quality: 0.92 };
@@ -32,7 +32,8 @@ export function hexToRgba(hex, alpha) {
   return `rgba(${r},${g},${b},${+alpha||0})`;
 }
 
-export function drawRouteCanvas(ctx,route,ox,oy,W,H){
+export function drawRouteCanvas(ctx,route,ox,oy,W,H,opts={}){
+  const {glowColor=null}=opts;
   if(!route||route.length<2)return;
   try{
     const pts=normalizeRoute(route);if(pts.length<2)return;
@@ -43,6 +44,7 @@ export function drawRouteCanvas(ctx,route,ox,oy,W,H){
     const step=Math.max(1,Math.floor(pts.length/150));
     const sp=pts.filter((_,i)=>i%step===0||i===pts.length-1);
     ctx.beginPath();sp.forEach((p,i)=>i===0?ctx.moveTo(tx(p.lon),ty(p.lat)):ctx.lineTo(tx(p.lon),ty(p.lat)));
+    if(glowColor){ctx.strokeStyle=glowColor;ctx.lineWidth=16;ctx.lineCap="round";ctx.lineJoin="round";ctx.stroke();}
     ctx.strokeStyle="rgba(249,115,22,0.7)";ctx.lineWidth=2;ctx.lineCap="round";ctx.stroke();
   }catch(e){}
 }
@@ -115,63 +117,80 @@ export function cDrawLinGrad(ctx,W,H,x0,y0,x1,y1,stops){
   ctx.fillStyle=gr; ctx.fillRect(0,0,W,H);
 }
 
+// Build the dynamic stats rows array for an activity
+function actStatsRows(act){
+  const rows=[['DURATION',fmtDur(act.movingTimeSec)],['PACE',fmtPace(act.avgPaceSecKm)+'/km']];
+  if(act.elevGainM>0)rows.push(['ELEVATION',Math.round(act.elevGainM)+'m']);
+  if(act.avgHR>0)rows.push(['HR',Math.round(act.avgHR)+' bpm']);
+  return rows;
+}
+
 export function cRenderVelocity(ctx,act,W,H){
   cDrawBg(ctx,W,H,'#faf8f4');
   cDrawLinGrad(ctx,W,H, 0,H*0.55,0,H, [[0,'transparent'],[1,'rgba(249,115,22,.07)']]);
   cDrawBranding(ctx,W,H,'rgba(0,0,0,.2)');
-  // Distance hero
   ctx.save(); ctx.textAlign='center';
   ctx.fillStyle='#0a0a0a'; ctx.font=cFont(H,'hero');
   ctx.fillText(fmtKm(act.distanceKm),W/2,H*CANVAS_LAYOUT.heroY);
   ctx.fillStyle='rgba(0,0,0,.28)'; ctx.font=`600 ${Math.round(H*.018)}px system-ui`;
   ctx.fillText('KILOMETRES',W/2,H*(CANVAS_LAYOUT.unitY+.008));
   ctx.restore();
-  // Asymmetric accent rule
   const px=W*CANVAS_LAYOUT.padX;
   ctx.fillStyle='#f97316'; ctx.fillRect(px,H*CANVAS_LAYOUT.divY,W*0.09,3);
   ctx.fillStyle='rgba(0,0,0,.08)'; ctx.fillRect(px+W*0.104,H*CANVAS_LAYOUT.divY,W*0.563,1);
-  // Run name — left-aligned
   ctx.save(); ctx.textAlign='left'; ctx.fillStyle='rgba(0,0,0,.62)'; ctx.font=cFont(H,'title');
   ctx.fillText((act.name||'Run').substring(0,26),px,H*CANVAS_LAYOUT.nameY);
   ctx.restore();
-  // Stats row — DURATION and PACE (mirrors React StatRow)
   const rX=W*(1-CANVAS_LAYOUT.padX);
   const vF=`700 ${Math.round(H*.025)}px monospace`;
   const lF=`600 ${Math.round(H*.013)}px system-ui`;
-  [[H*0.638,'DURATION',fmtDur(act.movingTimeSec)],[H*0.682,'PACE',fmtPace(act.avgPaceSecKm)+'/km']].forEach(([y,lbl,val])=>{
+  const rows=actStatsRows(act);
+  rows.forEach(([lbl,val],i)=>{
+    const y=H*(0.638+i*0.044);
     ctx.save();
     ctx.textAlign='left'; ctx.fillStyle='rgba(0,0,0,.22)'; ctx.font=lF; ctx.fillText(lbl,px,y);
     ctx.textAlign='right'; ctx.fillStyle='#1a1a1a'; ctx.font=vF; ctx.fillText(val,rX,y);
     ctx.restore();
   });
-  // Date caption
   ctx.save(); ctx.textAlign='center'; ctx.fillStyle='rgba(0,0,0,.18)'; ctx.font=cFont(H,'caption');
-  ctx.fillText(act.date||'',W/2,H*0.752); ctx.restore();
+  ctx.fillText(act.date||'',W/2,H*(0.638+rows.length*0.044+0.018)); ctx.restore();
 }
 
 export function cRenderRaceDay(ctx,act,W,H){
   cDrawBg(ctx,W,H,'#060810');
   if(act.route&&act.route.length>1){
-    drawRouteCanvas(ctx,act.route,0,0,W,H*0.63);
+    drawRouteCanvas(ctx,act.route,0,0,W,H*0.63,{glowColor:'rgba(249,115,22,0.1)'});
     cDrawLinGrad(ctx,W,H, 0,H*0.28,0,H*0.65, [[0,'transparent'],[1,'#060810']]);
   }
-  cDrawRadialGlow(ctx,W/2,H*0.67,W*0.55,'rgba(249,115,22,.2)');
+  cDrawRadialGlow(ctx,W/2,H*0.65,W*0.55,'rgba(249,115,22,.2)');
   cDrawVignette(ctx,W,H,0.58);
   ctx.save(); ctx.textAlign='center';
   ctx.fillStyle='#fff'; ctx.font=cFont(H,'hero');
-  ctx.fillText(fmtKm(act.distanceKm),W/2,H*0.70);
+  ctx.fillText(fmtKm(act.distanceKm),W/2,H*0.66);
   ctx.fillStyle='#f97316'; ctx.font=`700 ${Math.round(H*.013)}px system-ui`;
-  ctx.fillText('KILOMETRES',W/2,H*0.752);
+  ctx.fillText('KILOMETRES',W/2,H*0.700);
   ctx.restore();
+  const px=W*CANVAS_LAYOUT.padX, rX=W*(1-CANVAS_LAYOUT.padX);
+  const vF=`700 ${Math.round(H*.025)}px monospace`;
+  const lF=`600 ${Math.round(H*.013)}px system-ui`;
+  const rows=actStatsRows(act);
+  rows.forEach(([lbl,val],i)=>{
+    const y=H*(0.752+i*0.044);
+    ctx.save();
+    ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.28)'; ctx.font=lF; ctx.fillText(lbl,px,y);
+    ctx.textAlign='right'; ctx.fillStyle='#fff'; ctx.font=vF; ctx.fillText(val,rX,y);
+    ctx.restore();
+  });
   cDrawBranding(ctx,W,H,'rgba(255,255,255,.22)');
-  cDrawCaption(ctx,W,H,(act.name||'Run').substring(0,26)+' · '+fmtPace(act.avgPaceSecKm)+'/km','rgba(255,255,255,.32)');
+  ctx.save(); ctx.textAlign='center'; ctx.fillStyle='rgba(255,255,255,.28)'; ctx.font=cFont(H,'caption');
+  ctx.fillText((act.name||'Run').substring(0,28),W/2,H*(0.752+rows.length*0.044+0.022)); ctx.restore();
 }
 
 export function cRenderEndurance(ctx,act,W,H){
   cDrawBg(ctx,W,H,'#0a0c14');
   cDrawRadialGlow(ctx,W/2,0,W*0.8,'rgba(249,115,22,.06)');
   cDrawVignette(ctx,W,H,0.42);
-  const px=W*CANVAS_LAYOUT.padX;
+  const px=W*CANVAS_LAYOUT.padX, rX=W*(1-CANVAS_LAYOUT.padX);
   ctx.save(); ctx.textAlign='left';
   ctx.fillStyle='rgba(255,255,255,.18)'; ctx.font=cFont(H,'brand');
   ctx.fillText('RUNLYTICS',px,H*CANVAS_LAYOUT.brandY);
@@ -181,14 +200,19 @@ export function cRenderEndurance(ctx,act,W,H){
   ctx.fillStyle='rgba(255,255,255,.06)'; ctx.fillRect(px,H*0.548,W*0.86,1);
   const mF=`700 ${Math.round(H*.026)}px monospace`;
   const lF=`600 ${Math.round(H*.014)}px system-ui`;
-  const rX=W*(1-CANVAS_LAYOUT.padX);
-  [[H*0.615,'DURATION',fmtDur(act.movingTimeSec)],[H*0.675,'PACE',fmtPace(act.avgPaceSecKm)+'/km']].forEach(([y,lbl,val])=>{
+  const rows=actStatsRows(act);
+  rows.forEach(([lbl,val],i)=>{
+    const y=H*(0.615+i*0.055);
     ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.28)'; ctx.font=lF; ctx.fillText(lbl,px,y);
     ctx.textAlign='right'; ctx.fillStyle='#fff'; ctx.font=mF; ctx.fillText(val,rX,y);
   });
   ctx.restore();
   if(act.route&&act.route.length>1){
-    ctx.globalAlpha=0.32; drawRouteCanvas(ctx,act.route,W*0.44,H*0.73,W*0.5,H*0.21); ctx.globalAlpha=1;
+    const routeY=H*(0.615+rows.length*0.055+0.02);
+    const routeH=Math.min(H*0.22,H-routeY-H*0.04);
+    ctx.globalAlpha=0.35;
+    drawRouteCanvas(ctx,act.route,W*0.44,routeY,W*0.5,routeH,{glowColor:'rgba(249,115,22,0.12)'});
+    ctx.globalAlpha=1;
   }
 }
 
@@ -196,7 +220,9 @@ export function cRenderCinematic(ctx,act,W,H){
   cDrawBg(ctx,W,H,'#0d0520');
   cDrawLinGrad(ctx,W,H, 0,0,W,H, [[0,'rgba(100,40,180,.2)'],[0.5,'transparent'],[1,'rgba(249,115,22,.1)']]);
   if(act.route&&act.route.length>1){
-    ctx.globalAlpha=0.28; drawRouteCanvas(ctx,act.route,-W*0.05,0,W*1.1,H*0.66); ctx.globalAlpha=1;
+    ctx.globalAlpha=0.28;
+    drawRouteCanvas(ctx,act.route,-W*0.05,0,W*1.1,H*0.66,{glowColor:'rgba(160,90,255,0.18)'});
+    ctx.globalAlpha=1;
     cDrawLinGrad(ctx,W,H, 0,H*0.26,0,H*0.68, [[0,'transparent'],[1,'rgba(13,5,32,.97)']]);
   }
   cDrawVignette(ctx,W,H,0.65);
@@ -204,17 +230,30 @@ export function cRenderCinematic(ctx,act,W,H){
   ctx.save(); ctx.textAlign='center';
   ctx.fillStyle='#fff'; ctx.font=cFont(H,'hero'); ctx.fillText(fmtKm(act.distanceKm),W/2,H*0.71);
   ctx.fillStyle='rgba(160,90,255,.85)'; ctx.font=`700 ${Math.round(H*.013)}px system-ui`;
-  ctx.fillText('KILOMETRES',W/2,H*0.758);
+  ctx.fillText('KILOMETRES',W/2,H*0.752);
   ctx.restore();
+  // Run name as subtitle above the stats
+  ctx.save(); ctx.textAlign='center'; ctx.fillStyle='rgba(255,255,255,.28)'; ctx.font=cFont(H,'caption');
+  ctx.fillText((act.name||'Run').substring(0,28),W/2,H*0.786); ctx.restore();
+  const px=W*CANVAS_LAYOUT.padX, rX=W*(1-CANVAS_LAYOUT.padX);
+  const vF=`700 ${Math.round(H*.025)}px monospace`;
+  const lF=`600 ${Math.round(H*.013)}px system-ui`;
+  const rows=actStatsRows(act);
+  rows.forEach(([lbl,val],i)=>{
+    const y=H*(0.820+i*0.044);
+    ctx.save();
+    ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.28)'; ctx.font=lF; ctx.fillText(lbl,px,y);
+    ctx.textAlign='right'; ctx.fillStyle='#fff'; ctx.font=vF; ctx.fillText(val,rX,y);
+    ctx.restore();
+  });
   cDrawBranding(ctx,W,H,'rgba(255,255,255,.18)');
-  cDrawCaption(ctx,W,H,(act.name||'Run').substring(0,28),'rgba(255,255,255,.3)');
 }
 
 export function cRenderGlass(ctx,act,W,H){
   cDrawBg(ctx,W,H,'#0c1120');
-  cDrawRadialGlow(ctx,W/2,H*0.12,W*0.75,'rgba(249,115,22,.06)');
+  cDrawRadialGlow(ctx,W/2,H*0.10,W*0.75,'rgba(249,115,22,.06)');
   cDrawVignette(ctx,W,H,0.38);
-  const gx=W*0.06,gy=H*0.1,gw=W*0.88,gh=H*0.76;
+  const gx=W*0.06,gy=H*0.08,gw=W*0.88,gh=H*0.80;
   const rad=W*0.04;
   ctx.save();
   ctx.fillStyle='rgba(255,255,255,.04)';
@@ -228,19 +267,82 @@ export function cRenderGlass(ctx,act,W,H){
   ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.fillStyle='rgba(255,255,255,.09)'; ctx.fillRect(gx,gy,gw,1);
   ctx.restore();
-  if(act.route&&act.route.length>1){
-    ctx.globalAlpha=0.5; drawRouteCanvas(ctx,act.route,gx+gw*0.04,gy+gh*0.54,gw*0.92,gh*0.41); ctx.globalAlpha=1;
-  }
+  // Distance
   ctx.save(); ctx.textAlign='center';
-  ctx.fillStyle='#fff'; ctx.font=cFont(H,'hero'); ctx.fillText(fmtKm(act.distanceKm),W/2,gy+gh*0.38);
-  ctx.fillStyle='rgba(255,255,255,.28)'; ctx.font=cFont(H,'unit'); ctx.fillText('KILOMETRES',W/2,gy+gh*0.44);
+  ctx.fillStyle='#fff'; ctx.font=cFont(H,'hero'); ctx.fillText(fmtKm(act.distanceKm),W/2,gy+gh*0.28);
+  ctx.fillStyle='rgba(255,255,255,.28)'; ctx.font=cFont(H,'unit'); ctx.fillText('KILOMETRES',W/2,gy+gh*0.34);
   ctx.restore();
-  cDrawDivider(ctx,W,H,'rgba(255,255,255,.06)');
+  // Separator
+  ctx.fillStyle='rgba(255,255,255,.07)'; ctx.fillRect(gx+gw*0.06,gy+gh*0.38,gw*0.88,1);
+  // 2-col stats grid: DURATION|PACE top row, ELEVATION|HR second row
+  const sp=gx+gw*0.07, sMidL=gx+gw*0.47, sMidR=gx+gw*0.53, sRx=gx+gw*0.93;
+  const sVF=`700 ${Math.round(H*.022)}px monospace`;
+  const sLF=`600 ${Math.round(H*.012)}px system-ui`;
+  const sy=gy+gh*0.44, sy2=sy+H*0.052;
+  ctx.save();
+  ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.3)'; ctx.font=sLF; ctx.fillText('DURATION',sp,sy);
+  ctx.textAlign='right'; ctx.fillStyle='#fff'; ctx.font=sVF; ctx.fillText(fmtDur(act.movingTimeSec),sMidL,sy);
+  ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.3)'; ctx.font=sLF; ctx.fillText('PACE',sMidR,sy);
+  ctx.textAlign='right'; ctx.fillStyle='#fff'; ctx.font=sVF; ctx.fillText(fmtPace(act.avgPaceSecKm)+'/km',sRx,sy);
+  if(act.elevGainM>0||act.avgHR>0){
+    const elevVal=act.elevGainM>0?Math.round(act.elevGainM)+'m':'—';
+    const hrVal=act.avgHR>0?Math.round(act.avgHR)+' bpm':'—';
+    ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.3)'; ctx.font=sLF; ctx.fillText('ELEVATION',sp,sy2);
+    ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.75)'; ctx.font=sVF; ctx.fillText(elevVal,sMidL,sy2);
+    ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.3)'; ctx.font=sLF; ctx.fillText('HR',sMidR,sy2);
+    ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.75)'; ctx.font=sVF; ctx.fillText(hrVal,sRx,sy2);
+  }
+  ctx.restore();
+  // Route inside card — position adapts to whether the extra row is shown
+  if(act.route&&act.route.length>1){
+    const hasExtra=act.elevGainM>0||act.avgHR>0;
+    const routeTop=gy+gh*(hasExtra?0.60:0.52);
+    const routeH=gy+gh*0.95-routeTop;
+    ctx.globalAlpha=0.5;
+    drawRouteCanvas(ctx,act.route,gx+gw*0.04,routeTop,gw*0.92,routeH,{glowColor:'rgba(249,115,22,0.12)'});
+    ctx.globalAlpha=1;
+  }
   cDrawBranding(ctx,W,H,'rgba(255,255,255,.18)');
-  cDrawCaption(ctx,W,H,(act.name||'Run').substring(0,28),'rgba(255,255,255,.28)');
+  // Run name below card
+  ctx.save(); ctx.textAlign='center'; ctx.fillStyle='rgba(255,255,255,.28)'; ctx.font=cFont(H,'caption');
+  ctx.fillText((act.name||'Run').substring(0,28),W/2,gy+gh+H*0.028); ctx.restore();
 }
 
-export const CANVAS_RENDERERS={velocity:cRenderVelocity,raceday:cRenderRaceDay,endurance:cRenderEndurance,cinematic:cRenderCinematic,glass:cRenderGlass};
+export function cRenderMinimal(ctx,act,W,H){
+  cDrawBg(ctx,W,H,'#050505');
+  // Faint top glow for depth
+  cDrawRadialGlow(ctx,W/2,0,W*0.7,'rgba(255,255,255,.02)');
+  const px=W*CANVAS_LAYOUT.padX, rX=W*(1-CANVAS_LAYOUT.padX);
+  // Branding
+  ctx.save(); ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.10)'; ctx.font=cFont(H,'brand');
+  ctx.fillText('RUNLYTICS',px,H*CANVAS_LAYOUT.brandY); ctx.restore();
+  // Giant distance hero — centered
+  ctx.save(); ctx.textAlign='center';
+  ctx.fillStyle='#ffffff'; ctx.font=cFont(H,'hero');
+  ctx.fillText(fmtKm(act.distanceKm),W/2,H*0.46);
+  ctx.fillStyle='#f97316'; ctx.font=`700 ${Math.round(H*.014)}px system-ui`;
+  ctx.fillText('KM',W/2,H*0.492);
+  ctx.restore();
+  // Full-width accent line
+  ctx.fillStyle='rgba(249,115,22,.45)'; ctx.fillRect(px,H*0.518,W*(1-CANVAS_LAYOUT.padX*2),1);
+  // Stats rows
+  const vF=`700 ${Math.round(H*.026)}px monospace`;
+  const lF=`600 ${Math.round(H*.013)}px system-ui`;
+  const rows=actStatsRows(act);
+  rows.forEach(([lbl,val],i)=>{
+    const y=H*(0.560+i*0.052);
+    ctx.save();
+    ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.22)'; ctx.font=lF; ctx.fillText(lbl,px,y);
+    ctx.textAlign='right'; ctx.fillStyle='rgba(255,255,255,.88)'; ctx.font=vF; ctx.fillText(val,rX,y);
+    ctx.restore();
+  });
+  // Run name + date at bottom
+  ctx.save(); ctx.textAlign='left'; ctx.fillStyle='rgba(255,255,255,.16)'; ctx.font=cFont(H,'caption');
+  const nameDate=[(act.name||'Run').substring(0,22),act.date||''].filter(Boolean).join('  ·  ');
+  ctx.fillText(nameDate,px,H*0.888); ctx.restore();
+}
+
+export const CANVAS_RENDERERS={velocity:cRenderVelocity,raceday:cRenderRaceDay,endurance:cRenderEndurance,cinematic:cRenderCinematic,glass:cRenderGlass,minimal:cRenderMinimal};
 
 export function renderToCanvas(ctx,act,templateId,W,H){
   const render=CANVAS_RENDERERS[templateId]||CANVAS_RENDERERS.raceday;
@@ -264,23 +366,19 @@ export function canvasToBlob(canvas, format) {
 
 export async function downloadExport(act, templateId, format) {
   const { W, H } = EXPORT_CONFIG;
-  // Yield to the UI thread so the exporting spinner renders before we block
   await new Promise(r => setTimeout(r, 0));
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
-  // Clip to rounded rect so exported image matches the preview card corners
   cClipRounded(ctx, W, H, 48);
   renderToCanvas(ctx, act, templateId, W, H);
   const blob = await canvasToBlob(canvas, format);
-  // Free the large canvas buffer promptly — 1080×1920×4 bytes ≈ 8 MB
   canvas.width = 0; canvas.height = 0;
   if (!blob) throw new Error('Canvas export produced an empty blob');
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = `runlytics-share.${format === 'jpg' ? 'jpg' : 'png'}`;
-  // Must be in the DOM for Firefox to trigger the download
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -292,14 +390,11 @@ export async function exportCustomCard(act, state, format) {
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
-  // Clip to rounded rect — matches the React card preview corner radius
   cClipRounded(ctx, W, H, 48);
   const { bg, fx, elements: el, style: st } = state;
 
   // 1. Background
   if (bg.type === 'gradient') {
-    // Convert CSS gradient angle (0°=north, clockwise) to canvas vector.
-    // CSS formula: gradient direction = (sin θ, -cos θ) in canvas coords (y-down).
     const rad = bg.gradAngle * Math.PI / 180;
     const len = Math.sqrt(W * W + H * H) * 0.6;
     const dx = Math.sin(rad) * len, dy = -Math.cos(rad) * len;
@@ -310,12 +405,11 @@ export async function exportCustomCard(act, state, format) {
     await new Promise(res => {
       const img = new Image();
       img.onload = () => {
-        // Apply brightness AND blur in one compound filter string — must match CSS preview
         const filters = [];
         if (bg.brightness !== 100) filters.push(`brightness(${bg.brightness / 100})`);
         if (bg.blur > 0) filters.push(`blur(${bg.blur}px)`);
         if (filters.length) ctx.filter = filters.join(' ');
-        const zoom = Math.max(10, bg.imageZoom || 100); // clamp: zoom=0 would produce scale=0
+        const zoom = Math.max(10, bg.imageZoom || 100);
         const sc = Math.max(W / img.width, H / img.height) * (zoom / 100);
         const dw = img.width * sc, dh = img.height * sc;
         ctx.drawImage(img, (W - dw) * bg.imageX / 100, (H - dh) * bg.imageY / 100, dw, dh);
@@ -382,13 +476,12 @@ export async function exportCustomCard(act, state, format) {
     ctx.restore();
   }
 
-  // 5. Grain — crypto.getRandomValues on a typed buffer is ~20× faster than
-  //    per-pixel Math.random() which would take 500–2000ms on a 1080×1920 canvas.
+  // 5. Grain
   if (fx.grain > 0) {
     const id = ctx.getImageData(0, 0, W, H);
     const d = id.data;
     const str = fx.grain * 55;
-    const noise = new Uint8Array(W * H); // one value per pixel
+    const noise = new Uint8Array(W * H);
     crypto.getRandomValues(noise);
     for (let i = 0; i < d.length; i += 4) {
       const n = (noise[i >> 2] - 127.5) / 127.5 * str;
@@ -400,7 +493,6 @@ export async function exportCustomCard(act, state, format) {
   }
 
   const blob = await canvasToBlob(canvas, format);
-  // Free the ~8 MB canvas buffer before awaiting the download
   canvas.width = 0; canvas.height = 0;
   if (!blob) throw new Error('Canvas export produced an empty blob');
   const url = URL.createObjectURL(blob);
