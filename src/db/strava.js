@@ -3,10 +3,8 @@ import { migrateActivity, decodePolyline, classifyRun } from '../utils/activity.
 import { todayKey } from '../utils/formatters.js';
 
 export function loadStravaAuth(){try{return JSON.parse(localStorage.getItem(STRAVA_KEY)||"null");}catch(e){return null;}}
-function saveStravaAuth(a){try{localStorage.setItem(STRAVA_KEY,JSON.stringify(a));}catch(e){}}
 
 export function saveStravaAuth(a){try{localStorage.setItem(STRAVA_KEY,JSON.stringify(a));}catch(e){}}
-function clearStravaAuth(){try{localStorage.removeItem(STRAVA_KEY);}catch(e){}}
 
 export function clearStravaAuth(){try{localStorage.removeItem(STRAVA_KEY);}catch(e){}}
 
@@ -16,22 +14,31 @@ export async function getStravaToken(auth){
   try{
     const r=await fetch("/api/strava-refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({refresh_token:auth.refresh_token})});
     if(!r.ok)return null;
-    const data=await r.json();const updated={...auth,...data};saveStravaAuth(updated);return updated.access_token;
+    const data=await r.json();
+    const updated={...auth,...data};
+    saveStravaAuth(updated);
+    return updated.access_token;
   }catch(e){return null;}
 }
 
 export function mapStravaActivity(a){
   if(!a||a.type&&!["Run","Walk","Hike","TrailRun","VirtualRun"].includes(a.type))return null;
-  const distKm=(a.distance||0)/1000;const paceSecKm=distKm>0&&a.moving_time?a.moving_time/distKm:0;
+  const distKm=(a.distance||0)/1000;
+  const paceSecKm=distKm>0&&a.moving_time?a.moving_time/distKm:0;
   const d=a.start_date_local||a.start_date||new Date().toISOString();
-  const trainingLoad=a.moving_time&&a.average_heartrate?Math.round((a.moving_time/60)*(a.average_heartrate/100)*1.5):Math.round(distKm*8);
-  // Decode Strava's encoded polyline — summary_polyline is the compressed version,
-  // polyline is the full-resolution version. Use whichever is available.
+  const trainingLoad=a.moving_time&&a.average_heartrate
+    ?Math.round((a.moving_time/60)*(a.average_heartrate/100)*1.5)
+    :Math.round(distKm*8);
   const encoded=a.map?.summary_polyline||a.map?.polyline||'';
   const route=encoded?decodePolyline(encoded):[];
-  return migrateActivity({id:"s"+a.id,name:a.name||"Run",type:a.sport_type||a.type||"Run",date:d.slice(0,10),dateTs:new Date(d).getTime(),
-    distanceKm:parseFloat(distKm.toFixed(3)),movingTimeSec:a.moving_time||0,
-    avgPaceSecKm:parseFloat(paceSecKm.toFixed(1)),avgHR:a.average_heartrate||null,maxHR:a.max_heartrate||null,
-    elevGainM:Math.round(a.total_elevation_gain||0),elevLossM:0,
-    runClass:classifyRun(distKm,paceSecKm),hrSamples:[],route,source:"strava",trainingLoad});
+  return migrateActivity({
+    id:"s"+a.id, name:a.name||"Run", type:a.sport_type||a.type||"Run",
+    date:d.slice(0,10), dateTs:new Date(d).getTime(),
+    distanceKm:parseFloat(distKm.toFixed(3)), movingTimeSec:a.moving_time||0,
+    avgPaceSecKm:parseFloat(paceSecKm.toFixed(1)),
+    avgHR:a.average_heartrate||null, maxHR:a.max_heartrate||null,
+    elevGainM:Math.round(a.total_elevation_gain||0), elevLossM:0,
+    runClass:classifyRun(distKm,paceSecKm),
+    hrSamples:[], route, source:"strava", trainingLoad
+  });
 }
