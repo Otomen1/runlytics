@@ -1,7 +1,7 @@
 import { normalizeRoute } from './activity.js';
 import { fmtKm, fmtDur, fmtPace } from './formatters.js';
 
-const CANVAS_TYPE = {
+export const CANVAS_TYPE = {
   hero:    { ratio: 0.11,  weight: 'bold', family: 'system-ui' }, // big distance number
   unit:    { ratio: 0.026, weight: 600,    family: 'system-ui' }, // "KM" unit label
   title:   { ratio: 0.022, weight: 600,    family: 'system-ui' }, // activity name
@@ -9,7 +9,7 @@ const CANVAS_TYPE = {
   caption: { ratio: 0.016, weight: 400,    family: 'system-ui' }, // date · pace line
 };
 
-const CANVAS_LAYOUT = {
+export const CANVAS_LAYOUT = {
   padX:     0.07,   // horizontal padding (fraction of W)
   brandY:   0.068,  // RUNLYTICS baseline (fraction of H)
   heroY:    0.45,   // distance number baseline
@@ -22,7 +22,7 @@ const CANVAS_LAYOUT = {
   routeH:   0.55,   // route occupies top fraction of H
 };
 
-const EXPORT_CONFIG = { W: 1080, H: 1920, quality: 0.92 };
+export const EXPORT_CONFIG = { W: 1080, H: 1920, quality: 0.92 };
 
 export function hexToRgba(hex, alpha) {
   const h = (hex||'#000000').replace('#','');
@@ -261,5 +261,152 @@ export function canvasToBlob(canvas, format) {
   return new Promise(resolve => canvas.toBlob(resolve, mime, EXPORT_CONFIG.quality));
 }
 
-export   const canvas = document.createElement('canvas');
+
+export async function downloadExport(act, templateId, format) {
+  const { W, H } = EXPORT_CONFIG;
+  const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  // Clip to rounded rect so exported image matches the preview card corners
+  cClipRounded(ctx, W, H, 48);
+  renderToCanvas(ctx, act, templateId, W, H);
+  const blob = await canvasToBlob(canvas, format);
+  // Free the large canvas buffer promptly — 1080×1920×4 bytes ≈ 8 MB
+  canvas.width = 0; canvas.height = 0;
+  if (!blob) throw new Error('Canvas export produced an empty blob');
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `runlytics-share.${format === 'jpg' ? 'jpg' : 'png'}`;
+  // Must be in the DOM for Firefox to trigger the download
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export async function exportCustomCard(act, state, format) {
+  const { W, H } = EXPORT_CONFIG;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  // Clip to rounded rect — matches the React card preview corner radius
+  cClipRounded(ctx, W, H, 48);
+  const { bg, fx, elements: el, style: st } = state;
+
+  // 1. Background
+  if (bg.type === 'gradient') {
+    // Convert CSS gradient angle (0°=north, clockwise) to canvas vector.
+    // CSS formula: gradient direction = (sin θ, -cos θ) in canvas coords (y-down).
+    const rad = bg.gradAngle * Math.PI / 180;
+    const len = Math.sqrt(W * W + H * H) * 0.6;
+    const dx = Math.sin(rad) * len, dy = -Math.cos(rad) * len;
+    const gr = ctx.createLinearGradient(W/2 - dx, H/2 - dy, W/2 + dx, H/2 + dy);
+    gr.addColorStop(0, bg.gradStop1); gr.addColorStop(1, bg.gradStop2);
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+  } else if (bg.type === 'image' && bg.imageData) {
+    await new Promise(res => {
+      const img = new Image();
+      img.onload = () => {
+        // Apply brightness AND blur in one compound filter string — must match CSS preview
+        const filters = [];
+        if (bg.brightness !== 100) filters.push(`brightness(${bg.brightness / 100})`);
+        if (bg.blur > 0) filters.push(`blur(${bg.blur}px)`);
+        if (filters.length) ctx.filter = filters.join(' ');
+        const zoom = Math.max(10, bg.imageZoom || 100); // clamp: zoom=0 would produce scale=0
+        const sc = Math.max(W / img.width, H / img.height) * (zoom / 100);
+        const dw = img.width * sc, dh = img.height * sc;
+        ctx.drawImage(img, (W - dw) * bg.imageX / 100, (H - dh) * bg.imageY / 100, dw, dh);
+        ctx.filter = 'none';
+        res();
+      };
+      img.onerror = () => { cDrawBg(ctx, W, H, '#060810'); res(); };
+      img.src = bg.imageData;
+    });
+  } else {
+    cDrawBg(ctx, W, H, bg.color || '#060810');
+  }
+  if (bg.overlayOpacity > 0) {
+    ctx.globalAlpha = bg.overlayOpacity;
+    ctx.fillStyle = bg.overlayColor || '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  // 2. Route
+  if (el.route.visible && act.route?.length > 1) {
+    const rW = Math.round(W * 0.82 * el.route.scale);
+    const rH = Math.round(rW * 0.55);
+    drawRouteCanvas(ctx, act.route, Math.round(el.route.x / 100 * W - rW / 2), Math.round(el.route.y / 100 * H - rH / 2), rW, rH);
+  }
+
+  // 3. FX
+  if (fx.vignette > 0) cDrawVignette(ctx, W, H, fx.vignette);
+  if (fx.glowActive) cDrawRadialGlow(ctx, fx.glowX / 100 * W, fx.glowY / 100 * H, fx.glowRadius / 100 * W, hexToRgba(fx.glowColor, fx.glowOpacity));
+
+  // 4. Elements
+  if (el.distance.visible) {
+    const sc = el.distance.scale, dX = el.distance.x / 100 * W, dY = el.distance.y / 100 * H;
+    ctx.save(); ctx.textAlign = 'center';
+    ctx.fillStyle = st.textColor; ctx.font = `900 ${Math.round(H * 0.11 * sc)}px system-ui`;
+    ctx.fillText(fmtKm(act.distanceKm), dX, dY);
+    ctx.fillStyle = st.accentColor; ctx.font = `700 ${Math.round(H * 0.013 * sc)}px system-ui`;
+    ctx.fillText('KILOMETRES', dX, dY + Math.round(H * 0.048 * sc));
+    ctx.restore();
+  }
+  if (el.stats.visible) {
+    const sc = el.stats.scale, sX = el.stats.x / 100 * W, sY = el.stats.y / 100 * H, hw = W * 0.36 * sc;
+    const vF = `700 ${Math.round(H * 0.022 * sc)}px monospace`;
+    const lF = `600 ${Math.round(H * 0.012 * sc)}px system-ui`;
+    ctx.save();
+    [[sY, 'DURATION', fmtDur(act.movingTimeSec)], [sY + Math.round(H * 0.042 * sc), 'PACE', fmtPace(act.avgPaceSecKm) + '/km']].forEach(([y, lbl, val], i) => {
+      ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.font = lF;
+      ctx.fillText(lbl, sX - hw, y - (i === 0 ? Math.round(H * 0.006) : 0));
+      ctx.textAlign = 'right'; ctx.fillStyle = st.textColor; ctx.font = vF;
+      ctx.fillText(val, sX + hw, y);
+    });
+    ctx.restore();
+  }
+  if (el.name.visible) {
+    ctx.save(); ctx.textAlign = 'center'; ctx.globalAlpha = 0.42; ctx.fillStyle = st.textColor;
+    ctx.font = `500 ${Math.round(H * 0.016 * el.name.scale)}px system-ui`;
+    ctx.fillText((act.name || 'Activity').substring(0, 32), el.name.x / 100 * W, el.name.y / 100 * H);
+    ctx.restore();
+  }
+  if (el.branding.visible) {
+    ctx.save(); ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(255,255,255,.25)';
+    ctx.font = `700 ${Math.round(H * 0.016 * el.branding.scale)}px system-ui`;
+    ctx.fillText('RUNLYTICS', el.branding.x / 100 * W, el.branding.y / 100 * H);
+    ctx.restore();
+  }
+
+  // 5. Grain — crypto.getRandomValues on a typed buffer is ~20× faster than
+  //    per-pixel Math.random() which would take 500–2000ms on a 1080×1920 canvas.
+  if (fx.grain > 0) {
+    const id = ctx.getImageData(0, 0, W, H);
+    const d = id.data;
+    const str = fx.grain * 55;
+    const noise = new Uint8Array(W * H); // one value per pixel
+    crypto.getRandomValues(noise);
+    for (let i = 0; i < d.length; i += 4) {
+      const n = (noise[i >> 2] - 127.5) / 127.5 * str;
+      d[i]   = Math.max(0, Math.min(255, d[i]   + n));
+      d[i+1] = Math.max(0, Math.min(255, d[i+1] + n));
+      d[i+2] = Math.max(0, Math.min(255, d[i+2] + n));
+    }
+    ctx.putImageData(id, 0, 0);
+  }
+
+  const blob = await canvasToBlob(canvas, format);
+  // Free the ~8 MB canvas buffer before awaiting the download
+  canvas.width = 0; canvas.height = 0;
+  if (!blob) throw new Error('Canvas export produced an empty blob');
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `runlytics-custom.${format === 'jpg' ? 'jpg' : 'png'}`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
