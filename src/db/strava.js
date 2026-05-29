@@ -1,22 +1,25 @@
 import { STRAVA_KEY } from '../constants/keys.js';
-import { migrateActivity, decodePolyline } from '../utils/activity.js';
-import { todayKey, fmtKm } from '../utils/formatters.js';
-import { classifyRun } from '../utils/activity.js';
+import { migrateActivity, decodePolyline, classifyRun } from '../utils/activity.js';
+import { todayKey } from '../utils/formatters.js';
 
 export function loadStravaAuth(){try{return JSON.parse(localStorage.getItem(STRAVA_KEY)||"null");}catch(e){return null;}}
 function saveStravaAuth(a){try{localStorage.setItem(STRAVA_KEY,JSON.stringify(a));}catch(e){}}
+
 export function saveStravaAuth(a){try{localStorage.setItem(STRAVA_KEY,JSON.stringify(a));}catch(e){}}
 function clearStravaAuth(){try{localStorage.removeItem(STRAVA_KEY);}catch(e){}}
+
 export function clearStravaAuth(){try{localStorage.removeItem(STRAVA_KEY);}catch(e){}}
-export // FIX #15: Added icon/category/desc fields; emoji as real chars not HTML entity strings
-function defaultTasks(){
-  return[
-    {id:"t1",title:"Morning stretch",icon:"🧘",color:"#3b82f6",category:"recovery",desc:"5 min of light stretching after waking up",enabled:true,streak:0,completions:{}},
-    {id:"t2",title:"Hydrate 2L",icon:"💧",color:"#06b6d4",category:"wellness",desc:"Drink at least 2 litres of water today",enabled:true,streak:0,completions:{}},
-    {id:"t3",title:"Post-run foam roll",icon:"🪴",color:"#8b5cf6",category:"recovery",desc:"Roll quads, calves and IT band after running",enabled:false,streak:0,completions:{}},
-    {id:"t4",title:"Sleep 7-8 hours",icon:"😴",color:"#f97316",category:"wellness",desc:"Prioritise 7-8 hours of quality sleep",enabled:true,streak:0,completions:{}},
-  ];
+
+export async function getStravaToken(auth){
+  if(!auth)return null;
+  if(Date.now()/1000<auth.expires_at-60)return auth.access_token;
+  try{
+    const r=await fetch("/api/strava-refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({refresh_token:auth.refresh_token})});
+    if(!r.ok)return null;
+    const data=await r.json();const updated={...auth,...data};saveStravaAuth(updated);return updated.access_token;
+  }catch(e){return null;}
 }
+
 export function mapStravaActivity(a){
   if(!a||a.type&&!["Run","Walk","Hike","TrailRun","VirtualRun"].includes(a.type))return null;
   const distKm=(a.distance||0)/1000;const paceSecKm=distKm>0&&a.moving_time?a.moving_time/distKm:0;
