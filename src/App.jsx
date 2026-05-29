@@ -21,7 +21,7 @@ import {
 import { TABS } from './constants/activityTypes.js';
 
 // ── Styles ───────────────────────────────────────────────────────────────────
-import { GlobalStyles } from './styles/GlobalStyles.jsx';
+import { Styles } from './styles/GlobalStyles.jsx';
 
 // ── Common Components ────────────────────────────────────────────────────────
 import { Ring }      from './components/common/Ring.jsx';
@@ -105,7 +105,7 @@ const App=()=>{
   },[detail,showSettings,showAllRuns,showMonthly,showUpload,shareAct,prDetail,showEditor]);
 
   useEffect(()=>{
-    history.replaceState({_rl:"root"},"");history.pushState({_rl:"s"},"");
+    try{history.replaceState({_rl:"root"},"");history.pushState({_rl:"s"},"");}catch(e){}
   },[]);
 
   useEffect(()=>{
