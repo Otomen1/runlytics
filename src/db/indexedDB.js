@@ -1,9 +1,15 @@
+/**
+ * IndexedDB Persistence Layer
+ * Why: localStorage is synchronous, 5-10 MB quota, rewrites all data every save.
+ * IndexedDB is async, per-record writes, GB-level quota on all modern mobile browsers.
+ */
 import { IDB_NAME, IDB_VERSION, IDB_ACTS, IDB_MIGRATED, DATA_KEY } from '../constants/keys.js';
 import { migrateActivity } from '../utils/activity.js';
 
+// Singleton DB connection — reused across all operations
 let _db = null;
 
-export function openIDB(){
+function openIDB(){
   if(_db)return Promise.resolve(_db);
   return new Promise((resolve,reject)=>{
     if(typeof indexedDB==="undefined"){
@@ -30,7 +36,7 @@ export function openIDB(){
   });
 }
 
-export function idbReadAll(){
+function idbReadAll(){
   return openIDB().then(db=>new Promise((resolve,reject)=>{
     const req=db.transaction(IDB_ACTS,"readonly").objectStore(IDB_ACTS).getAll();
     req.onsuccess=()=>resolve(req.result||[]);
@@ -38,7 +44,7 @@ export function idbReadAll(){
   }));
 }
 
-export function idbGet(id){
+function idbGet(id){
   return openIDB().then(db=>new Promise((resolve,reject)=>{
     const req=db.transaction(IDB_ACTS,"readonly").objectStore(IDB_ACTS).get(id);
     req.onsuccess=()=>resolve(req.result||null);
@@ -46,7 +52,7 @@ export function idbGet(id){
   }));
 }
 
-export function idbPut(act){
+function idbPut(act){
   return openIDB().then(db=>new Promise((resolve,reject)=>{
     const tx=db.transaction(IDB_ACTS,"readwrite");
     tx.objectStore(IDB_ACTS).put(act);
@@ -56,7 +62,7 @@ export function idbPut(act){
   }));
 }
 
-export function idbPutBatch(acts){
+function idbPutBatch(acts){
   if(!acts.length)return Promise.resolve();
   return openIDB().then(db=>new Promise((resolve,reject)=>{
     const tx=db.transaction(IDB_ACTS,"readwrite");
@@ -68,7 +74,7 @@ export function idbPutBatch(acts){
   }));
 }
 
-export function idbDelete(id){
+function idbDelete(id){
   return openIDB().then(db=>new Promise((resolve,reject)=>{
     const tx=db.transaction(IDB_ACTS,"readwrite");
     tx.objectStore(IDB_ACTS).delete(id);
@@ -77,7 +83,7 @@ export function idbDelete(id){
   }));
 }
 
-export function idbClear(){
+function idbClear(){
   return openIDB().then(db=>new Promise((resolve,reject)=>{
     const tx=db.transaction(IDB_ACTS,"readwrite");
     tx.objectStore(IDB_ACTS).clear();
@@ -97,34 +103,53 @@ export async function loadActivities(){
   return acts;
 }
 
+export async function saveActivity(act){
+  if(!act?.id)throw new Error("saveActivity: missing id");
+  await idbPut(act);
+  console.log(`[IDB] saved "${act.name}" route:${act.route?.length||0}pts hr:${act.hrSamples?.length||0}pts`);
+}
+
+export async function saveActivitiesBatch(acts){
+  await idbPutBatch(acts);
+  console.log(`[IDB] batch saved ${acts.length} acts`);
+}
+
 export async function deleteActivity(id){
   await idbDelete(id);
   console.log("[IDB] deleted",id);
 }
 
-export   if(!saved){
+export async function clearAllActivities(){
+  await idbClear();
+  console.log("[IDB] cleared all activities");
+}
+
+export async function verifyActivityPersistence(id,expectRoute=false){
+  const saved=await idbGet(id);
+  if(!saved){
     console.error(`[IDB] VERIFY FAIL: ${id} not found after save`);
     return{ok:false,reason:"not_found"};
   }
-
-export   }
+  const hasRoute=saved.route&&saved.route.length>=2;
+  if(expectRoute&&!hasRoute){
+    console.warn(`[IDB] VERIFY WARN: "${saved.name}" saved without route (source:${saved.source})`);
+    return{ok:false,reason:"no_route"};
+  }
   console.log(`[IDB] verified "${saved.name}" route:${saved.route?.length||0}pts hr:${saved.hrSamples?.length||0}pts`);
   return{ok:true};
 }
 
-// ── One-time migration from localStorage ─────────────────────────────────────
-// Reads the legacy JSON blob, writes each activity individually to IDB,
-// then sets a flag so this only runs once.
-async function migrateFromLocalStorage(){
+export async function migrateFromLocalStorage(){
   if(localStorage.getItem(IDB_MIGRATED))return false;
   const raw=localStorage.getItem(DATA_KEY);
   if(!raw){localStorage.setItem(IDB_MIGRATED,"1");return false;}
   try{
-
-export   if(localStorage.getItem(IDB_MIGRATED))return false;
-  const raw=localStorage.getItem(DATA_KEY);
-
-export     }
+    console.log("[IDB] migrating localStorage → IndexedDB…");
+    const acts=JSON.parse(raw).map(migrateActivity).filter(Boolean);
+    if(acts.length){
+      await saveActivitiesBatch(acts);
+      console.log(`[IDB] migration complete: ${acts.length} acts preserved`);
+    }
     localStorage.setItem(IDB_MIGRATED,"1");
     // Keep legacy key for one session as a safety backup.
     // A future version can delete it: localStorage.removeItem(DATA_KEY)
@@ -134,36 +159,6 @@ export     }
     console.error("[IDB] migration failed:",e.message);
     return false;
   }
-}
-
-// ── Read-only legacy fallback (used only when IDB is unavailable) ─────────────
-function loadActsLegacy(){
-  try{
-    const raw=localStorage.getItem(DATA_KEY)||"[]";
-    return JSON.parse(raw).map(migrateActivity).filter(Boolean);
-  }catch{return[];}
-}
-
-// ── Retained utilities ────────────────────────────────────────────────────────
-function storageSizeKB(str){return Math.round(str.length*2/1024);}
-
-// normalizeRoute — single source of truth for point validation and normalisation.
-// Accepts {lat,lon} OR {lat,lng} (older Strava/Garmin integrations).
-// Used in: migrateActivity, mapStravaActivity, all renderers.
-function normalizeRoute(pts){
-  if(!Array.isArray(pts)||!pts.length)return[];
-  const out=[];
-  for(const p of pts){
-    if(!p)continue;
-    const lat=+p.lat;
-    const lon=p.lon!=null?+p.lon:+p.lng; // handle {lat,lng} legacy format
-    if(isFinite(lat)&&isFinite(lon)&&lat>=-90&&lat<=90&&lon>=-180&&lon<=180){
-
-export function loadActsLegacy(){
-  try{
-    const raw=localStorage.getItem(DATA_KEY)||"[]";
-    return JSON.parse(raw).map(migrateActivity).filter(Boolean);
-  }catch{return[];}
 }
 
 export function loadActsLegacy(){
