@@ -88,3 +88,4 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .run-card:active{background:var(--s3);transform:scale(.99);}
 @media(hover:hover){.run-card:hover{border-color:var(--bd2);background:var(--s3);}}
 `}</style>;
+export { Styles as GlobalStyles };
