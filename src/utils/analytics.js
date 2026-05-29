@@ -1,4 +1,7 @@
 import { TIER_TRACKS, TRACK_META, TIER_NAMES, TIER_COLS, BADGE_DEFS, getTierIcon } from '../constants/achievements.js';
+import { weekOf, monthOf } from './formatters.js';
+import { GOALS_KEY } from '../constants/keys.js';
+function loadGoals(){try{return JSON.parse(localStorage.getItem(GOALS_KEY)||'null')||{weekly:40,monthly:160};}catch{return{weekly:40,monthly:160};}}
 export function getMafHR(profile){
   if(!profile)return 150;
   if(profile.overrideMAF&&isFinite(profile.overrideMAF))return+profile.overrideMAF;
