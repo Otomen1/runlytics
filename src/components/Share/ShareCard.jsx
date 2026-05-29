@@ -3,7 +3,7 @@ import { MiniRoute } from '../Map/MiniRoute.jsx';
 import { fmtKm, fmtDur, fmtPace, fmtDate, fmtDateS } from '../../utils/formatters.js';
 
 // StatRow — duration/pace stat display used inside share card templates
-function StatRow({dark,W,durFmt,paceFmt}){
+export function StatRow({dark,W,durFmt,paceFmt}){
   const f=n=>Math.round(n*W/270)+"px";
   const fn=n=>Math.round(n*W/270);
   const tc=dark?"#1a1a1a":"#ffffff";
