@@ -1,4 +1,3 @@
-npm install -D eslint eslint-plugin-react @typescript-eslint/eslint-plugin
 {
   "name": "runlytics",
   "version": "1.0.0",
