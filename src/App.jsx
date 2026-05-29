@@ -277,7 +277,7 @@ const App=()=>{
 
   return(
     <div style={{maxWidth:480,margin:"0 auto",minHeight:"100vh",display:"flex",flexDirection:"column",background:"var(--bg)"}}>
-      <Styles/>
+      <GlobalStyles/>
       <div style={{padding:"max(14px,calc(env(safe-area-inset-top)+8px)) 16px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,borderBottom:"1px solid var(--bd)"}}>
         <div style={{fontWeight:800,fontSize:"1.05rem",letterSpacing:".06em",color:"var(--or)",cursor:"pointer",userSelect:"none"}}
           onClick={()=>{debugTapRef.current++;if(debugTapRef.current>=5){setShowDebug(true);debugTapRef.current=0;}setTimeout(()=>{debugTapRef.current=0;},1500);}}>RUNLYTICS</div>
