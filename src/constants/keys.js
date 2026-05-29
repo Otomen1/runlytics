@@ -13,6 +13,7 @@ export const EDITOR_PRESETS_KEY = 'runlytics_share_presets_v1';
 
 // IndexedDB identifiers
 export const IDB_NAME     = 'runlytics_db';
-export const IDB_VERSION  = 1;
+export const IDB_VERSION  = 2;
 export const IDB_ACTS     = 'activities';
+export const IDB_PHOTOS   = 'photos';
 export const IDB_MIGRATED = 'runlytics_idb_v1';

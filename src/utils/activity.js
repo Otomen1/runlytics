@@ -71,5 +71,8 @@ export function migrateActivity(a){
     route:normalizeRoute(a.route).slice(0,500),
     source:a.source||"gpx",
     trainingLoad:isFinite(a.trainingLoad)&&a.trainingLoad>=0?Math.round(+a.trainingLoad):0,
+    notes:a.notes||"",
+    mood:a.mood||null,
+    photoCount:typeof a.photoCount==='number'?a.photoCount:0,
   };
 }

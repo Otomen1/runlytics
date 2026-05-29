@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Ring } from '../common/Ring.jsx';
 import { SH } from '../common/SH.jsx';
 import { CoachCard } from '../common/CoachCard.jsx';
@@ -6,6 +6,15 @@ import { ACT_ICN, ACT_CLR, IC, IC_BG, IC_BD } from '../../constants/activityType
 import { fmtKm, fmtDur, fmtPace, fmtDate, todayKey, greet } from '../../utils/formatters.js';
 import { getMafHR, getMafCoachingInsight, getTodayRecommendation } from '../../utils/analytics.js';
 import { GOALS_KEY } from '../../constants/keys.js';
+import { getPhotos } from '../../db/indexedDB.js';
+
+const MOODS_MAP = {
+  great:  { emoji: '😀', label: 'Great' },
+  good:   { emoji: '🙂', label: 'Good' },
+  normal: { emoji: '😐', label: 'Normal' },
+  tough:  { emoji: '😫', label: 'Tough' },
+  strong: { emoji: '🔥', label: 'Strong' },
+};
 
 function loadGoals(){try{return JSON.parse(localStorage.getItem(GOALS_KEY)||'null')||{weekly:40,monthly:160};}catch(e){return{weekly:40,monthly:160};}}
 
@@ -20,6 +29,28 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAc
   const todayDone=todayTasks.filter(t=>!!(t.completions&&t.completions[todayStr])).length;
   const greetPfx=profile.name==="Runner"?"Welcome back":"Welcome back, "+profile.name;
   const weekLeft=parseFloat((goals.weekly-thisWeekKm).toFixed(1));
+  const memories = (acts||[]).filter(a => a.mood || a.notes || a.photoCount > 0).slice(0, 5);
+  const [thumbMap, setThumbMap] = useState({});
+  useEffect(() => {
+    if (!memories.length) return;
+    let active = true;
+    const urls = {};
+    Promise.all(
+      memories
+        .filter(a => a.photoCount > 0)
+        .map(a =>
+          getPhotos(a.id).then(photos => {
+            if (active && photos[0]) {
+              urls[a.id] = URL.createObjectURL(photos[0].thumbBlob);
+            }
+          }).catch(() => {})
+        )
+    ).then(() => { if (active) setThumbMap({...urls}); });
+    return () => {
+      active = false;
+      Object.values(urls).forEach(u => URL.revokeObjectURL(u));
+    };
+  }, [acts.length]);
   return(<div style={{padding:"10px 0 32px"}}>
     <div className="a0" style={{marginBottom:20}}>
       <div className="sl" style={{marginBottom:4}}>{greet()}</div>
@@ -106,6 +137,34 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAc
           </div>
         );})}
         <div className="pb" style={{marginTop:8}}><div className="pf" style={{width:Math.round(todayDone/(todayTasks.length||1)*100)+"%",background:"var(--gn)"}}/></div>
+      </div>
+    )}
+    {memories.length > 0 && (
+      <div style={{marginBottom:16}}>
+        <div style={{fontSize:'.72rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.06em',textTransform:'uppercase',marginBottom:8}}>📸 Recent Memories</div>
+        <div style={{display:'flex',flexDirection:'column',gap:7}}>
+          {memories.map(a => {
+            const mood = a.mood ? MOODS_MAP[a.mood] : null;
+            return (
+              <div key={a.id} className="card" onClick={()=>onSelectAct(a)}
+                style={{padding:'10px 12px',display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
+                {thumbMap[a.id] ? (
+                  <img src={thumbMap[a.id]} alt="" style={{width:44,height:44,borderRadius:8,objectFit:'cover',flexShrink:0}}/>
+                ) : (
+                  <div style={{width:44,height:44,borderRadius:8,background:'var(--bd)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'1.2rem'}}>
+                    {mood ? mood.emoji : '📓'}
+                  </div>
+                )}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:'.84rem',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                    {mood && <span style={{marginRight:4}}>{mood.emoji}</span>}{a.name}
+                  </div>
+                  <div style={{fontSize:'.7rem',color:'var(--tx2)',marginTop:2}}>{fmtDate(a.date)}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     )}
     {acts.length>0&&<button className="btn b-gh" style={{width:"100%",padding:"12px"}} onClick={onViewMonthly}>📅 Monthly Report</button>}

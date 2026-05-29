@@ -3,7 +3,7 @@
  * Why: localStorage is synchronous, 5-10 MB quota, rewrites all data every save.
  * IndexedDB is async, per-record writes, GB-level quota on all modern mobile browsers.
  */
-import { IDB_NAME, IDB_VERSION, IDB_ACTS, IDB_MIGRATED, DATA_KEY } from '../constants/keys.js';
+import { IDB_NAME, IDB_VERSION, IDB_ACTS, IDB_PHOTOS, IDB_MIGRATED, DATA_KEY } from '../constants/keys.js';
 import { migrateActivity } from '../utils/activity.js';
 
 // Singleton DB connection — reused across all operations
@@ -22,6 +22,10 @@ function openIDB(){
         const store=db.createObjectStore(IDB_ACTS,{keyPath:"id"});
         store.createIndex("by_date","dateTs",{unique:false});
         store.createIndex("by_source","source",{unique:false});
+      }
+      if(e.oldVersion<2){
+        const photoStore=db.createObjectStore(IDB_PHOTOS,{keyPath:"id",autoIncrement:true});
+        photoStore.createIndex("by_activity","activityId",{unique:false});
       }
     };
     req.onsuccess=e=>{
@@ -159,6 +163,34 @@ export async function migrateFromLocalStorage(){
     console.error("[IDB] migration failed:",e.message);
     return false;
   }
+}
+
+export async function addPhoto(activityId, blob, thumbBlob, mimeType){
+  return openIDB().then(db=>new Promise((resolve,reject)=>{
+    const tx=db.transaction(IDB_PHOTOS,"readwrite");
+    const req=tx.objectStore(IDB_PHOTOS).add({activityId,blob,thumbBlob,mimeType,addedAt:Date.now()});
+    req.onsuccess=()=>resolve(req.result);
+    tx.onerror=e=>reject(e.target.error);
+  }));
+}
+
+export async function getPhotos(activityId){
+  return openIDB().then(db=>new Promise((resolve,reject)=>{
+    const tx=db.transaction(IDB_PHOTOS,"readonly");
+    const idx=tx.objectStore(IDB_PHOTOS).index("by_activity");
+    const req=idx.getAll(activityId);
+    req.onsuccess=()=>resolve((req.result||[]).sort((a,b)=>a.addedAt-b.addedAt));
+    req.onerror=e=>reject(e.target.error);
+  }));
+}
+
+export async function deletePhoto(id){
+  return openIDB().then(db=>new Promise((resolve,reject)=>{
+    const tx=db.transaction(IDB_PHOTOS,"readwrite");
+    tx.objectStore(IDB_PHOTOS).delete(id);
+    tx.oncomplete=()=>resolve();
+    tx.onerror=e=>reject(e.target.error);
+  }));
 }
 
 export function loadActsLegacy(){

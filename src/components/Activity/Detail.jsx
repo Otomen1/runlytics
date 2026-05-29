@@ -1,15 +1,51 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { RouteMapSVG } from '../Map/RouteMapSVG.jsx';
 import { SH } from '../common/SH.jsx';
 import { ACT_ICN, ACT_CLR } from '../../constants/activityTypes.js';
 import { fmtKm, fmtDur, fmtPace, fmtDate, fmtDateS } from '../../utils/formatters.js';
 import { getMafHR, computeZones } from '../../utils/analytics.js';
+import { JournalTab } from './JournalTab.jsx';
+import { saveActivity, getPhotos } from '../../db/indexedDB.js';
+
+const MOODS_MAP = {
+  great:  { emoji: '😀', label: 'Great' },
+  good:   { emoji: '🙂', label: 'Good' },
+  normal: { emoji: '😐', label: 'Normal' },
+  tough:  { emoji: '😫', label: 'Tough' },
+  strong: { emoji: '🔥', label: 'Strong' },
+};
 
 export function Detail({act,hrProfile,onClose,onDelete,onShare}){
   const[tab,setTab]=useState("overview");
-  const col=ACT_CLR[act.type]||"#6b7280";
+  const[actState,setActState]=useState(act);
+  const col=ACT_CLR[actState.type]||"#6b7280";
   const mafHR=getMafHR(hrProfile);
-  const zones=act.hrSamples&&act.hrSamples.length?computeZones(act.hrSamples,mafHR):null;
+  const zones=actState.hrSamples&&actState.hrSamples.length?computeZones(actState.hrSamples,mafHR):null;
+
+  const [coverUrl, setCoverUrl] = useState(null);
+  const coverUrlRef = useRef(null);
+  useEffect(() => {
+    if (!actState.photoCount) { setCoverUrl(null); return; }
+    let active = true;
+    getPhotos(actState.id).then(photos => {
+      if (!active || !photos[0]) return;
+      const url = URL.createObjectURL(photos[0].thumbBlob);
+      coverUrlRef.current = url;
+      setCoverUrl(url);
+    }).catch(console.error);
+    return () => {
+      active = false;
+      if (coverUrlRef.current) { URL.revokeObjectURL(coverUrlRef.current); coverUrlRef.current = null; }
+    };
+  }, [actState.id, actState.photoCount]);
+
+  const onPatch=updates=>{
+    setActState(prev=>{
+      const next={...prev,...updates};
+      saveActivity(next).catch(console.error);
+      return next;
+    });
+  };
   return(
     <div style={{position:"fixed",inset:0,zIndex:240,background:"var(--bg)",display:"flex",flexDirection:"column",overflowY:"auto"}}>
       <div className="glass" style={{position:"sticky",top:0,zIndex:10,padding:"14px 18px 0",borderBottom:"1px solid var(--bd)"}}>
@@ -26,10 +62,10 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
           </div>
         </div>
         <div style={{display:"flex"}}>
-          {["overview","heartrate","map"].map(t=>(
-            <button key={t} onClick={()=>setTab(t)}
-              style={{padding:"8px 14px",border:"none",background:"transparent",color:tab===t?"var(--or)":"var(--tx2)",fontFamily:"inherit",fontSize:".78rem",fontWeight:tab===t?600:400,cursor:"pointer",textTransform:"capitalize",borderBottom:tab===t?"2px solid var(--or)":"2px solid transparent",transition:"color .15s"}}>
-              {t}
+          {[{id:"overview",label:"overview"},{id:"heartrate",label:"heartrate"},{id:"map",label:"map"},{id:"journal",label:"📓 journal"}].map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)}
+              style={{padding:"8px 14px",border:"none",background:"transparent",color:tab===t.id?"var(--or)":"var(--tx2)",fontFamily:"inherit",fontSize:".78rem",fontWeight:tab===t.id?600:400,cursor:"pointer",textTransform:"capitalize",borderBottom:tab===t.id?"2px solid var(--or)":"2px solid transparent",transition:"color .15s"}}>
+              {t.label}
             </button>
           ))}
         </div>
@@ -37,6 +73,28 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
       <div style={{flex:1,padding:"18px 18px 32px"}}>
         {tab==="overview"&&(
           <div>
+            {coverUrl && (
+              <img src={coverUrl} alt="" loading="lazy"
+                style={{width:'100%',maxHeight:220,objectFit:'cover',borderRadius:12,marginBottom:14,display:'block'}}
+              />
+            )}
+            {(actState.mood || actState.notes) && (
+              <div className="card" style={{padding:'12px 14px',marginBottom:14,borderLeft:'4px solid var(--or)'}}>
+                {actState.mood && MOODS_MAP[actState.mood] && (
+                  <div style={{fontSize:'.88rem',fontWeight:600,marginBottom:4}}>
+                    {MOODS_MAP[actState.mood].emoji} {MOODS_MAP[actState.mood].label}
+                  </div>
+                )}
+                <div style={{fontSize:'.78rem',color:'var(--tx2)',marginBottom:actState.notes?4:0}}>
+                  {fmtKm(actState.distanceKm)} km · {fmtPace(actState.avgPaceSecKm)}/km
+                </div>
+                {actState.notes && (
+                  <div style={{fontSize:'.8rem',fontStyle:'italic',color:'var(--tx2)',lineHeight:1.5}}>
+                    "{actState.notes.length>100?actState.notes.slice(0,100)+'…':actState.notes}"
+                  </div>
+                )}
+              </div>
+            )}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
               {[{l:"Distance",v:fmtKm(act.distanceKm)+" km",c:col},{l:"Pace",v:fmtPace(act.avgPaceSecKm)+"/km",c:"var(--tx)"},{l:"Time",v:fmtDur(act.movingTimeSec),c:"var(--tx)"}].map(s=>(
                 <div key={s.l} className="card2" style={{padding:"12px 8px",textAlign:"center"}}>
@@ -107,6 +165,7 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
             }
           </div>
         )}
+        {tab==="journal"&&<JournalTab act={actState} onPatch={onPatch}/>}
       </div>
     </div>
   );
