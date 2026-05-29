@@ -3,7 +3,7 @@ import { Ring } from '../common/Ring.jsx';
 import { SH } from '../common/SH.jsx';
 import { CoachCard } from '../common/CoachCard.jsx';
 import { ACT_ICN, ACT_CLR, IC, IC_BG, IC_BD } from '../../constants/activityTypes.js';
-import { fmtKm, fmtDur, fmtPace, fmtDate, todayKey } from '../../utils/formatters.js';
+import { fmtKm, fmtDur, fmtPace, fmtDate, todayKey, greet } from '../../utils/formatters.js';
 import { getMafHR, getMafCoachingInsight, getTodayRecommendation } from '../../utils/analytics.js';
 import { GOALS_KEY } from '../../constants/keys.js';
 
