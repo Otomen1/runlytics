@@ -1,4 +1,4 @@
-import { TIER_TRACKS } from '../constants/achievements.js';
+import { TIER_TRACKS, TRACK_META, TIER_NAMES, TIER_COLS, BADGE_DEFS, getTierIcon } from '../constants/achievements.js';
 export function getMafHR(profile){
   if(!profile)return 150;
   if(profile.overrideMAF&&isFinite(profile.overrideMAF))return+profile.overrideMAF;
