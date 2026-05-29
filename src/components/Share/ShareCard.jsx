@@ -1,10 +1,8 @@
 import React from 'react';
 import { MiniRoute } from '../Map/MiniRoute.jsx';
 import { fmtKm, fmtDur, fmtPace, fmtDate, fmtDateS } from '../../utils/formatters.js';
-import { drawRouteCanvas, cClipRounded, renderToCanvas, canvasToBlob, downloadExport, EXPORT_CONFIG, CANVAS_TYPE, CANVAS_LAYOUT } from '../../utils/canvas.js';
-import { ACT_ICN, ACT_CLR } from '../../constants/activityTypes.js';
-import { SHARE_TEMPLATES } from '../../constants/canvas.js';
 
+// StatRow — duration/pace stat display used inside share card templates
 function StatRow({dark,W,durFmt,paceFmt}){
   const f=n=>Math.round(n*W/270)+"px";
   const fn=n=>Math.round(n*W/270);
@@ -26,17 +24,31 @@ function StatRow({dark,W,durFmt,paceFmt}){
   );
 }
 
+// Card primitives — co-located because they are only used by ShareCard templates
 const CardBrand=({f,color='rgba(255,255,255,.28)'})=>(
   <div style={{fontSize:f(6),fontWeight:700,color,letterSpacing:'.2em'}}>RUNLYTICS</div>
+);
 const CardKilometres=({f,dist,distColor='#fff',accentColor='#f97316'})=>(
   <div>
+    <div style={{fontSize:f(54),fontWeight:900,color:distColor,lineHeight:.84,letterSpacing:'-.04em'}}>{dist}</div>
+    <div style={{fontSize:f(7),fontWeight:700,color:accentColor,letterSpacing:'.22em',marginTop:f(6)}}>KILOMETRES</div>
+  </div>
+);
 const CardRule=({f,accentColor='#f97316',muteColor='rgba(255,255,255,.1)'})=>(
   <div style={{display:'flex',alignItems:'center',gap:f(8),margin:`${f(14)} 0`}}>
+    <div style={{width:f(22),height:2,background:accentColor,borderRadius:1,flexShrink:0}}/>
+    <div style={{flex:1,height:1,background:muteColor}}/>
+  </div>
+);
 const CardGlass=({f,children,style={}})=>(
   <div style={{background:'rgba(255,255,255,.055)',backdropFilter:'blur(16px)',WebkitBackdropFilter:'blur(16px)',
     border:'1px solid rgba(255,255,255,.1)',borderRadius:f(11),
     boxShadow:'inset 0 1px 0 rgba(255,255,255,.08)',padding:`${f(12)} ${f(14)}`,...style}}>
+    {children}
+  </div>
+);
 
+// Share card templates
 export function ShareCard({type,act,W=270,H=480}){
   const f=n=>Math.round(n*W/270)+"px";
   const fn=n=>Math.round(n*W/270);
