@@ -8,7 +8,7 @@ export function normalizeRoute(pts){
   for(const p of pts){
     if(!p)continue;
     const lat=+p.lat;
-    const lon=p.lon!=null?+p.lon:+p.lng; // handle {lat,lng} legacy format
+    const lon=p.lon!=null?+p.lon:+p.lng;
     if(isFinite(lat)&&isFinite(lon)&&lat>=-90&&lat<=90&&lon>=-180&&lon<=180){
       out.push({lat,lon});
     }
@@ -16,7 +16,11 @@ export function normalizeRoute(pts){
   return out;
 }
 
-export function todayKey(){return new Date().toISOString().slice(0,10);}
+export function classifyRun(distKm,paceSecKm){
+  if(distKm>=15)return"long";
+  if(paceSecKm&&paceSecKm<320)return"workout";
+  return"easy";
+}
 
 export function getStreak(completions){
   if(!completions)return 0;
@@ -29,8 +33,6 @@ export function getStreak(completions){
   }
   return streak;
 }
-
-export function classifyRun(distKm,paceSecKm){if(distKm>=15)return"long";if(paceSecKm&&paceSecKm<320)return"workout";return"easy";}
 
 export function decodePolyline(encoded){
   if(!encoded||typeof encoded!=='string')return[];
@@ -52,14 +54,18 @@ export function decodePolyline(encoded){
 export function migrateActivity(a){
   if(!a||typeof a!=="object")return null;
   return{
-    id:a.id||String(Date.now()+Math.random()),name:a.name||"Activity",type:a.type||"Run",
-    date:a.date||todayKey(),dateTs:a.dateTs||0,
+    id:a.id||String(Date.now()+Math.random()),
+    name:a.name||"Activity",
+    type:a.type||"Run",
+    date:a.date||todayKey(),
+    dateTs:a.dateTs||0,
     distanceKm:isFinite(a.distanceKm)?+a.distanceKm:0,
     movingTimeSec:isFinite(a.movingTimeSec)?+a.movingTimeSec:0,
     avgPaceSecKm:isFinite(a.avgPaceSecKm)?+a.avgPaceSecKm:0,
     avgHR:isFinite(a.avgHR)&&a.avgHR>0?+a.avgHR:null,
     maxHR:isFinite(a.maxHR)&&a.maxHR>0?+a.maxHR:null,
-    elevGainM:isFinite(a.elevGainM)?+a.elevGainM:0,elevLossM:isFinite(a.elevLossM)?+a.elevLossM:0,
+    elevGainM:isFinite(a.elevGainM)?+a.elevGainM:0,
+    elevLossM:isFinite(a.elevLossM)?+a.elevLossM:0,
     runClass:a.runClass||classifyRun(isFinite(a.distanceKm)?+a.distanceKm:0,isFinite(a.avgPaceSecKm)?+a.avgPaceSecKm:0),
     hrSamples:Array.isArray(a.hrSamples)?a.hrSamples.filter(s=>s&&isFinite(s.sec)&&isFinite(s.hr)&&s.hr>30&&s.hr<250).slice(0,500):[],
     route:normalizeRoute(a.route).slice(0,500),
