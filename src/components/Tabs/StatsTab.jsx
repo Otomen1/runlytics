@@ -4,7 +4,7 @@ import { SH } from '../common/SH.jsx';
 import { fmtKm, fmtDur, fmtPace, fmtDateS } from '../../utils/formatters.js';
 import { computeRacePRs } from '../../utils/analytics.js';
 
-export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR}){
+export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onViewYearReview}){
   const[range,setRange]=useState(8);
   const runs=acts.filter(a=>a.type==="Run"||a.type==="Walk");
   const totalKm=runs.reduce((s,a)=>s+a.distanceKm,0);
@@ -60,6 +60,41 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR}){
           </ResponsiveContainer>
         </div>
       )}
+      {weeklyData.length>1&&weeklyData.some(w=>w.load>0)&&(
+        <div className="card a2" style={{padding:16,marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <SH title="Training Load"/>
+            <span style={{fontSize:".68rem",color:"var(--tx3)"}}>last {range} weeks</span>
+          </div>
+          <ResponsiveContainer width="100%" height={120}>
+            <BarChart data={weeklyData} barSize={18} margin={{top:4,right:4,bottom:0,left:-20}}>
+              <defs>
+                <linearGradient id="loadGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.9}/>
+                  <stop offset="100%" stopColor="#6d28d9" stopOpacity={0.65}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.06)" vertical={false}/>
+              <XAxis dataKey="week" tick={{fill:"var(--tx3)",fontSize:9}} axisLine={false} tickLine={false}
+                tickFormatter={w=>w?w.slice(5):''}/>
+              <YAxis tick={{fill:"var(--tx3)",fontSize:9}} axisLine={false} tickLine={false} width={32}/>
+              <Tooltip
+                cursor={{fill:"rgba(255,255,255,.04)"}}
+                content={({active,payload,label})=>{
+                  if(!active||!payload||!payload.length)return null;
+                  return(
+                    <div className="chart-tip">
+                      <div className="chart-tip-val">{payload[0].value} load</div>
+                      <div className="chart-tip-sub">{label}</div>
+                    </div>
+                  );
+                }}/>
+              <Bar dataKey="load" fill="url(#loadGrad)" radius={[5,5,0,0]}/>
+            </BarChart>
+          </ResponsiveContainer>
+          <div style={{fontSize:".72rem",color:"var(--tx3)",marginTop:6,textAlign:"center"}}>Training stress based on distance × effort</div>
+        </div>
+      )}
       <div className="a2" style={{marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <SH title="Personal Records"/>
@@ -69,7 +104,7 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR}){
           {racePRs.map(pr=>{const best=pr.best;return(
             <div key={pr.cat} className="tap"
               style={{borderRadius:14,overflow:"hidden",border:"1.5px solid "+(best?pr.color+"45":"var(--bd)"),background:best?pr.color+"08":"var(--s2)",cursor:"pointer"}}
-              onClick={()=>best&&onOpenPR({cat:{icon:"🏅",label:pr.cat,color:pr.color},top3:pr.top3||[]})}>
+              onClick={()=>best&&onOpenPR({cat:{icon:"🏅",label:pr.cat,color:pr.color},top3:pr.top3||[],history:pr.history||[]})}>
               <div style={{padding:"12px 12px 8px",borderBottom:"1px solid "+(best?pr.color+"20":"var(--bd)")}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                   <div>
@@ -102,7 +137,7 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR}){
           </div>
         </div>
       )}
-      {runs.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}><button className="btn b-gh" style={{padding:"12px"}} onClick={onViewAll}>All Runs ({acts.length})</button><button className="btn b-gh" style={{padding:"12px"}} onClick={onViewMonthly}>Monthly</button></div>}
+      {runs.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}><button className="btn b-gh" style={{padding:"12px",fontSize:".78rem"}} onClick={onViewAll}>All Runs</button><button className="btn b-gh" style={{padding:"12px",fontSize:".78rem"}} onClick={onViewMonthly}>Monthly</button><button className="btn b-gh" style={{padding:"12px",fontSize:".78rem"}} onClick={onViewYearReview}>Year</button></div>}
       {!runs.length&&<div style={{textAlign:"center",padding:"56px 0",color:"var(--tx2)"}}><div style={{fontSize:"2.8rem",marginBottom:14}}>📊</div><div style={{fontWeight:700,fontSize:"var(--fs-base)",marginBottom:6,color:"var(--tx)"}}>Your stats start here</div><div style={{fontSize:".8rem",lineHeight:1.6}}>Upload a GPX or sync Strava to see your distance, pace, and PRs.</div></div>}
     </div>
   );

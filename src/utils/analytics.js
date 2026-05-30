@@ -56,11 +56,36 @@ export function computeRacePRs(acts){
   const cats=[{cat:"5K",min:4.2,max:5.8,color:"#22c55e"},{cat:"10K",min:8.5,max:11.5,color:"#f97316"},{cat:"HM",min:19,max:23,color:"#8b5cf6"},{cat:"Marathon",min:40,max:44,color:"#ef4444"}];
   return cats.map(c=>{
     const candidates=acts.filter(a=>a.distanceKm>=c.min&&a.distanceKm<=c.max&&a.movingTimeSec>0).sort((a,b)=>a.avgPaceSecKm-b.avgPaceSecKm);
-    if(!candidates.length)return{...c,best:null,top3:[]};
+    if(!candidates.length)return{...c,best:null,top3:[],history:[]};
     const best=candidates[0];
     const top3=candidates.slice(0,3).map(r=>({...r,paceSecKm:r.avgPaceSecKm,stravaId:r.source==="strava"?r.id.replace(/^s/,""):null}));
-    return{...c,best,top3};
+    const history=[...candidates].sort((a,b)=>a.date>b.date?1:-1).map(r=>({date:r.date,paceSecKm:r.avgPaceSecKm}));
+    return{...c,best,top3,history};
   }).filter(c=>c.best);
+}
+
+export function computeYearWrapped(acts,year){
+  const y=String(year);
+  const yearActs=acts.filter(a=>a.date&&a.date.startsWith(y+'-'));
+  if(!yearActs.length)return null;
+  const totalKm=yearActs.reduce((s,a)=>s+a.distanceKm,0);
+  const totalSec=yearActs.reduce((s,a)=>s+a.movingTimeSec,0);
+  const totalElev=yearActs.reduce((s,a)=>s+(a.elevGainM||0),0);
+  const runCount=yearActs.length;
+  const everests=totalElev/8849;
+  const monthMap={};
+  for(let m=1;m<=12;m++){const k=`${y}-${String(m).padStart(2,'0')}`;monthMap[k]={month:k,km:0,runs:0};}
+  yearActs.forEach(a=>{const k=a.date.slice(0,7);if(monthMap[k]){monthMap[k].km+=a.distanceKm;monthMap[k].runs++;}});
+  const months=Object.values(monthMap);
+  const bestMonth=months.reduce((b,m)=>m.km>b.km?m:b,months[0]);
+  const MOODS_ORDER=['strong','great','good','normal','tough'];
+  const moodCounts={};
+  yearActs.forEach(a=>{if(a.mood)moodCounts[a.mood]=(moodCounts[a.mood]||0)+1;});
+  const topMood=MOODS_ORDER.find(m=>moodCounts[m])||null;
+  const runDays=new Set(yearActs.map(a=>a.date));
+  const longest=[...yearActs].sort((a,b)=>b.distanceKm-a.distanceKm)[0];
+  const bestPace=yearActs.filter(a=>a.avgPaceSecKm>0).sort((a,b)=>a.avgPaceSecKm-b.avgPaceSecKm)[0]||null;
+  return{totalKm,totalSec,totalElev,runCount,months,bestMonth,moodCounts,topMood,runDays,longest,bestPace,everests};
 }
 
 export function getTodayRecommendation(acts,hrProfile){

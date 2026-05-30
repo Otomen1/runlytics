@@ -43,6 +43,7 @@ import { ShareModal }    from './components/Share/ShareModal.jsx';
 import { ShareEditor }   from './components/Share/ShareEditor.jsx';
 import { SettingsPanel } from './components/Modals/SettingsPanel.jsx';
 import { MonthlyReport } from './components/Modals/MonthlyReport.jsx';
+import { YearInReview }  from './components/Modals/YearInReview.jsx';
 import { PRDetailModal } from './components/Modals/PRDetailModal.jsx';
 import { DebugPanel }    from './components/Modals/DebugPanel.jsx';
 
@@ -83,6 +84,7 @@ const App=()=>{
   const[showSettings,setShowSettings]=useState(false);
   const[showAllRuns,setShowAllRuns]=useState(false);
   const[showMonthly,setShowMonthly]=useState(false);
+  const[showYearReview,setShowYearReview]=useState(false);
   const[shareAct,setShareAct]=useState(null);
   const[prDetail,setPrDetail]=useState(null);
   const[showEditor,setShowEditor]=useState(false);
@@ -93,7 +95,7 @@ const App=()=>{
   const[showDebug,setShowDebug]=useState(false);
   const debugTapRef=useRef(0);
 
-  const detRef=useRef(null),setRef=useRef(null),arRef=useRef(null),monRef=useRef(null),upRef=useRef(null),shaRef=useRef(null),prRef=useRef(null);
+  const detRef=useRef(null),setRef=useRef(null),arRef=useRef(null),monRef=useRef(null),upRef=useRef(null),shaRef=useRef(null),prRef=useRef(null),yrRef=useRef(null);
   const isSyncingRef=useRef(false),lastSyncRef=useRef(0);
 
   // FIX #1: Removed feedbackRun from deps (was never declared as state — caused ReferenceError)
@@ -101,8 +103,8 @@ const App=()=>{
   useEffect(()=>{
     detRef.current=detail;setRef.current=showSettings;
     arRef.current=showAllRuns;monRef.current=showMonthly;upRef.current=showUpload;
-    shaRef.current=shareAct;prRef.current=prDetail;edRef.current=showEditor;
-  },[detail,showSettings,showAllRuns,showMonthly,showUpload,shareAct,prDetail,showEditor]);
+    shaRef.current=shareAct;prRef.current=prDetail;edRef.current=showEditor;yrRef.current=showYearReview;
+  },[detail,showSettings,showAllRuns,showMonthly,showUpload,shareAct,prDetail,showEditor,showYearReview]);
 
   useEffect(()=>{
     try{history.replaceState({_rl:"root"},"");history.pushState({_rl:"s"},"");}catch(e){}
@@ -117,6 +119,7 @@ const App=()=>{
       if(setRef.current){setShowSettings(false);history.replaceState({_rl:"s"},"");return;}
       if(arRef.current){setShowAllRuns(false);history.replaceState({_rl:"s"},"");return;}
       if(monRef.current){setShowMonthly(false);history.replaceState({_rl:"s"},"");return;}
+      if(yrRef.current){setShowYearReview(false);history.replaceState({_rl:"s"},"");return;}
       if(upRef.current){setShowUpload(false);history.replaceState({_rl:"s"},"");return;}
       if(!e.state||e.state._rl==="root"){history.replaceState({_rl:"s"},"");}
     };
@@ -166,6 +169,7 @@ const App=()=>{
   const openSettings=useCallback(()=>{history.pushState({_rl:"se"},"");setShowSettings(true);},[]);
   const openAllRuns=useCallback(()=>{history.pushState({_rl:"a"},"");setShowAllRuns(true);},[]);
   const openMonthly=useCallback(()=>{history.pushState({_rl:"m"},"");setShowMonthly(true);},[]);
+  const openYearReview=useCallback(()=>{history.pushState({_rl:"yr"},"");setShowYearReview(true);},[]);
   const openUpload=useCallback(()=>{history.pushState({_rl:"u"},"");setShowUpload(true);},[]);
 
   // deleteAct: update React state immediately, then remove from IDB.
@@ -305,7 +309,7 @@ const App=()=>{
         :<div style={{flex:1,overflowY:"auto",padding:"0 14px",paddingBottom:"max(88px,calc(env(safe-area-inset-bottom)+72px))"}}>
           <div key={tab} className="tab-in">
             {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} tasks={tasks} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings}/>}
-            {tab==="stats"&&<StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR}/>}
+            {tab==="stats"&&<StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview}/>}
             {tab==="hr"&&<HRTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings}/>}
             {tab==="tasks"&&<TasksTab tasks={tasks} setTasks={setTasks} hrProfile={hrProfile}/>}
             {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={[]}/>}
@@ -352,6 +356,7 @@ const App=()=>{
         onClose={back}/>}
       {showAllRuns&&<AllRunsView acts={acts} onClose={back} onSelectAct={act=>{setShowAllRuns(false);openDetail(act);}}/>}
       {showMonthly&&<MonthlyReport acts={acts} onClose={back}/>}
+      {showYearReview&&<YearInReview acts={acts} onClose={back}/>}
       {showDebug&&<DebugPanel acts={acts} onClose={()=>setShowDebug(false)}
         onRepairRoutes={()=>{
           // Remove Strava activities with no route so next sync re-imports with decoded polyline

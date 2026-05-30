@@ -3,7 +3,7 @@ import { fmtKm, fmtPace, fmtDateS, fmtRaceTime } from '../../utils/formatters.js
 
 export function PRDetailModal({entry,onClose,onOpenRun}){
   if(!entry)return null;
-  const{cat,top3}=entry;
+  const{cat,top3,history}=entry;
   const medals=["🥇","🥈","🥉"];
   return(
     <div className="fade-overlay" style={{position:"fixed",inset:0,zIndex:260,background:"rgba(0,0,0,.8)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
@@ -19,7 +19,6 @@ export function PRDetailModal({entry,onClose,onOpenRun}){
           :top3.map((r,i)=>(
             <div key={r.id} className="tap"
               style={{borderRadius:12,marginBottom:10,padding:"12px 14px",cursor:"pointer",border:"1px solid "+(i===0?cat.color+"50":"var(--bd)"),background:i===0?cat.color+"08":"var(--s2)"}}
-              // FIX #13: onOpenRun receives r.id (string); App resolves to activity by ID
               onClick={()=>{onClose();onOpenRun(r.id);}}>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <span style={{fontSize:"1.3rem"}}>{medals[i]||"🏅"}</span>
@@ -36,7 +35,39 @@ export function PRDetailModal({entry,onClose,onOpenRun}){
             </div>
           ))
         }
-        <div style={{marginTop:6,textAlign:"center",fontSize:".68rem",color:"var(--tx3)"}}>Tap a run to view full details</div>
+        <PaceTrend history={history} color={cat.color}/>
+        <div style={{marginTop:10,textAlign:"center",fontSize:".68rem",color:"var(--tx3)"}}>Tap a run to view full details</div>
+      </div>
+    </div>
+  );
+}
+
+function PaceTrend({ history, color }) {
+  if (!history || history.length < 2) return null;
+  const W = 300, H = 52;
+  const paces = history.map(h => h.paceSecKm);
+  const minP = Math.min(...paces), maxP = Math.max(...paces);
+  const range = maxP - minP || 1;
+  const pts = history.map((h, i) => {
+    const x = (i / (history.length - 1)) * W;
+    const y = 4 + ((h.paceSecKm - minP) / range) * (H - 8);
+    return `${x},${y}`;
+  }).join(' ');
+  return (
+    <div style={{marginTop:16,padding:"12px 14px",borderRadius:10,background:"var(--s2)"}}>
+      <div style={{fontSize:".62rem",fontWeight:700,color:"var(--tx3)",letterSpacing:".08em",marginBottom:8}}>PACE TREND</div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{overflow:'visible',display:'block'}}>
+        <polyline points={pts} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.7}/>
+        {history.map((h, i) => {
+          const x = (i / (history.length - 1)) * W;
+          const y = 4 + ((h.paceSecKm - minP) / range) * (H - 8);
+          return <circle key={i} cx={x} cy={y} r={3} fill={color} opacity={0.9}/>;
+        })}
+      </svg>
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:".6rem",color:"var(--tx3)",marginTop:4}}>
+        <span>{history[0]?.date?.slice(0,7)}</span>
+        <span style={{color}}>↓ faster is better</span>
+        <span>{history[history.length-1]?.date?.slice(0,7)}</span>
       </div>
     </div>
   );
