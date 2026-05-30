@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { getMafHR, getMafZones } from '../../utils/analytics.js';
 import { GOALS_KEY, HR_KEY, PROFILE_KEY } from '../../constants/keys.js';
 
-export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onClose,stravaAuth,stravaSync,onStravaConnect,onStravaSync,onStravaDisconnect}){
+export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onImport,onClose,stravaAuth,stravaSync,onStravaConnect,onStravaSync,onStravaDisconnect}){
   const[view,setView]=useState("main");
+  const[importMsg,setImportMsg]=useState("");
   const[age,setAge]=useState(hrProfile.age||"");
   const[ov,setOv]=useState(hrProfile.overrideMAF||"");
   const[useOv,setUseOv]=useState(!!hrProfile.overrideMAF);
@@ -21,7 +22,7 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
               <div style={{fontWeight:700,fontSize:"1.05rem"}}>Settings</div>
               <button className="btn b-gh" style={{padding:"6px 13px",fontSize:".8rem"}} onClick={onClose}>Done</button>
             </div>
-            {[{icon:"👤",label:"Profile",v:"profile"},{icon:"❤️",label:"MAF HR",v:"hr"},{icon:"🎯",label:"Goals",v:"goals"},{icon:"🟠",label:"Strava Sync",v:"strava"}].map(item=>(
+            {[{icon:"👤",label:"Profile",v:"profile"},{icon:"❤️",label:"MAF HR",v:"hr"},{icon:"🎯",label:"Goals",v:"goals"},{icon:"🟠",label:"Strava Sync",v:"strava"},{icon:"💾",label:"Export & Backup",v:"export"}].map(item=>(
               <div key={item.v} className="tap card2" style={{padding:"14px 15px",marginBottom:10,display:"flex",alignItems:"center",gap:14,borderRadius:12,cursor:"pointer"}} onClick={()=>setView(item.v)}>
                 <div style={{width:36,height:36,borderRadius:10,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.1rem"}}>{item.icon}</div>
                 <div style={{flex:1,fontWeight:500,fontSize:".88rem"}}>{item.label}</div>
@@ -88,6 +89,47 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
               </div>
             ))}
             <button className="btn b-or" style={{width:"100%",padding:"12px"}} onClick={()=>{onSaveGoals({weekly:Number(wk),monthly:Number(mo)});setView("main");}}>Save</button>
+          </div>
+        )}
+        {view==="export"&&(
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}<div className="screen-title">Export & Backup</div></div>
+            <div className="card2" style={{padding:14,borderRadius:12,marginBottom:16}}>
+              {[["Activities",String(acts.length)],["Est. size",Math.round(JSON.stringify(acts).length/1024)+" KB"]].map(([l,v])=>(
+                <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}>
+                  <span style={{fontSize:".8rem",color:"var(--tx2)"}}>{l}</span>
+                  <span style={{fontSize:".8rem",fontWeight:600}}>{v}</span>
+                </div>
+              ))}
+            </div>
+            <button className="btn b-or" style={{width:"100%",padding:"12px",marginBottom:10}} onClick={()=>{
+              const data=JSON.stringify(acts,null,2);
+              const blob=new Blob([data],{type:"application/json"});
+              const url=URL.createObjectURL(blob);
+              const a=document.createElement("a");
+              a.href=url;a.download="runlytics-backup-"+new Date().toISOString().slice(0,10)+".json";
+              document.body.appendChild(a);a.click();document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }}>⬇️ Export JSON backup</button>
+            <div style={{borderTop:"1px solid var(--bd)",paddingTop:16,marginTop:4}}>
+              <div style={{fontSize:".76rem",fontWeight:600,marginBottom:8}}>Restore from backup</div>
+              <div style={{fontSize:".74rem",color:"var(--tx2)",marginBottom:12,lineHeight:1.6}}>Import a previously exported JSON file. Existing activities are kept — duplicates are skipped.</div>
+              <label style={{display:"block",width:"100%"}}>
+                <div className="btn b-gh" style={{padding:"12px",textAlign:"center",cursor:"pointer"}}>📂 Choose JSON file</div>
+                <input type="file" accept=".json,application/json" style={{display:"none"}} onChange={async e=>{
+                  const file=e.target.files[0];if(!file)return;
+                  try{
+                    const text=await file.text();
+                    const parsed=JSON.parse(text);
+                    if(!Array.isArray(parsed))throw new Error("Not an array");
+                    onImport(parsed);
+                    setImportMsg("✓ Import started — "+parsed.length+" activities processed");
+                  }catch(err){setImportMsg("✗ Invalid file: "+err.message);}
+                  e.target.value="";
+                }}/>
+              </label>
+              {importMsg&&<div style={{marginTop:10,fontSize:".74rem",color:importMsg.startsWith("✓")?"var(--gn)":"var(--rd)",padding:"8px 12px",borderRadius:9,background:"var(--s3)"}}>{importMsg}</div>}
+            </div>
           </div>
         )}
         {view==="strava"&&(

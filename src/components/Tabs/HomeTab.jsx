@@ -29,6 +29,10 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAc
   const todayDone=todayTasks.filter(t=>!!(t.completions&&t.completions[todayStr])).length;
   const greetPfx=profile.name==="Runner"?"Welcome back":"Welcome back, "+profile.name;
   const weekLeft=parseFloat((goals.weekly-thisWeekKm).toFixed(1));
+  const thisMonthKey=new Date().toISOString().slice(0,7);
+  const thisMonthKm=acts.filter(a=>a.date&&a.date.startsWith(thisMonthKey)).reduce((s,a)=>s+a.distanceKm,0);
+  const monthPct=Math.min(1,thisMonthKm/(goals.monthly||1));
+  const monthLeft=parseFloat(Math.max(0,goals.monthly-thisMonthKm).toFixed(1));
   const memories = (acts||[]).filter(a => a.mood || a.notes || a.photoCount > 0).slice(0, 5);
   const [thumbMap, setThumbMap] = useState({});
   useEffect(() => {
@@ -120,6 +124,15 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAc
           {weekPct<1&&<div style={{fontSize:".74rem",color:"var(--tx2)"}}>{weekLeft} km to go</div>}
         </div>
         <button className="tap" style={{background:"none",border:"none",color:"var(--tx3)",fontSize:".78rem",padding:"4px 6px"}} onClick={onEditGoals}>Edit</button>
+      </div>
+      <div style={{borderTop:"1px solid var(--bd)",marginTop:12,paddingTop:12}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+          <div className="sl">Monthly Goal</div>
+          <span style={{fontSize:".72rem",color:"var(--tx2)",fontWeight:500}}>{fmtKm(thisMonthKm)} / {goals.monthly} km</span>
+        </div>
+        <div className="pb"><div className="pf" style={{width:Math.round(monthPct*100)+"%",background:monthPct>=1?"var(--gn)":"var(--bl)"}}/></div>
+        {monthPct>=1?<span style={{background:"var(--gn2)",color:"var(--gn)",padding:"2px 9px",borderRadius:20,fontSize:".66rem",fontWeight:700,marginTop:5,display:"inline-block"}}>✓ Monthly goal reached!</span>
+          :<div style={{fontSize:".72rem",color:"var(--tx2)",marginTop:4}}>{monthLeft} km to go</div>}
       </div>
     </div>
     {todayTasks.length>0&&(

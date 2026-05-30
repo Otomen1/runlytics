@@ -339,6 +339,15 @@ const App=()=>{
       {showSettings&&<SettingsPanel acts={acts} goals={goals} hrProfile={hrProfile} profile={profile}
         onSaveGoals={g=>{setGoals(g);saveGoals(g);}} onSaveHR={p=>{setHRProfile(p);saveHRProfile(p);}}
         onSaveProfile={p=>{setProfile(p);saveProfile(p);}}
+        onImport={imported=>{
+          setActsRaw(prev=>{
+            const existing=new Set(prev.map(a=>a.id));
+            const newActs=imported.filter(a=>a&&a.id&&!existing.has(a.id)).map(migrateActivity);
+            if(!newActs.length)return prev;
+            newActs.forEach(a=>saveActivity(a).catch(console.error));
+            return[...newActs,...prev];
+          });
+        }}
         onClearAll={()=>{
           setActsRaw([]);
           clearAllActivities().catch(err=>setStorageError("Clear failed: "+err.message));
