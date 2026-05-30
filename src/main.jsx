@@ -5,6 +5,9 @@ import { SpeedInsights } from '@vercel/speed-insights/react'
 import App from './App.jsx'
 import { ErrorBoundary } from './components/common/ErrorBoundary.jsx'
 window.__STRAVA_CLIENT_ID = import.meta.env.VITE_STRAVA_CLIENT_ID ?? '';
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(console.error));
+}
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

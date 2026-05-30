@@ -136,4 +136,36 @@ export function computeTierProgress(acts){
   });
 }
 
+function haversineKm(a,b){
+  const R=6371,toR=Math.PI/180;
+  const dLat=(b.lat-a.lat)*toR,dLon=((b.lon??b.lng)-(a.lon??a.lng))*toR;
+  const x=Math.sin(dLat/2)**2+Math.cos(a.lat*toR)*Math.cos(b.lat*toR)*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
+}
+
+export function computeSplits(act){
+  const{route,hrSamples,distanceKm,movingTimeSec}=act;
+  if(!route||route.length<4||!movingTimeSec||distanceKm<1)return null;
+  const dist=[0];
+  for(let i=1;i<route.length;i++)dist.push(dist[i-1]+haversineKm(route[i-1],route[i]));
+  const totalDist=dist[dist.length-1];
+  if(totalDist<0.5)return null;
+  const times=dist.map(d=>(d/totalDist)*movingTimeSec);
+  const splits=[];
+  for(let km=1;km<=Math.min(Math.floor(distanceKm),60);km++){
+    const idx=dist.findIndex(d=>d>=km);
+    if(idx<0)break;
+    const kmEndSec=times[idx];
+    const kmStartSec=km===1?0:(splits[km-2]?.cumulativeSec||0);
+    const splitSec=kmEndSec-kmStartSec;
+    let avgHR=null;
+    if(hrSamples&&hrSamples.length){
+      const s=hrSamples.filter(h=>h.sec>=kmStartSec&&h.sec<=kmEndSec&&h.hr>30);
+      if(s.length>=2)avgHR=Math.round(s.reduce((a,h)=>a+h.hr,0)/s.length);
+    }
+    splits.push({km,splitSec,cumulativeSec:kmEndSec,avgHR});
+  }
+  return splits.length>=2?splits:null;
+}
+
 export function computeEarnedBadges(acts){return BADGE_DEFS.filter(b=>{try{return b.check(acts);}catch(e){return false;}}).map(b=>b.id);}

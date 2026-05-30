@@ -3,7 +3,7 @@ import { RouteMapSVG } from '../Map/RouteMapSVG.jsx';
 import { SH } from '../common/SH.jsx';
 import { ACT_ICN, ACT_CLR } from '../../constants/activityTypes.js';
 import { fmtKm, fmtDur, fmtPace, fmtDate, fmtDateS } from '../../utils/formatters.js';
-import { getMafHR, computeZones } from '../../utils/analytics.js';
+import { getMafHR, computeZones, computeSplits } from '../../utils/analytics.js';
 import { JournalTab } from './JournalTab.jsx';
 import { saveActivity, getPhotos } from '../../db/indexedDB.js';
 
@@ -62,7 +62,7 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
           </div>
         </div>
         <div style={{display:"flex"}}>
-          {[{id:"overview",label:"overview"},{id:"heartrate",label:"heartrate"},{id:"map",label:"map"},{id:"journal",label:"📓 journal"}].map(t=>(
+          {[{id:"overview",label:"overview"},{id:"splits",label:"⚡ splits"},{id:"heartrate",label:"heartrate"},{id:"map",label:"map"},{id:"journal",label:"📓 journal"}].map(t=>(
             <button key={t.id} onClick={()=>setTab(t.id)}
               style={{padding:"8px 14px",border:"none",background:"transparent",color:tab===t.id?"var(--or)":"var(--tx2)",fontFamily:"inherit",fontSize:".78rem",fontWeight:tab===t.id?600:400,cursor:"pointer",textTransform:"capitalize",borderBottom:tab===t.id?"2px solid var(--or)":"2px solid transparent",transition:"color .15s"}}>
               {t.label}
@@ -165,8 +165,54 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
             }
           </div>
         )}
+        {tab==="splits"&&<SplitsTab act={actState} mafHR={mafHR}/>}
         {tab==="journal"&&<JournalTab act={actState} onPatch={onPatch}/>}
       </div>
+    </div>
+  );
+}
+
+function SplitsTab({ act, mafHR }) {
+  const splits = React.useMemo(() => computeSplits(act), [act]);
+  if (!splits) return (
+    <div style={{textAlign:"center",padding:"44px 0",color:"var(--tx2)"}}>
+      <div style={{fontSize:"2rem",marginBottom:8}}>⚡</div>
+      <div style={{fontWeight:600,marginBottom:4}}>No splits available</div>
+      <div style={{fontSize:".78rem"}}>Splits require GPS route data.</div>
+    </div>
+  );
+  const best = Math.min(...splits.map(s => s.splitSec));
+  const worst = Math.max(...splits.map(s => s.splitSec));
+  return (
+    <div>
+      <div className="card" style={{padding:16}}>
+        <div style={{display:"grid",gridTemplateColumns:"32px 1fr 68px",gap:"6px 12px",marginBottom:10}}>
+          {["KM","SPLIT","AVG HR"].map((h,i)=>(
+            <div key={h} style={{fontSize:".6rem",fontWeight:700,color:"var(--tx3)",letterSpacing:".06em",textAlign:i===2?"right":"left"}}>{h}</div>
+          ))}
+        </div>
+        {splits.map((s,i) => {
+          const isBest = s.splitSec===best, isWorst = s.splitSec===worst;
+          const hrCol = s.avgHR ? (s.avgHR<=mafHR?"var(--gn)":s.avgHR<=mafHR+10?"var(--yw)":"var(--rd)") : "var(--tx3)";
+          const barW = Math.max(10, Math.round((1-(s.splitSec-best)/(worst-best||1))*100));
+          return (
+            <div key={s.km} style={{display:"grid",gridTemplateColumns:"32px 1fr 68px",gap:"6px 12px",padding:"7px 0",borderBottom:i<splits.length-1?"1px solid var(--bd)":"none",alignItems:"center"}}>
+              <div style={{fontSize:".88rem",fontWeight:700,color:"var(--or)"}}>{s.km}</div>
+              <div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontFamily:"monospace",fontSize:".88rem",fontWeight:isBest?700:400,color:isBest?"var(--gn)":isWorst?"var(--rd)":"var(--tx)"}}>{fmtPace(s.splitSec)}/km</span>
+                  {isBest&&<span style={{fontSize:".6rem",color:"var(--gn)",fontWeight:700}}>BEST</span>}
+                </div>
+                <div style={{marginTop:3,height:3,borderRadius:2,background:"var(--bd)",overflow:"hidden"}}>
+                  <div style={{height:"100%",borderRadius:2,width:barW+"%",background:isBest?"var(--gn)":isWorst?"var(--rd)":"var(--or)",opacity:.7}}/>
+                </div>
+              </div>
+              <div style={{fontFamily:"monospace",fontSize:".82rem",fontWeight:600,color:hrCol,textAlign:"right"}}>{s.avgHR?s.avgHR+" bpm":"—"}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{marginTop:10,fontSize:".7rem",color:"var(--tx3)",textAlign:"center"}}>Estimated from GPS · HR from sensor data</div>
     </div>
   );
 }

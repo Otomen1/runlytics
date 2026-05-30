@@ -74,5 +74,9 @@ export function migrateActivity(a){
     notes:a.notes||"",
     mood:a.mood||null,
     photoCount:typeof a.photoCount==='number'?a.photoCount:0,
+    shoeId:a.shoeId||null,
+    isRace:a.isRace||false,
+    raceGoalSec:isFinite(a.raceGoalSec)&&a.raceGoalSec>0?+a.raceGoalSec:null,
+    raceLocation:a.raceLocation||'',
   };
 }

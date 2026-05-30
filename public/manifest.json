@@ -1,0 +1,14 @@
+{
+  "name": "Runlytics",
+  "short_name": "Runlytics",
+  "description": "Personal running journal with beautiful analytics",
+  "theme_color": "#06080e",
+  "background_color": "#06080e",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "start_url": "/",
+  "scope": "/",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

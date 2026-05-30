@@ -3,13 +3,17 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import { SH } from '../common/SH.jsx';
 import { fmtKm, fmtDur, fmtPace, fmtDateS } from '../../utils/formatters.js';
 import { computeRacePRs } from '../../utils/analytics.js';
+import { SHOES_KEY } from '../../constants/keys.js';
 
-export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onViewYearReview}){
+export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onViewYearReview,onManageShoes}){
   const[range,setRange]=useState(8);
   const runs=acts.filter(a=>a.type==="Run"||a.type==="Walk");
   const totalKm=runs.reduce((s,a)=>s+a.distanceKm,0);
   const weeklyData=(analytics.weeklyKm||[]).slice(-range);
   const racePRs=useMemo(()=>computeRacePRs(acts),[acts]);
+  const races=useMemo(()=>acts.filter(a=>a.isRace).sort((a,b)=>b.dateTs-a.dateTs),[acts]);
+  const shoes=useMemo(()=>{try{return JSON.parse(localStorage.getItem(SHOES_KEY)||'[]');}catch{return[];}}, []);
+  const shoeKm=useMemo(()=>{const m={};acts.forEach(a=>{if(a.shoeId)m[a.shoeId]=(m[a.shoeId]||0)+a.distanceKm;});return m;},[acts]);
   const overallPRs=runs.length?{
     longest:runs.reduce((b,r)=>r.distanceKm>b.distanceKm?r:b),
     fastest:runs.filter(r=>r.avgPaceSecKm>0).reduce((b,r)=>r.avgPaceSecKm<b.avgPaceSecKm?r:b,runs.find(r=>r.avgPaceSecKm>0)||runs[0])
@@ -135,6 +139,41 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onView
               </div>
             ))}
           </div>
+        </div>
+      )}
+      {shoes.filter(s=>s.active!==false).length>0&&(
+        <div className="card" style={{padding:16,marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <SH title="Shoes"/>
+            <button className="pill" style={{fontSize:".68rem"}} onClick={onManageShoes}>Manage</button>
+          </div>
+          {shoes.filter(s=>s.active!==false).map(shoe=>{
+            const km=shoeKm[shoe.id]||0,pct=Math.min(1,km/(shoe.maxKm||600)),warn=pct>=0.85;
+            return(
+              <div key={shoe.id} style={{marginBottom:12}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                  <span style={{fontSize:".82rem",fontWeight:600}}>{shoe.name}</span>
+                  <span style={{fontSize:".74rem",color:warn?"var(--rd)":"var(--tx2)",fontWeight:warn?700:400}}>{Math.round(km)}/{shoe.maxKm||600} km</span>
+                </div>
+                <div style={{height:6,borderRadius:3,background:"var(--bd)",overflow:"hidden"}}>
+                  <div style={{height:"100%",borderRadius:3,background:warn?"var(--rd)":shoe.color||"var(--or)",width:(pct*100)+"%"}}/>
+                </div>
+                {warn&&<div style={{fontSize:".68rem",color:"var(--rd)",marginTop:3}}>⚠️ Replace soon</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {races.length>0&&(
+        <div className="card" style={{padding:16,marginBottom:14}}>
+          <SH title="Races"/>
+          {races.slice(0,5).map((r,i)=>(
+            <div key={r.id} style={{padding:"9px 0",borderBottom:i<Math.min(races.length,5)-1?"1px solid var(--bd)":"none"}}>
+              <div style={{fontWeight:600,fontSize:".84rem",marginBottom:3}}>🏁 {r.name}</div>
+              <div style={{fontSize:".72rem",color:"var(--tx2)"}}>{fmtDateS(r.date)} · {fmtKm(r.distanceKm)} km · {fmtPace(r.avgPaceSecKm)}/km</div>
+              {r.raceGoalSec&&<div style={{fontSize:".7rem",color:"var(--or)",marginTop:2}}>Goal: {fmtDur(r.raceGoalSec)}</div>}
+            </div>
+          ))}
         </div>
       )}
       {runs.length>0&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}><button className="btn b-gh" style={{padding:"12px",fontSize:".78rem"}} onClick={onViewAll}>All Runs</button><button className="btn b-gh" style={{padding:"12px",fontSize:".78rem"}} onClick={onViewMonthly}>Monthly</button><button className="btn b-gh" style={{padding:"12px",fontSize:".78rem"}} onClick={onViewYearReview}>Year</button></div>}

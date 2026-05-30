@@ -145,7 +145,8 @@ export function AllRunsView({ acts, onSelectAct, onClose }) {
               <div style={{flex:1,minWidth:0,paddingRight:11}}>
                 <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
                   <span style={{fontSize:".82rem",flexShrink:0}}>{ACT_ICN[a.type]||"🏃"}</span>
-                  <div style={{fontWeight:700,fontSize:".88rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--tx)"}}>{a.name}</div>
+                  <div style={{fontWeight:700,fontSize:".88rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--tx)",flex:1}}>{a.name}</div>
+                  {a.isRace&&<span style={{fontSize:".7rem",background:"rgba(249,115,22,.15)",color:"var(--or)",padding:"1px 6px",borderRadius:8,fontWeight:700,flexShrink:0}}>🏁</span>}
                 </div>
                 <div style={{fontSize:"1.32rem",fontWeight:800,color:clr,lineHeight:1,marginBottom:5,letterSpacing:"-.01em"}}>
                   {fmtKm(a.distanceKm)}<span style={{fontSize:".68rem",fontWeight:500,color:"var(--tx3)",marginLeft:3}}>km</span>

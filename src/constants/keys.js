@@ -11,6 +11,8 @@ export const TAB_KEY            = 'runlytics_tab_v1';
 export const STRAVA_KEY         = 'runlytics_strava_v1';
 export const EDITOR_PRESETS_KEY = 'runlytics_share_presets_v1';
 
+export const SHOES_KEY          = 'runlytics_shoes_v1';
+
 // IndexedDB identifiers
 export const IDB_NAME     = 'runlytics_db';
 export const IDB_VERSION  = 2;
