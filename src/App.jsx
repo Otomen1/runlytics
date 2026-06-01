@@ -185,15 +185,6 @@ const App=()=>{
     try{localStorage.setItem(THEME_KEY,theme);}catch{}
   },[theme]);
 
-  useEffect(()=>{
-    if(!dbReady||!acts.length)return;
-    const milestone=checkMilestones(acts,analytics);
-    if(!milestone)return;
-    clearTimeout(toastTimerRef.current);
-    setToast(milestone);
-    toastTimerRef.current=setTimeout(()=>setToast(null),4000);
-  },[acts,analytics,dbReady]);
-
   // setActs: state-only updater. Persistence is handled per-operation below.
   // Do NOT use this for saves — use saveActivity/deleteActivity/clearAllActivities.
   const setActs=useCallback(updater=>{setActsRaw(updater);},[]);
@@ -319,6 +310,15 @@ const App=()=>{
   const earnedBadgeIds=useMemo(()=>computeEarnedBadges(acts),[acts]);
   // FIX #9: earnedBadges is a Set of IDs so AchievementsTab's .has() calls work
   const earnedBadgesSet=useMemo(()=>new Set(earnedBadgeIds),[earnedBadgeIds]);
+
+  useEffect(()=>{
+    if(!dbReady||!acts.length)return;
+    const milestone=checkMilestones(acts,analytics);
+    if(!milestone)return;
+    clearTimeout(toastTimerRef.current);
+    setToast(milestone);
+    toastTimerRef.current=setTimeout(()=>setToast(null),4000);
+  },[acts,analytics,dbReady]);
 
   useEffect(()=>{
     const seen=loadSeenBadges();setHasUnseen(earnedBadgeIds.some(id=>!seen.has(id)));
