@@ -367,7 +367,7 @@ const App=()=>{
             {tab==="tasks"&&<TasksTab tasks={tasks} setTasks={setTasks} hrProfile={hrProfile}/>}
             {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={[]}/>}
           </div>
-          <div style={{height:"max(120px,calc(env(safe-area-inset-bottom)+100px))",flexShrink:0}}/>
+          <div style={{height:"max(160px,calc(env(safe-area-inset-bottom)+130px))",flexShrink:0}}/>
         </div>
       }
       <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(6,8,15,.97)",backdropFilter:"blur(16px)",WebkitBackdropFilter:"blur(16px)",borderTop:"1px solid var(--bd)",display:"flex",zIndex:100,paddingBottom:"env(safe-area-inset-bottom)"}}>
