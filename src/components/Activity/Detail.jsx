@@ -56,7 +56,7 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
             <div style={{fontSize:".72rem",color:"var(--tx2)",marginTop:2}}>{fmtDate(act.date)}</div>
           </div>
           <div style={{display:"flex",gap:8}}>
-            {onShare&&<button className="btn b-gh" style={{padding:"7px 13px",fontSize:".9rem"}} onClick={onShare} aria-label="Share">📤</button>}
+            {onShare&&<button className="btn b-or" style={{padding:"7px 16px",fontSize:".82rem",fontWeight:700}} onClick={onShare}>📤 Share</button>}
             <button className="btn b-rd" style={{padding:"7px 10px"}} onClick={()=>{if(window.confirm("Delete this run?"))onDelete(act.id);}}>🗑</button>
             <button className="btn b-gh" style={{padding:"7px 12px"}} onClick={onClose}>✕</button>
           </div>
