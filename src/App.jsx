@@ -16,7 +16,7 @@ import { buildAnalytics, computeTierProgress, computeEarnedBadges } from './util
 // ── Constants ────────────────────────────────────────────────────────────────
 import {
   GOALS_KEY, HR_KEY, PROFILE_KEY, TASKS_KEY, BADGES_KEY,
-  TAB_KEY, STRAVA_KEY,
+  TAB_KEY, STRAVA_KEY, ONBOARDING_KEY, MILESTONES_KEY, THEME_KEY,
 } from './constants/keys.js';
 import { TABS } from './constants/activityTypes.js';
 
@@ -47,6 +47,7 @@ import { YearInReview }  from './components/Modals/YearInReview.jsx';
 import { ShoeTracker }   from './components/Modals/ShoeTracker.jsx';
 import { PRDetailModal } from './components/Modals/PRDetailModal.jsx';
 import { DebugPanel }    from './components/Modals/DebugPanel.jsx';
+import { Onboarding }   from './components/Modals/Onboarding.jsx';
 
 // ── localStorage helpers (lightweight prefs only) ────────────────────────────
 function loadGoals()    { try { return JSON.parse(localStorage.getItem(GOALS_KEY)||'null')||{weekly:40,monthly:160}; } catch { return {weekly:40,monthly:160}; } }
@@ -59,6 +60,32 @@ function loadTasks()    { try { return JSON.parse(localStorage.getItem(TASKS_KEY
 function saveTasks(t)   { try { localStorage.setItem(TASKS_KEY, JSON.stringify(t)); } catch {} }
 function loadSeenBadges(){ try { return new Set(JSON.parse(localStorage.getItem(BADGES_KEY)||'[]')); } catch { return new Set(); } }
 function saveSeenBadges(ids){ try { localStorage.setItem(BADGES_KEY, JSON.stringify([...ids])); } catch {} }
+function loadTheme(){ try { return localStorage.getItem(THEME_KEY)||'dark'; } catch { return 'dark'; } }
+
+function checkMilestones(acts, analytics) {
+  if (!acts.length) return null;
+  try {
+    const seen = new Set(JSON.parse(localStorage.getItem(MILESTONES_KEY)||'[]'));
+    const total = acts.reduce((s,a)=>s+a.distanceKm,0);
+    const streak = analytics.streak||0;
+    const ms = [
+      {key:'first_run',   cond:acts.length>=1,    emoji:'🎉', msg:'First run logged!'},
+      {key:'km_100',      cond:total>=100,         emoji:'💯', msg:'100 km total — milestone!'},
+      {key:'km_500',      cond:total>=500,         emoji:'🚀', msg:'500 km total — you\'re on fire!'},
+      {key:'km_1000',     cond:total>=1000,        emoji:'🏆', msg:'1,000 km — elite runner!'},
+      {key:'streak_7',    cond:streak>=7,          emoji:'🔥', msg:'7-day run streak!'},
+      {key:'streak_30',   cond:streak>=30,         emoji:'👑', msg:'30-day streak — legendary!'},
+    ];
+    for (const m of ms) {
+      if (m.cond && !seen.has(m.key)) {
+        seen.add(m.key);
+        localStorage.setItem(MILESTONES_KEY, JSON.stringify([...seen]));
+        return {emoji:m.emoji, msg:m.msg};
+      }
+    }
+  } catch {}
+  return null;
+}
 
 function defaultTasks(){
   return[
@@ -95,6 +122,9 @@ const App=()=>{
   const[stravaSync,setStravaSync]=useState({loading:false,msg:""});
   const[hasUnseen,setHasUnseen]=useState(false);
   const[showDebug,setShowDebug]=useState(false);
+  const[theme,setTheme]=useState(loadTheme);
+  const[toast,setToast]=useState(null);
+  const toastTimerRef=useRef(null);
   const debugTapRef=useRef(0);
 
   const detRef=useRef(null),setRef=useRef(null),arRef=useRef(null),monRef=useRef(null),upRef=useRef(null),shaRef=useRef(null),prRef=useRef(null),yrRef=useRef(null),shRef=useRef(null);
@@ -149,6 +179,20 @@ const App=()=>{
       }
     })();
   },[]);
+
+  useEffect(()=>{
+    document.documentElement.setAttribute('data-theme',theme);
+    try{localStorage.setItem(THEME_KEY,theme);}catch{}
+  },[theme]);
+
+  useEffect(()=>{
+    if(!dbReady||!acts.length)return;
+    const milestone=checkMilestones(acts,analytics);
+    if(!milestone)return;
+    clearTimeout(toastTimerRef.current);
+    setToast(milestone);
+    toastTimerRef.current=setTimeout(()=>setToast(null),4000);
+  },[acts,analytics,dbReady]);
 
   // setActs: state-only updater. Persistence is handled per-operation below.
   // Do NOT use this for saves — use saveActivity/deleteActivity/clearAllActivities.
@@ -294,6 +338,7 @@ const App=()=>{
           {stravaAuth&&!stravaSync.loading&&stravaSync.msg&&(
             <div style={{fontSize:".68rem",color:"var(--gn)",background:"var(--gn2)",padding:"2px 8px",borderRadius:20,fontWeight:600}}>{stravaSync.msg}</div>
           )}
+          <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1rem",cursor:"pointer",padding:"4px 6px"}} onClick={()=>setTheme(t=>t==='dark'?'light':'dark')} aria-label="Toggle theme">{theme==='dark'?'☀️':'🌙'}</button>
           <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.05rem",cursor:"pointer",padding:"4px 6px"}} onClick={openSettings} aria-label="Settings">⚙️</button>
         </div>
       </div>
@@ -306,9 +351,13 @@ const App=()=>{
       )}
       {/* Loading state while IDB initialises */}
       {!dbReady
-        ?<div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:12,color:"var(--tx3)"}}>
-            <div className="spinner"/>
-            <span style={{fontSize:".84rem"}}>Loading your runs…</span>
+        ?<div style={{flex:1,padding:"16px 14px"}}>
+            {[1,2,3].map(i=>(
+              <div key={i} style={{background:'var(--s1)',border:'1px solid var(--bd)',borderRadius:14,padding:16,marginBottom:10,overflow:'hidden',position:'relative'}}>
+                <div style={{height:10,borderRadius:5,background:'var(--bd)',width:'55%',marginBottom:10,backgroundImage:'linear-gradient(90deg,var(--bd) 25%,var(--bd2) 50%,var(--bd) 75%)',backgroundSize:'200% 100%',animation:'shimmer 1.4s ease infinite'}}/>
+                <div style={{height:8,borderRadius:4,background:'var(--bd)',width:'35%',backgroundImage:'linear-gradient(90deg,var(--bd) 25%,var(--bd2) 50%,var(--bd) 75%)',backgroundSize:'200% 100%',animation:'shimmer 1.4s '+(i*0.15)+'s ease infinite'}}/>
+              </div>
+            ))}
           </div>
         :<div style={{flex:1,overflowY:"auto",padding:"0 14px",paddingBottom:"max(88px,calc(env(safe-area-inset-bottom)+72px))"}}>
           <div key={tab} className="tab-in">
@@ -371,6 +420,29 @@ const App=()=>{
       {showMonthly&&<MonthlyReport acts={acts} onClose={back}/>}
       {showYearReview&&<YearInReview acts={acts} onClose={back}/>}
       {showShoes&&<ShoeTracker acts={acts} onClose={back}/>}
+      {dbReady&&acts.length===0&&!localStorage.getItem(ONBOARDING_KEY)&&(
+        <Onboarding profile={profile} goals={goals}
+          onComplete={({name,weeklyGoal})=>{
+            if(name&&name!=='Runner'){const p={...profile,name};setProfile(p);saveProfile(p);}
+            const g={...goals,weekly:weeklyGoal};setGoals(g);saveGoals(g);
+          }}
+          onUpload={openUpload}
+          onStravaConnect={()=>{
+            const cid=window.__STRAVA_CLIENT_ID;
+            if(!cid){alert("Strava client ID not configured.");return;}
+            const redirect=encodeURIComponent(window.location.origin+window.location.pathname);
+            window.location.href="https://www.strava.com/oauth/authorize?client_id="+cid+"&redirect_uri="+redirect+"&response_type=code&scope=activity:read_all";
+          }}/>
+      )}
+      {toast&&(
+        <div style={{position:'fixed',bottom:96,left:'50%',transform:'translateX(-50%)',zIndex:400,animation:'fadeUp .3s ease both',pointerEvents:'auto'}}>
+          <div style={{background:'var(--s1)',border:'1.5px solid var(--or)',borderRadius:14,padding:'12px 18px',display:'flex',alignItems:'center',gap:10,boxShadow:'0 6px 28px rgba(0,0,0,.35)',minWidth:200,maxWidth:300}}>
+            <span style={{fontSize:'1.5rem',flexShrink:0}}>{toast.emoji}</span>
+            <span style={{fontWeight:700,fontSize:'.88rem',flex:1,lineHeight:1.4}}>{toast.msg}</span>
+            <button onClick={()=>setToast(null)} style={{background:'none',border:'none',color:'var(--tx3)',cursor:'pointer',fontSize:'.9rem',flexShrink:0,padding:'2px 4px'}}>✕</button>
+          </div>
+        </div>
+      )}
       {showDebug&&<DebugPanel acts={acts} onClose={()=>setShowDebug(false)}
         onRepairRoutes={()=>{
           // Remove Strava activities with no route so next sync re-imports with decoded polyline

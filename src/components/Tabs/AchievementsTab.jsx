@@ -100,7 +100,14 @@ export function AchievementsTab({earnedBadges,acts,analytics,tierProgress,newTie
           ))}
         </div>
       </div>
-      {!acts.length&&<div style={{textAlign:"center",padding:"48px 0",color:"var(--tx2)"}}><div style={{fontSize:"3rem",marginBottom:12}}>🏅</div><div style={{fontWeight:600,marginBottom:5}}>No badges yet</div><div style={{fontSize:".82rem"}}>Upload your first run to start earning</div></div>}
+      {!acts.length&&(
+        <div style={{textAlign:"center",padding:"52px 0 20px"}}>
+          <div style={{fontSize:"3.5rem",marginBottom:14}}>🏅</div>
+          <div style={{fontWeight:700,fontSize:"1.05rem",marginBottom:8}}>No achievements yet</div>
+          <div style={{fontSize:".84rem",color:"var(--tx2)",lineHeight:1.6,marginBottom:24,maxWidth:240,margin:"0 auto 24px"}}>Log your first run to start earning badges and climbing the tiers.</div>
+          <div style={{fontSize:".74rem",color:"var(--tx3)"}}>Use the ＋ button at the top to upload a GPX or sync Strava.</div>
+        </div>
+      )}
     </div>
   );
 }

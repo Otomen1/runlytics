@@ -52,7 +52,21 @@ export function HRTab({acts,hrProfile,onEditHR}){
         </div>
       )}
       <div className="a2" style={{marginBottom:14}}><SH title="Coach Assessment"/><CoachCard insight={insight}/></div>
-      {!runsWithHR.length&&<div style={{textAlign:"center",padding:"56px 0"}}><div style={{fontSize:"2.8rem",marginBottom:14}}>❤️</div><div style={{fontWeight:700,fontSize:"var(--fs-base)",marginBottom:6,color:"var(--tx)"}}>Train smarter with MAF</div><div style={{fontSize:".8rem",color:"var(--tx2)",marginBottom:20,lineHeight:1.6}}>Set your age to unlock heart-rate zone analysis and aerobic coaching.</div><button className="btn b-or" style={{padding:"11px 24px"}} onClick={onEditHR}>Set up MAF Profile</button></div>}
+      {!runsWithHR.length&&(
+        <div style={{textAlign:"center",padding:"40px 0 20px"}}>
+          <div style={{fontSize:"2.8rem",marginBottom:14}}>❤️</div>
+          <div style={{fontWeight:700,fontSize:"var(--fs-lg)",marginBottom:8}}>No HR data yet</div>
+          <div style={{fontSize:".84rem",color:"var(--tx2)",marginBottom:6,lineHeight:1.65,maxWidth:260,margin:"0 auto 8px"}}>
+            {!acts.length
+              ? "Log your first run to see heart-rate zones and MAF coaching."
+              : "Your runs don't have HR data. Use a chest strap or wrist sensor and re-upload with HR samples."}
+          </div>
+          {!acts.length
+            ? <div style={{fontSize:".74rem",color:"var(--tx3)",marginTop:12}}>Upload a GPX or connect Strava to get started.</div>
+            : <button className="btn b-or" style={{padding:"10px 22px",marginTop:16}} onClick={onEditHR}>Adjust MAF Profile →</button>
+          }
+        </div>
+      )}
     </div>
   );
 }

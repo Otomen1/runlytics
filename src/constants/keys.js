@@ -12,6 +12,9 @@ export const STRAVA_KEY         = 'runlytics_strava_v1';
 export const EDITOR_PRESETS_KEY = 'runlytics_share_presets_v1';
 
 export const SHOES_KEY          = 'runlytics_shoes_v1';
+export const ONBOARDING_KEY     = 'runlytics_onboarding_v1';
+export const MILESTONES_KEY     = 'runlytics_milestones_v1';
+export const THEME_KEY          = 'runlytics_theme_v1';
 
 // IndexedDB identifiers
 export const IDB_NAME     = 'runlytics_db';

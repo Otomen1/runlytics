@@ -1,7 +1,7 @@
 import React from 'react';
 export const Styles=()=><style>{`
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#06080f;color:#d8e6f7;-webkit-font-smoothing:antialiased;line-height:1.5;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--tx);-webkit-font-smoothing:antialiased;line-height:1.5;}
 :root{
   --bg:#06080f;--s1:#0b0f1a;--s2:#101622;--s3:#141c2a;--bd:#1c2538;--bd2:#232f48;
   --or:#f97316;--or2:rgba(249,115,22,.14);--or3:rgba(249,115,22,.07);
@@ -87,5 +87,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .run-card{display:flex;align-items:center;background:var(--s2);border:1px solid var(--bd);border-radius:var(--r-lg);padding:13px 13px;margin-bottom:9px;cursor:pointer;transition:border-color .18s,background .18s;-webkit-tap-highlight-color:transparent;}
 .run-card:active{background:var(--s3);transform:scale(.99);}
 @media(hover:hover){.run-card:hover{border-color:var(--bd2);background:var(--s3);}}
+[data-theme=light]{
+  --bg:#f8fafc;--s1:#ffffff;--s2:#f1f5f9;--s3:#e8edf3;
+  --bd:#e2e8f0;--bd2:#cbd5e1;
+  --tx:#1e293b;--tx2:#64748b;--tx3:#94a3b8;
+  --or2:rgba(249,115,22,.1);--or3:rgba(249,115,22,.05);
+  --gn2:rgba(34,197,94,.1);--rd2:rgba(239,68,68,.08);
+}
+[data-theme=light] .glass{background:rgba(248,250,252,.96);border-color:rgba(0,0,0,.06);}
+[data-theme=light] .tab-btn{color:#94a3b8;}
+[data-theme=light] .tab-btn.on{color:var(--or);}
 `}</style>;
 export { Styles as GlobalStyles };

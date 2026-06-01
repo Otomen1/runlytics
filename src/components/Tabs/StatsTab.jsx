@@ -18,6 +18,14 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onView
     longest:runs.reduce((b,r)=>r.distanceKm>b.distanceKm?r:b),
     fastest:runs.filter(r=>r.avgPaceSecKm>0).reduce((b,r)=>r.avgPaceSecKm<b.avgPaceSecKm?r:b,runs.find(r=>r.avgPaceSecKm>0)||runs[0])
   }:null;
+  if(!acts.length) return(
+    <div style={{padding:"32px 0 40px",textAlign:"center"}}>
+      <div style={{fontSize:"3.5rem",marginBottom:16}}>📈</div>
+      <div style={{fontWeight:700,fontSize:"1.1rem",marginBottom:8}}>No stats yet</div>
+      <div style={{fontSize:".86rem",color:"var(--tx2)",lineHeight:1.65,maxWidth:240,margin:"0 auto 28px"}}>Once you log your first run, your stats, charts, and PRs will appear here.</div>
+      <div style={{fontSize:".76rem",color:"var(--tx3)"}}>Tap the ⚙️ settings to import or connect Strava.</div>
+    </div>
+  );
   return(
     <div style={{padding:"10px 0 32px"}}>
       <div className="a0" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:18}}>
