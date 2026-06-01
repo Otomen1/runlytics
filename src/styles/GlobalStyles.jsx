@@ -14,7 +14,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   /* Spacing rhythm */
   --gap-card:14px;--pad-card:16px;
 }
-html,body,#root{height:100%;}
 ::-webkit-scrollbar{width:0;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes tabIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
