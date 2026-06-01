@@ -359,7 +359,7 @@ const App=()=>{
               </div>
             ))}
           </div>
-        :<div style={{flex:1,overflowY:"auto",padding:"0 14px",paddingBottom:"max(88px,calc(env(safe-area-inset-bottom)+72px))"}}>
+        :<div style={{flex:1,overflowY:"auto",padding:"0 14px",paddingBottom:"max(120px,calc(env(safe-area-inset-bottom)+100px))"}}>
           <div key={tab} className="tab-in">
             {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} tasks={tasks} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings}/>}
             {tab==="stats"&&<StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/>}
