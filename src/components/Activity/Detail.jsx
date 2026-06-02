@@ -6,6 +6,7 @@ import { fmtKm, fmtDur, fmtPace, fmtDate } from '../../utils/formatters.js';
 import { getMafHR, computeZones, computeSplits } from '../../utils/analytics.js';
 import { JournalTab } from './JournalTab.jsx';
 import { saveActivity, getPhotos } from '../../db/indexedDB.js';
+import { fetchStravaSplits, loadStravaAuth, getStravaToken } from '../../db/strava.js';
 
 const MOODS_MAP = {
   great:  { emoji: '😀', label: 'Great' },
@@ -165,15 +166,43 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
             }
           </div>
         )}
-        {tab==="splits"&&<SplitsTab act={actState} mafHR={mafHR}/>}
+        {tab==="splits"&&<SplitsTab act={actState} mafHR={mafHR} onPatch={onPatch}/>}
         {tab==="journal"&&<JournalTab act={actState} onPatch={onPatch}/>}
       </div>
     </div>
   );
 }
 
-function SplitsTab({ act, mafHR }) {
-  const splits = React.useMemo(() => computeSplits(act), [act]);
+function SplitsTab({ act, mafHR, onPatch }) {
+  const [stravaSplits, setStravaSplits] = React.useState(act.stravaSplits || null);
+  const [loading, setLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (act.source !== "strava" || stravaSplits) return;
+    const stravaId = act.id?.toString().replace(/^s/, '');
+    if (!stravaId) return;
+    setLoading(true);
+    const auth = loadStravaAuth();
+    getStravaToken(auth).then(token => {
+      if (!token) { setLoading(false); return; }
+      return fetchStravaSplits(stravaId, token);
+    }).then(splits => {
+      setLoading(false);
+      if (!splits) return;
+      setStravaSplits(splits);
+      onPatch({ stravaSplits: splits });
+    }).catch(() => setLoading(false));
+  }, [act.id, act.source]);
+
+  const gpsSplits = React.useMemo(() => computeSplits(act), [act]);
+  const splits = act.source === "strava" ? (stravaSplits || gpsSplits) : gpsSplits;
+
+  if (loading) return (
+    <div style={{textAlign:"center",padding:"44px 0",color:"var(--tx2)"}}>
+      <div style={{fontSize:"1.5rem",marginBottom:8}}>⏳</div>
+      <div style={{fontSize:".8rem"}}>Loading splits from Strava…</div>
+    </div>
+  );
   if (!splits) return (
     <div style={{textAlign:"center",padding:"44px 0",color:"var(--tx2)"}}>
       <div style={{fontSize:"2rem",marginBottom:8}}>⚡</div>
@@ -183,7 +212,7 @@ function SplitsTab({ act, mafHR }) {
   );
   const best = Math.min(...splits.map(s => s.splitSec));
   const worst = Math.max(...splits.map(s => s.splitSec));
-  const isGps = splits.source==="gps";
+  const isGps = splits.source==="gps" || splits.source==="strava";
   const hasEle = splits.some(s=>s.elev!=null);
   const cols = "30px 1fr 48px 60px";
   return (
@@ -192,7 +221,7 @@ function SplitsTab({ act, mafHR }) {
         <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
           <span style={{fontSize:".58rem",fontWeight:700,letterSpacing:".06em",padding:"2px 7px",borderRadius:20,
             color:isGps?"var(--gn)":"var(--yw)",background:isGps?"var(--gn2)":"rgba(234,179,8,.12)"}}>
-            {isGps?"GPS":"est."}
+            {splits.source==="strava"?"Strava":splits.source==="gps"?"GPS":"est."}
           </span>
         </div>
         <div style={{display:"grid",gridTemplateColumns:cols,gap:"6px 10px",marginBottom:10}}>
@@ -223,7 +252,7 @@ function SplitsTab({ act, mafHR }) {
           );
         })}
       </div>
-      <div style={{marginTop:10,fontSize:".7rem",color:"var(--tx3)",textAlign:"center"}}>{isGps?"Splits from GPS timestamps":"Estimated from GPS distance"} · HR from sensor data</div>
+      <div style={{marginTop:10,fontSize:".7rem",color:"var(--tx3)",textAlign:"center"}}>{splits.source==="strava"?"Splits from Strava":splits.source==="gps"?"Splits from GPS timestamps":"Estimated from GPS distance"} · HR from sensor data</div>
     </div>
   );
 }

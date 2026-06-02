@@ -55,6 +55,31 @@ export async function getStravaToken(auth){
   }catch(e){return null;}
 }
 
+export async function fetchStravaSplits(stravaNumericId, token){
+  if(!stravaNumericId||!token)return null;
+  try{
+    const r=await fetch(`https://www.strava.com/api/v3/activities/${stravaNumericId}`,{
+      headers:{Authorization:`Bearer ${token}`}
+    });
+    if(!r.ok)return null;
+    const data=await r.json();
+    const raw=data.splits_metric;
+    if(!Array.isArray(raw)||!raw.length)return null;
+    let cumSec=0;
+    return raw.map(s=>{
+      cumSec+=s.moving_time;
+      return{
+        km:s.split,
+        splitSec:s.moving_time,
+        cumulativeSec:cumSec,
+        avgHR:s.average_heartrate?Math.round(s.average_heartrate):null,
+        elev:s.elevation_difference!=null?Math.round(s.elevation_difference):null,
+        source:"strava"
+      };
+    });
+  }catch(e){return null;}
+}
+
 export function mapStravaActivity(a){
   if(!a||a.type&&!["Run","Walk","Hike","TrailRun","VirtualRun"].includes(a.type))return null;
   const distKm=(a.distance||0)/1000;
