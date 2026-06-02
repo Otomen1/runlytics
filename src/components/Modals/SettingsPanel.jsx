@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { getMafZones } from '../../utils/analytics.js';
 
-export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onImport,onClose,stravaAuth,stravaSync,onStravaConnect,onStravaSync,onStravaDisconnect}){
+export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onImport,onClose,stravaAuth,stravaSync,isOnline,onStravaConnect,onStravaSync,onStravaDisconnect}){
   const[view,setView]=useState("main");
   const[importMsg,setImportMsg]=useState("");
   const[age,setAge]=useState(hrProfile.age||"");
@@ -140,8 +140,8 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
                   <div style={{width:36,height:36,borderRadius:"50%",background:"#fc4c02",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.1rem",flexShrink:0}}>🟠</div>
                   <div><div style={{fontWeight:700,color:"var(--gn)"}}>✓ Connected</div><div style={{fontSize:".74rem",color:"var(--tx2)"}}>{stravaAuth.athlete&&stravaAuth.athlete.firstname||"Athlete"}</div></div>
                 </div>
-                <button className="btn b-or" style={{width:"100%",padding:"12px",marginBottom:10}} onClick={onStravaSync} disabled={stravaSync&&stravaSync.loading}>
-                  {stravaSync&&stravaSync.loading?"Syncing...":"🔄 Sync from Strava"}
+                <button className="btn b-or" style={{width:"100%",padding:"12px",marginBottom:10}} onClick={onStravaSync} disabled={!isOnline||(stravaSync&&stravaSync.loading)}>
+                  {stravaSync&&stravaSync.loading?"Syncing...":!isOnline?"📶 Offline":"🔄 Sync from Strava"}
                 </button>
                 {stravaSync&&stravaSync.msg&&<div style={{fontSize:".74rem",color:"var(--tx2)",textAlign:"center",padding:"7px",background:"var(--s3)",borderRadius:9,marginBottom:10}}>{stravaSync.msg}</div>}
                 <button className="btn b-rd" style={{width:"100%",padding:"11px",fontSize:".82rem"}} onClick={()=>{onStravaDisconnect();setView("main");}}>Disconnect Strava</button>
@@ -153,7 +153,9 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
                   <div style={{fontWeight:700,marginBottom:8}}>Connect Strava</div>
                   <div style={{fontSize:".8rem",color:"var(--tx2)",lineHeight:1.7,marginBottom:20}}>Import your runs automatically.</div>
                 </div>
-                <button className="btn b-or" style={{width:"100%",padding:"13px",marginBottom:10}} onClick={onStravaConnect}>🟠 Connect with Strava</button>
+                <button className="btn b-or" style={{width:"100%",padding:"13px",marginBottom:10}} onClick={onStravaConnect} disabled={!isOnline}>
+                  {isOnline?"🟠 Connect with Strava":"📶 Offline — connection unavailable"}
+                </button>
                 {stravaSync&&stravaSync.msg&&<div style={{fontSize:".74rem",color:"var(--rd)",textAlign:"center",marginTop:8}}>{stravaSync.msg}</div>}
               </div>
             )}

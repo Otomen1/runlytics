@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ONBOARDING_KEY } from '../../constants/keys.js';
 
-export function Onboarding({ profile, goals, onComplete, onUpload, onStravaConnect }) {
+export function Onboarding({ profile, goals, onComplete, onUpload, onStravaConnect, isOnline }) {
   const [step, setStep] = useState(1);
   const [name, setName] = useState(profile?.name === 'Runner' ? '' : (profile?.name || ''));
   const [weeklyGoal, setWeeklyGoal] = useState(goals?.weekly || 40);
@@ -66,8 +66,8 @@ export function Onboarding({ profile, goals, onComplete, onUpload, onStravaConne
             <button className="btn b-or" style={{width:'100%',padding:'13px',fontSize:'.92rem'}} onClick={()=>finish('upload')}>
               📁 Upload GPX File
             </button>
-            <button className="btn b-gh" style={{width:'100%',padding:'13px',fontSize:'.92rem'}} onClick={()=>finish('strava')}>
-              🔗 Connect Strava
+            <button className="btn b-gh" style={{width:'100%',padding:'13px',fontSize:'.92rem'}} onClick={()=>finish('strava')} disabled={!isOnline}>
+              {isOnline?'🔗 Connect Strava':'📶 Offline — Strava unavailable'}
             </button>
           </div>
           <button style={{display:'block',margin:'0 auto',background:'none',border:'none',color:'var(--tx3)',fontSize:'.78rem',cursor:'pointer',padding:'8px'}}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 
 // ── Persistence ──────────────────────────────────────────────────────────────
 import {
@@ -24,7 +24,7 @@ import { Styles } from './styles/GlobalStyles.jsx';
 
 // ── Tab Screens ───────────────────────────────────────────────────────────────
 import { HomeTab }         from './components/Tabs/HomeTab.jsx';
-import { StatsTab }        from './components/Tabs/StatsTab.jsx';
+const StatsTab = lazy(()=>import('./components/Tabs/StatsTab.jsx').then(m=>({default:m.StatsTab})));
 import { HRTab }           from './components/Tabs/HRTab.jsx';
 import { TasksTab }        from './components/Tabs/TasksTab.jsx';
 import { AchievementsTab } from './components/Tabs/AchievementsTab.jsx';
@@ -119,6 +119,7 @@ const App=()=>{
   const[prDetail,setPrDetail]=useState(null);
   const[showEditor,setShowEditor]=useState(false);
   const[editorAct,setEditorAct]=useState(null);
+  const[isOnline,setIsOnline]=useState(()=>navigator.onLine);
   const[stravaAuth,setStravaAuth]=useState(loadStravaAuth);
   const[stravaSync,setStravaSync]=useState({loading:false,msg:""});
   const[hasUnseen,setHasUnseen]=useState(false);
@@ -301,12 +302,20 @@ const App=()=>{
   },[doStravaSync]);
 
   useEffect(()=>{
-    if(stravaAuth)doStravaSync(true);
-    const onFocus=()=>{if(stravaAuth&&Date.now()-lastSyncRef.current>300000)doStravaSync(true);};
-    window.addEventListener("focus",onFocus);
-    const t=setInterval(()=>{if(stravaAuth)doStravaSync(true);},300000);
-    return()=>{window.removeEventListener("focus",onFocus);clearInterval(t);};
+    const goOnline =()=>{setIsOnline(true); if(stravaAuth)doStravaSync(true);};
+    const goOffline=()=>setIsOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline",goOffline);
+    return()=>{window.removeEventListener("online",goOnline);window.removeEventListener("offline",goOffline);};
   },[stravaAuth,doStravaSync]);
+
+  useEffect(()=>{
+    if(stravaAuth&&isOnline)doStravaSync(true);
+    const onFocus=()=>{if(stravaAuth&&isOnline&&Date.now()-lastSyncRef.current>300000)doStravaSync(true);};
+    window.addEventListener("focus",onFocus);
+    const t=setInterval(()=>{if(stravaAuth&&isOnline)doStravaSync(true);},300000);
+    return()=>{window.removeEventListener("focus",onFocus);clearInterval(t);};
+  },[stravaAuth,doStravaSync,isOnline]);
 
   const analytics=useMemo(()=>buildAnalytics(acts),[acts]);
   const tierProgress=useMemo(()=>computeTierProgress(acts),[acts]);
@@ -353,6 +362,12 @@ const App=()=>{
           <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.05rem",cursor:"pointer",padding:"4px 6px"}} onClick={openSettings} aria-label="Settings">⚙️</button>
         </div>
       </div>
+      {/* Offline banner */}
+      {!isOnline&&(
+        <div style={{background:"rgba(234,179,8,.1)",borderBottom:"1px solid rgba(234,179,8,.25)",padding:"7px 14px",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+          <span style={{fontSize:".75rem",color:"var(--yw)",flex:1}}>📶 You're offline — your data is safe, sync resumes when reconnected.</span>
+        </div>
+      )}
       {/* Storage error banner — shown when IDB save/load fails */}
       {storageError&&(
         <div style={{background:"rgba(239,68,68,.1)",borderBottom:"1px solid rgba(239,68,68,.25)",padding:"9px 14px",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
@@ -373,7 +388,7 @@ const App=()=>{
         :<div style={{flex:1,overflowY:"auto",padding:"0 14px 100px"}}>
           <div key={tab} className="tab-in">
             {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} tasks={tasks} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings}/>}
-            {tab==="stats"&&<StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/>}
+            {tab==="stats"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/></Suspense>}
             {tab==="hr"&&<HRTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings}/>}
             {tab==="tasks"&&<TasksTab tasks={tasks} setTasks={setTasks} hrProfile={hrProfile}/>}
             {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={newTiers}/>}
@@ -417,7 +432,7 @@ const App=()=>{
           clearAllActivities().catch(err=>setStorageError("Clear failed: "+err.message));
           back();
         }}
-        stravaAuth={stravaAuth} stravaSync={stravaSync}
+        stravaAuth={stravaAuth} stravaSync={stravaSync} isOnline={isOnline}
         onStravaConnect={startStravaConnect}
         onStravaDisconnect={()=>{clearStravaAuth();setStravaAuth(null);setStravaSync({loading:false,msg:"Disconnected."});if('caches' in window)caches.keys().then(ks=>ks.forEach(k=>caches.delete(k)));}}
         onStravaSync={()=>doStravaSync(false)}
@@ -433,6 +448,7 @@ const App=()=>{
             const g={...goals,weekly:weeklyGoal};setGoals(g);saveGoals(g);
           }}
           onUpload={openUpload}
+          isOnline={isOnline}
           onStravaConnect={startStravaConnect}/>
       )}
       {toast&&(
