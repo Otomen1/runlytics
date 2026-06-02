@@ -14,12 +14,8 @@ export const CANVAS_LAYOUT = {
   brandY:   0.068,
   heroY:    0.45,
   unitY:    0.48,
-  divX:     0.20,
   divY:     0.52,
-  divW:     0.60,
   nameY:    0.58,
-  captionY: 0.62,
-  routeH:   0.55,
 };
 
 export const EXPORT_CONFIG = { W: 1080, H: 1920, quality: 0.92 };
@@ -63,39 +59,6 @@ export function cDrawBranding(ctx, W, H, color) {
   ctx.fillStyle = color; ctx.textAlign = 'left';
   ctx.font = cFont(H, 'brand');
   ctx.fillText('RUNLYTICS', W * CANVAS_LAYOUT.padX, H * CANVAS_LAYOUT.brandY);
-  ctx.restore();
-}
-
-export function cDrawHero(ctx, W, H, dist, fg, accent) {
-  ctx.save();
-  ctx.textAlign = 'center';
-  ctx.fillStyle = accent; ctx.font = cFont(H, 'hero');
-  ctx.fillText(dist, W / 2, H * CANVAS_LAYOUT.heroY);
-  ctx.fillStyle = fg; ctx.font = cFont(H, 'unit');
-  ctx.fillText('KM', W / 2, H * CANVAS_LAYOUT.unitY);
-  ctx.restore();
-}
-
-export function cDrawDivider(ctx, W, H, color) {
-  ctx.save();
-  ctx.fillStyle = color;
-  ctx.fillRect(W * CANVAS_LAYOUT.divX, H * CANVAS_LAYOUT.divY, W * CANVAS_LAYOUT.divW, 2);
-  ctx.restore();
-}
-
-export function cDrawTitle(ctx, W, H, name, color) {
-  ctx.save();
-  ctx.fillStyle = color; ctx.textAlign = 'center';
-  ctx.font = cFont(H, 'title');
-  ctx.fillText(name.substring(0, 28), W / 2, H * CANVAS_LAYOUT.nameY);
-  ctx.restore();
-}
-
-export function cDrawCaption(ctx, W, H, text, color) {
-  ctx.save();
-  ctx.fillStyle = color; ctx.textAlign = 'center';
-  ctx.font = cFont(H, 'caption');
-  ctx.fillText(text, W / 2, H * CANVAS_LAYOUT.captionY);
   ctx.restore();
 }
 
@@ -362,7 +325,6 @@ export function canvasToBlob(canvas, format) {
   const mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
   return new Promise(resolve => canvas.toBlob(resolve, mime, EXPORT_CONFIG.quality));
 }
-
 
 export async function downloadExport(act, templateId, format) {
   const { W, H } = EXPORT_CONFIG;
