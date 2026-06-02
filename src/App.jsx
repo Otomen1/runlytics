@@ -129,36 +129,12 @@ const App=()=>{
   const toastTimerRef=useRef(null);
   const debugTapRef=useRef(0);
 
-  // ── Pull-to-refresh (home tab only) ────────────────────────────────────────
-  const[pullY,setPullY]=useState(0);          // current pull distance in px
-  const[pullReleasing,setPullReleasing]=useState(false); // animate back on release
-  const pullStartRef=useRef(null);            // touch start Y, or null when inactive
+  // ── Pull-to-refresh state (callbacks defined after doStravaSync to avoid TDZ) ─
+  const[pullY,setPullY]=useState(0);
+  const[pullReleasing,setPullReleasing]=useState(false);
+  const pullStartRef=useRef(null);
   const scrollRef=useRef(null);
   const PULL_THRESHOLD=60;
-  const onPullStart=useCallback((e)=>{
-    if(tab!=="home"||!isOnline)return;
-    const el=scrollRef.current;
-    if(!el||el.scrollTop>0)return;
-    pullStartRef.current=e.touches[0].clientY;
-    setPullReleasing(false);
-  },[tab,isOnline]);
-  const onPullMove=useCallback((e)=>{
-    if(pullStartRef.current==null)return;
-    const el=scrollRef.current;
-    if(el&&el.scrollTop>0){pullStartRef.current=null;setPullY(0);return;}
-    const dy=e.touches[0].clientY-pullStartRef.current;
-    if(dy<=0){setPullY(0);return;}
-    // Rubber-band: dampen the pull so it feels elastic.
-    setPullY(Math.min(110,dy*0.5));
-  },[]);
-  const onPullEnd=useCallback(()=>{
-    if(pullStartRef.current==null)return;
-    pullStartRef.current=null;
-    const triggered=pullY>=PULL_THRESHOLD;
-    setPullReleasing(true);
-    setPullY(0);
-    if(triggered&&stravaAuth)doStravaSync(false);
-  },[pullY,stravaAuth,doStravaSync]);
 
   const detRef=useRef(null),setRef=useRef(null),arRef=useRef(null),monRef=useRef(null),upRef=useRef(null),shaRef=useRef(null),prRef=useRef(null),yrRef=useRef(null),shRef=useRef(null);
   const isSyncingRef=useRef(false),lastSyncRef=useRef(0),isRepairingRef=useRef(false);
@@ -318,6 +294,30 @@ const App=()=>{
     }catch(e){setStravaSync({loading:false,msg:"Sync failed."});}
     isSyncingRef.current=false;
   },[]);
+
+  const onPullStart=useCallback((e)=>{
+    if(tab!=="home"||!isOnline)return;
+    const el=scrollRef.current;
+    if(!el||el.scrollTop>0)return;
+    pullStartRef.current=e.touches[0].clientY;
+    setPullReleasing(false);
+  },[tab,isOnline]);
+  const onPullMove=useCallback((e)=>{
+    if(pullStartRef.current==null)return;
+    const el=scrollRef.current;
+    if(el&&el.scrollTop>0){pullStartRef.current=null;setPullY(0);return;}
+    const dy=e.touches[0].clientY-pullStartRef.current;
+    if(dy<=0){setPullY(0);return;}
+    setPullY(Math.min(110,dy*0.5));
+  },[]);
+  const onPullEnd=useCallback(()=>{
+    if(pullStartRef.current==null)return;
+    pullStartRef.current=null;
+    const triggered=pullY>=PULL_THRESHOLD;
+    setPullReleasing(true);
+    setPullY(0);
+    if(triggered&&stravaAuth)doStravaSync(false);
+  },[pullY,stravaAuth,doStravaSync]);
 
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);const code=params.get("code");
