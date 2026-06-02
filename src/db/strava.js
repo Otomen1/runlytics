@@ -2,15 +2,38 @@ import { STRAVA_KEY } from '../constants/keys.js';
 import { migrateActivity, decodePolyline, classifyRun } from '../utils/activity.js';
 import { todayKey } from '../utils/formatters.js';
 
-export function loadStravaAuth(){try{return JSON.parse(localStorage.getItem(STRAVA_KEY)||"null");}catch(e){return null;}}
+const SESSION_TOKEN_KEY = 'runlytics_strava_access';
 
-export function saveStravaAuth(a){try{localStorage.setItem(STRAVA_KEY,JSON.stringify(a));}catch(e){}}
+// Persist only non-sensitive fields in localStorage; keep access_token in sessionStorage
+export function loadStravaAuth(){
+  try{
+    const base=JSON.parse(localStorage.getItem(STRAVA_KEY)||"null");
+    if(!base)return null;
+    const sessionToken=sessionStorage.getItem(SESSION_TOKEN_KEY);
+    return sessionToken?{...base,access_token:sessionToken}:base;
+  }catch(e){return null;}
+}
 
-export function clearStravaAuth(){try{localStorage.removeItem(STRAVA_KEY);}catch(e){}}
+export function saveStravaAuth(a){
+  try{
+    if(!a)return;
+    const{access_token,...rest}=a;
+    localStorage.setItem(STRAVA_KEY,JSON.stringify(rest));
+    if(access_token)sessionStorage.setItem(SESSION_TOKEN_KEY,access_token);
+  }catch(e){}
+}
+
+export function clearStravaAuth(){
+  try{
+    localStorage.removeItem(STRAVA_KEY);
+    sessionStorage.removeItem(SESSION_TOKEN_KEY);
+  }catch(e){}
+}
 
 export async function getStravaToken(auth){
   if(!auth)return null;
-  if(Date.now()/1000<auth.expires_at-60)return auth.access_token;
+  const sessionToken=sessionStorage.getItem(SESSION_TOKEN_KEY);
+  if(sessionToken&&Date.now()/1000<(auth.expires_at||0)-60)return sessionToken;
   try{
     const r=await fetch("/api/strava-refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({refresh_token:auth.refresh_token})});
     if(!r.ok)return null;

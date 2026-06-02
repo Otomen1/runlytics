@@ -15,9 +15,14 @@ export function parseGPX(xmlStr,fileName){
   const pfx=`[GPX:${fileName||'?'}]`;
   if(!xmlStr||typeof xmlStr!=="string"||xmlStr.length<100){console.warn(pfx,'empty/short input');return null;}
   if(xmlStr.length>10*1024*1024){console.warn(pfx,'file >10MB');return null;}
+  // Strip script tags and on* event attributes before parsing to prevent XSS
+  const sanitized=xmlStr
+    .replace(/<script[\s\S]*?<\/script>/gi,'')
+    .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi,'')
+    .replace(/javascript\s*:/gi,'');
   try{
     const parser=new DOMParser();
-    const doc=parser.parseFromString(xmlStr,"application/xml");
+    const doc=parser.parseFromString(sanitized,"application/xml");
     const parseErr=doc.querySelector("parsererror");
     if(parseErr){console.error(pfx,'XML parse error:',parseErr.textContent?.slice(0,200));return null;}
     const nameFallback=fileName?fileName.replace(/\.gpx$/i,""):"Activity";

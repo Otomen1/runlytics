@@ -2,17 +2,16 @@
 // Refreshes an expired Strava access token using the stored refresh_token.
 // Runs server-side so client_secret stays safe.
 
+import { rateLimit, setCors } from './_security.js';
+
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  setCors(req, res, "POST, OPTIONS");
+  if (!rateLimit(req, res)) return;
   if (req.method === "OPTIONS") return res.status(200).end();
 
-  // Vercel does NOT auto-parse JSON bodies — read raw body and parse manually.
-  // Also support refresh_token via query param as GET fallback.
-  let refresh_token = req.query?.refresh_token || null;
+  let refresh_token = null;
 
-  if (!refresh_token && req.method === "POST") {
+  if (req.method === "POST") {
     try {
       // req.body may be pre-parsed by Vercel in some configs, or may be a stream
       if (req.body && typeof req.body === "object") {
@@ -20,10 +19,9 @@ export default async function handler(req, res) {
       } else if (typeof req.body === "string") {
         refresh_token = JSON.parse(req.body).refresh_token;
       } else {
-        // Read raw stream
         const raw = await new Promise((resolve, reject) => {
           let body = "";
-          req.on("data", chunk => { body += chunk; });
+          req.on("data", chunk => { body += chunk; if (body.length > 4096) reject(new Error("Body too large")); });
           req.on("end", () => resolve(body));
           req.on("error", reject);
         });
@@ -34,8 +32,8 @@ export default async function handler(req, res) {
     }
   }
 
-  if (!refresh_token) {
-    return res.status(400).json({ error: "Missing refresh_token" });
+  if (!refresh_token || typeof refresh_token !== "string" || refresh_token.length > 512) {
+    return res.status(400).json({ error: "Missing or invalid refresh_token" });
   }
 
   try {
@@ -65,4 +63,3 @@ export default async function handler(req, res) {
     res.status(500).json({ error: "Refresh failed", message: e.message });
   }
 }
-

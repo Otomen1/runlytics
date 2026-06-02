@@ -2,13 +2,17 @@
 // Exchanges Strava auth code for access + refresh tokens.
 // Runs server-side on Vercel so client_secret is never exposed.
 
+import { rateLimit, setCors } from './_security.js';
+
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  setCors(req, res, "GET, OPTIONS");
+  if (!rateLimit(req, res)) return;
   if (req.method === "OPTIONS") return res.status(200).end();
 
   const { code } = req.query;
-  if (!code) return res.status(400).json({ error: "Missing code parameter" });
+  if (!code || typeof code !== "string" || code.length > 512) {
+    return res.status(400).json({ error: "Missing or invalid code parameter" });
+  }
 
   try {
     const response = await fetch("https://www.strava.com/api/v3/oauth/token", {
