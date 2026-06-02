@@ -129,6 +129,37 @@ const App=()=>{
   const toastTimerRef=useRef(null);
   const debugTapRef=useRef(0);
 
+  // ── Pull-to-refresh (home tab only) ────────────────────────────────────────
+  const[pullY,setPullY]=useState(0);          // current pull distance in px
+  const[pullReleasing,setPullReleasing]=useState(false); // animate back on release
+  const pullStartRef=useRef(null);            // touch start Y, or null when inactive
+  const scrollRef=useRef(null);
+  const PULL_THRESHOLD=60;
+  const onPullStart=useCallback((e)=>{
+    if(tab!=="home"||!isOnline)return;
+    const el=scrollRef.current;
+    if(!el||el.scrollTop>0)return;
+    pullStartRef.current=e.touches[0].clientY;
+    setPullReleasing(false);
+  },[tab,isOnline]);
+  const onPullMove=useCallback((e)=>{
+    if(pullStartRef.current==null)return;
+    const el=scrollRef.current;
+    if(el&&el.scrollTop>0){pullStartRef.current=null;setPullY(0);return;}
+    const dy=e.touches[0].clientY-pullStartRef.current;
+    if(dy<=0){setPullY(0);return;}
+    // Rubber-band: dampen the pull so it feels elastic.
+    setPullY(Math.min(110,dy*0.5));
+  },[]);
+  const onPullEnd=useCallback(()=>{
+    if(pullStartRef.current==null)return;
+    pullStartRef.current=null;
+    const triggered=pullY>=PULL_THRESHOLD;
+    setPullReleasing(true);
+    setPullY(0);
+    if(triggered&&stravaAuth)doStravaSync(false);
+  },[pullY,stravaAuth,doStravaSync]);
+
   const detRef=useRef(null),setRef=useRef(null),arRef=useRef(null),monRef=useRef(null),upRef=useRef(null),shaRef=useRef(null),prRef=useRef(null),yrRef=useRef(null),shRef=useRef(null);
   const isSyncingRef=useRef(false),lastSyncRef=useRef(0),isRepairingRef=useRef(false);
 
@@ -385,8 +416,18 @@ const App=()=>{
               </div>
             ))}
           </div>
-        :<div style={{flex:1,overflowY:"auto",padding:"0 14px 100px"}}>
-          <div key={tab} className="tab-in">
+        :<div ref={scrollRef} onTouchStart={onPullStart} onTouchMove={onPullMove} onTouchEnd={onPullEnd} onTouchCancel={onPullEnd}
+            style={{flex:1,overflowY:"auto",padding:"0 14px 100px",position:"relative"}}>
+          {tab==="home"&&isOnline&&(pullY>0||pullReleasing)&&(
+            <div style={{position:"absolute",top:0,left:0,right:0,display:"flex",justifyContent:"center",alignItems:"center",
+              height:Math.max(0,pullY),overflow:"hidden",pointerEvents:"none",zIndex:5,
+              transition:pullReleasing?"height .25s ease":"none"}}>
+              <div className="spinner" style={{opacity:Math.min(1,pullY/PULL_THRESHOLD),transform:`rotate(${pullY*3}deg)`}}/>
+            </div>
+          )}
+          <div key={tab} className="tab-in"
+            style={{transform:`translateY(${pullY}px)`,transition:pullReleasing?"transform .25s ease":"none"}}
+            onTransitionEnd={()=>{if(pullReleasing)setPullReleasing(false);}}>
             {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} tasks={tasks} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings}/>}
             {tab==="stats"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/></Suspense>}
             {tab==="hr"&&<HRTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings}/>}

@@ -95,7 +95,7 @@ export function parseGPX(xmlStr,fileName){
     const dateStr=d.toISOString().slice(0,10);
     const trainingLoad=timeSec&&avgHR?Math.round((timeSec/60)*(avgHR/100)*1.5):Math.round(distKm*8);
     const step=Math.max(1,Math.floor(pts.length/400));
-    const route=pts.filter((_,i)=>i%step===0||i===pts.length-1).map(p=>({lat:p.lat,lon:p.lon}));
+    const route=pts.filter((_,i)=>i%step===0||i===pts.length-1).map(p=>({lat:p.lat,lon:p.lon,sec:p.sec,ele:p.ele}));
     const hrSamples=hrPts.filter((_,i)=>i%Math.max(1,Math.floor(hrPts.length/200))===0).map(p=>({sec:p.sec,hr:p.hr}));
     console.log(pfx,`✓ "${name}" | route:${route.length}pts | hr:${hrSamples.length}pts | ${distKm.toFixed(2)}km`);
     return migrateActivity({id:"g"+Date.now(),name,type:"Run",date:dateStr,dateTs:d.getTime(),

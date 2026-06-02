@@ -183,12 +183,21 @@ function SplitsTab({ act, mafHR }) {
   );
   const best = Math.min(...splits.map(s => s.splitSec));
   const worst = Math.max(...splits.map(s => s.splitSec));
+  const isGps = splits.source==="gps";
+  const hasEle = splits.some(s=>s.elev!=null);
+  const cols = "30px 1fr 48px 60px";
   return (
     <div>
       <div className="card" style={{padding:16}}>
-        <div style={{display:"grid",gridTemplateColumns:"32px 1fr 68px",gap:"6px 12px",marginBottom:10}}>
-          {["KM","SPLIT","AVG HR"].map((h,i)=>(
-            <div key={h} style={{fontSize:".6rem",fontWeight:700,color:"var(--tx3)",letterSpacing:".06em",textAlign:i===2?"right":"left"}}>{h}</div>
+        <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
+          <span style={{fontSize:".58rem",fontWeight:700,letterSpacing:".06em",padding:"2px 7px",borderRadius:20,
+            color:isGps?"var(--gn)":"var(--yw)",background:isGps?"var(--gn2)":"rgba(234,179,8,.12)"}}>
+            {isGps?"GPS":"est."}
+          </span>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:cols,gap:"6px 10px",marginBottom:10}}>
+          {[{h:"KM",a:"left"},{h:"PACE",a:"left"},{h:"ELEV",a:"right"},{h:"HR",a:"right"}].map(c=>(
+            <div key={c.h} style={{fontSize:".6rem",fontWeight:700,color:"var(--tx3)",letterSpacing:".06em",textAlign:c.a}}>{c.h}</div>
           ))}
         </div>
         {splits.map((s,i) => {
@@ -196,23 +205,25 @@ function SplitsTab({ act, mafHR }) {
           const hrCol = s.avgHR ? (s.avgHR<=mafHR?"var(--gn)":s.avgHR<=mafHR+10?"var(--yw)":"var(--rd)") : "var(--tx3)";
           const barW = Math.max(10, Math.round((1-(s.splitSec-best)/(worst-best||1))*100));
           return (
-            <div key={s.km} style={{display:"grid",gridTemplateColumns:"32px 1fr 68px",gap:"6px 12px",padding:"7px 0",borderBottom:i<splits.length-1?"1px solid var(--bd)":"none",alignItems:"center"}}>
+            <div key={s.km} style={{display:"grid",gridTemplateColumns:cols,gap:"6px 10px",padding:"7px 0",borderBottom:i<splits.length-1?"1px solid var(--bd)":"none",alignItems:"center"}}>
               <div style={{fontSize:".88rem",fontWeight:700,color:"var(--or)"}}>{s.km}</div>
               <div>
                 <div style={{display:"flex",alignItems:"center",gap:6}}>
                   <span style={{fontFamily:"monospace",fontSize:".88rem",fontWeight:isBest?700:400,color:isBest?"var(--gn)":isWorst?"var(--rd)":"var(--tx)"}}>{fmtPace(s.splitSec)}/km</span>
                   {isBest&&<span style={{fontSize:".6rem",color:"var(--gn)",fontWeight:700}}>BEST</span>}
+                  <span style={{fontSize:".62rem",color:"var(--tx3)",fontFamily:"monospace"}}>{fmtDur(s.cumulativeSec)}</span>
                 </div>
                 <div style={{marginTop:3,height:3,borderRadius:2,background:"var(--bd)",overflow:"hidden"}}>
                   <div style={{height:"100%",borderRadius:2,width:barW+"%",background:isBest?"var(--gn)":isWorst?"var(--rd)":"var(--or)",opacity:.7}}/>
                 </div>
               </div>
-              <div style={{fontFamily:"monospace",fontSize:".82rem",fontWeight:600,color:hrCol,textAlign:"right"}}>{s.avgHR?s.avgHR+" bpm":"—"}</div>
+              <div style={{fontFamily:"monospace",fontSize:".78rem",fontWeight:600,color:"var(--tx2)",textAlign:"right"}}>{s.elev!=null?"+"+s.elev+"m":(hasEle?"—":"·")}</div>
+              <div style={{fontFamily:"monospace",fontSize:".8rem",fontWeight:600,color:hrCol,textAlign:"right"}}>{s.avgHR?s.avgHR:"—"}</div>
             </div>
           );
         })}
       </div>
-      <div style={{marginTop:10,fontSize:".7rem",color:"var(--tx3)",textAlign:"center"}}>Estimated from GPS · HR from sensor data</div>
+      <div style={{marginTop:10,fontSize:".7rem",color:"var(--tx3)",textAlign:"center"}}>{isGps?"Splits from GPS timestamps":"Estimated from GPS distance"} · HR from sensor data</div>
     </div>
   );
 }

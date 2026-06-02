@@ -150,22 +150,50 @@ export function computeSplits(act){
   for(let i=1;i<route.length;i++)dist.push(dist[i-1]+haversineKm(route[i-1],route[i]));
   const totalDist=dist[dist.length-1];
   if(totalDist<0.5)return null;
-  const times=dist.map(d=>(d/totalDist)*movingTimeSec);
+  // GPX activities carry per-point timestamps (sec); Strava routes do not. Use real
+  // timestamps when present, otherwise fall back to proportional distribution.
+  const hasTimes=route[0].sec!=null;
+  const source=hasTimes?"gps":"estimated";
+  const hasEle=route.some(p=>p.ele!=null&&isFinite(p.ele));
+  // secAt(d): interpolated second at cumulative distance d.
+  // eleAt(i): elevation lookup (only used when hasEle).
+  const secAt=d=>{
+    if(!hasTimes)return(d/totalDist)*movingTimeSec;
+    let i=dist.findIndex(x=>x>=d);
+    if(i<=0)i=1;
+    const d0=dist[i-1],d1=dist[i],s0=route[i-1].sec,s1=route[i].sec;
+    if(d1<=d0)return s1;
+    return s0+(d-d0)/(d1-d0)*(s1-s0);
+  };
   const splits=[];
+  let prevKmSec=0;
   for(let km=1;km<=Math.min(Math.floor(distanceKm),60);km++){
-    const idx=dist.findIndex(d=>d>=km);
-    if(idx<0)break;
-    const kmEndSec=times[idx];
-    const kmStartSec=km===1?0:(splits[km-2]?.cumulativeSec||0);
+    if(dist[dist.length-1]<km)break;
+    const kmEndSec=secAt(km);
+    const kmStartSec=km===1?0:prevKmSec;
     const splitSec=kmEndSec-kmStartSec;
+    prevKmSec=kmEndSec;
     let avgHR=null;
     if(hrSamples&&hrSamples.length){
       const s=hrSamples.filter(h=>h.sec>=kmStartSec&&h.sec<=kmEndSec&&h.hr>30);
       if(s.length>=2)avgHR=Math.round(s.reduce((a,h)=>a+h.hr,0)/s.length);
     }
-    splits.push({km,splitSec,cumulativeSec:kmEndSec,avgHR});
+    let elev=null;
+    if(hasEle){
+      // Sum positive elevation deltas across route points within this km band.
+      elev=0;
+      for(let i=1;i<route.length;i++){
+        if(dist[i]<=km-1||dist[i-1]>=km)continue;
+        const a=route[i-1].ele,b=route[i].ele;
+        if(a!=null&&b!=null&&b>a)elev+=b-a;
+      }
+      elev=Math.round(elev);
+    }
+    splits.push({km,splitSec,cumulativeSec:kmEndSec,avgHR,elev,source});
   }
-  return splits.length>=2?splits:null;
+  if(splits.length<2)return null;
+  splits.source=source;
+  return splits;
 }
 
 export function computeEarnedBadges(acts){return BADGE_DEFS.filter(b=>{try{return b.check(acts);}catch(e){return false;}}).map(b=>b.id);}
