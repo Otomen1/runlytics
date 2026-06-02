@@ -25,8 +25,8 @@ export function parseGPX(xmlStr,fileName){
     const doc=parser.parseFromString(sanitized,"application/xml");
     const parseErr=doc.querySelector("parsererror");
     if(parseErr){console.error(pfx,'XML parse error:',parseErr.textContent?.slice(0,200));return null;}
-    const nameFallback=fileName?fileName.replace(/\.gpx$/i,""):"Activity";
-    const name=doc.querySelector("name")?.textContent?.trim()||nameFallback;
+    const nameFallback=fileName?fileName.replace(/\.gpx$/i,"").slice(0,128):"Activity";
+    const name=(doc.querySelector("name")?.textContent?.trim()||nameFallback).slice(0,128);
     // iOS Safari DOMParser (application/xml) won't match namespaced elements via
     // querySelectorAll("trkpt") when the file has xmlns="…" — use getElementsByTagName
     // as a universal fallback (ignores namespace prefix, works on all platforms).
@@ -41,6 +41,13 @@ export function parseGPX(xmlStr,fileName){
     }
     console.log(pfx,`${trkpts.length} trackpoints via ${usedFallback?'getElementsByTagName(fallback)':'querySelectorAll'}`);
     if(trkpts.length<2){console.warn(pfx,'<2 trackpoints — not a valid track');return null;}
+    const MAX_PTS=8000;
+    if(trkpts.length>MAX_PTS){
+      // Evenly downsample to avoid O(n) memory/CPU exhaustion on huge files
+      const step=Math.ceil(trkpts.length/MAX_PTS);
+      trkpts=trkpts.filter((_,i)=>i%step===0||i===trkpts.length-1);
+      console.warn(pfx,`Downsampled to ${trkpts.length} pts`);
+    }
     // Namespace-safe child-element getter: querySelector first, then getElementsByTagName
     const gEl=(parent,tag)=>parent.querySelector(tag)||parent.getElementsByTagName(tag)[0]||null;
     const pts=[];let skipped=0;

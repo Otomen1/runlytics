@@ -124,7 +124,7 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
                     if(!Array.isArray(parsed))throw new Error("Not an array");
                     onImport(parsed);
                     setImportMsg("✓ Import started — "+parsed.length+" activities processed");
-                  }catch(err){setImportMsg("✗ Invalid file: "+err.message);}
+                  }catch(err){void err;setImportMsg("✗ Invalid file: must be a JSON array of activities.");}
                   e.target.value="";
                 }}/>
               </label>

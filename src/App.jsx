@@ -332,7 +332,7 @@ const App=()=>{
       <Styles/>
       <div style={{padding:"max(14px,calc(env(safe-area-inset-top)+8px)) 16px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,borderBottom:"1px solid var(--bd)"}}>
         <div style={{fontWeight:800,fontSize:"1.05rem",letterSpacing:".06em",color:"var(--or)",cursor:"pointer",userSelect:"none"}}
-          onClick={()=>{debugTapRef.current++;if(debugTapRef.current>=5){setShowDebug(true);debugTapRef.current=0;}setTimeout(()=>{debugTapRef.current=0;},1500);}}>RUNLYTICS</div>
+          onClick={()=>{if(!import.meta.env.DEV)return;debugTapRef.current++;if(debugTapRef.current>=5){setShowDebug(true);debugTapRef.current=0;}setTimeout(()=>{debugTapRef.current=0;},1500);}}>RUNLYTICS</div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           {stravaSync.loading&&<div className="spinner"/>}
           {stravaAuth&&!stravaSync.loading&&stravaSync.msg&&(
@@ -413,7 +413,7 @@ const App=()=>{
           const redirect=encodeURIComponent(window.location.origin+window.location.pathname);
           window.location.href="https://www.strava.com/oauth/authorize?client_id="+cid+"&redirect_uri="+redirect+"&response_type=code&scope=activity:read_all";
         }}
-        onStravaDisconnect={()=>{clearStravaAuth();setStravaAuth(null);setStravaSync({loading:false,msg:"Disconnected."});}}
+        onStravaDisconnect={()=>{clearStravaAuth();setStravaAuth(null);setStravaSync({loading:false,msg:"Disconnected."});if('caches' in window)caches.keys().then(ks=>ks.forEach(k=>caches.delete(k)));}}
         onStravaSync={()=>doStravaSync(false)}
         onClose={back}/>}
       {showAllRuns&&<AllRunsView acts={acts} onClose={back} onSelectAct={act=>{setShowAllRuns(false);openDetail(act);}}/>}

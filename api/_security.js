@@ -6,7 +6,12 @@ const WINDOW_MS = 60_000;
 const MAX_REQUESTS = 20;
 
 export function rateLimit(req, res) {
-  const ip = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.socket?.remoteAddress || "unknown";
+  // On Vercel, the real client IP is the LAST entry added by Vercel's edge in
+  // x-forwarded-for — not the first, which is client-supplied and spoofable.
+  const forwarded = req.headers["x-forwarded-for"] || "";
+  const ips = forwarded.split(",").map(s => s.trim()).filter(Boolean);
+  const ip = ips[ips.length - 1] || req.socket?.remoteAddress || "unknown";
+
   const now = Date.now();
   const entry = rateLimitMap.get(ip) || { count: 0, resetAt: now + WINDOW_MS };
 
@@ -26,16 +31,25 @@ export function rateLimit(req, res) {
 }
 
 export function setCors(req, res, methods = "GET, OPTIONS") {
-  const allowed = process.env.ALLOWED_ORIGIN || "https://runlytics.vercel.app";
   const origin = req.headers.origin || "";
 
-  // Allow exact match or any *.vercel.app preview URL for the same project
-  const isAllowed =
-    origin === allowed ||
-    /^https:\/\/runlytics(-[a-z0-9]+)?\.vercel\.app$/.test(origin) ||
-    (process.env.NODE_ENV !== "production" && origin.startsWith("http://localhost"));
+  // Build explicit allowlist — no wildcards or regex
+  const allowed = new Set([
+    process.env.ALLOWED_ORIGIN || "https://runlytics.vercel.app",
+  ]);
+  if (process.env.EXTRA_ALLOWED_ORIGINS) {
+    process.env.EXTRA_ALLOWED_ORIGINS.split(",").forEach(o => allowed.add(o.trim()));
+  }
+  // Allow localhost only when explicitly running in development
+  if (process.env.NODE_ENV === "development") {
+    allowed.add("http://localhost:5173");
+    allowed.add("http://localhost:4173");
+  }
 
-  res.setHeader("Access-Control-Allow-Origin", isAllowed ? origin : allowed);
+  const isAllowed = allowed.has(origin);
+  const responseOrigin = isAllowed ? origin : [...allowed][0];
+
+  res.setHeader("Access-Control-Allow-Origin", responseOrigin);
   res.setHeader("Access-Control-Allow-Methods", methods);
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Vary", "Origin");

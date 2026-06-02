@@ -3,12 +3,19 @@ import { migrateActivity, decodePolyline, classifyRun } from '../utils/activity.
 import { todayKey } from '../utils/formatters.js';
 
 const SESSION_TOKEN_KEY = 'runlytics_strava_access';
+// Refresh tokens older than 90 days are cleared — user must reconnect
+const REFRESH_TOKEN_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
 // Persist only non-sensitive fields in localStorage; keep access_token in sessionStorage
 export function loadStravaAuth(){
   try{
     const base=JSON.parse(localStorage.getItem(STRAVA_KEY)||"null");
     if(!base)return null;
+    // Expire stale refresh tokens so they don't linger forever
+    if(base.savedAt&&Date.now()-base.savedAt>REFRESH_TOKEN_MAX_AGE_MS){
+      clearStravaAuth();
+      return null;
+    }
     const sessionToken=sessionStorage.getItem(SESSION_TOKEN_KEY);
     return sessionToken?{...base,access_token:sessionToken}:base;
   }catch(e){return null;}
@@ -18,7 +25,7 @@ export function saveStravaAuth(a){
   try{
     if(!a)return;
     const{access_token,...rest}=a;
-    localStorage.setItem(STRAVA_KEY,JSON.stringify(rest));
+    localStorage.setItem(STRAVA_KEY,JSON.stringify({...rest,savedAt:Date.now()}));
     if(access_token)sessionStorage.setItem(SESSION_TOKEN_KEY,access_token);
   }catch(e){}
 }
@@ -33,11 +40,17 @@ export function clearStravaAuth(){
 export async function getStravaToken(auth){
   if(!auth)return null;
   const sessionToken=sessionStorage.getItem(SESSION_TOKEN_KEY);
-  if(sessionToken&&Date.now()/1000<(auth.expires_at||0)-60)return sessionToken;
+  if(sessionToken&&auth.expires_at&&Date.now()/1000<auth.expires_at-60)return sessionToken;
+  if(!auth.refresh_token)return null;
   try{
     const r=await fetch("/api/strava-refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({refresh_token:auth.refresh_token})});
-    if(!r.ok)return null;
+    if(!r.ok){
+      // 401 means refresh token is invalid — clear so user reconnects
+      if(r.status===401)clearStravaAuth();
+      return null;
+    }
     const data=await r.json();
+    if(!data.access_token)return null;
     const updated={...auth,...data};
     saveStravaAuth(updated);
     return updated.access_token;
@@ -55,7 +68,7 @@ export function mapStravaActivity(a){
   const encoded=a.map?.summary_polyline||a.map?.polyline||'';
   const route=encoded?decodePolyline(encoded):[];
   return migrateActivity({
-    id:"s"+a.id, name:a.name||"Run", type:a.sport_type||a.type||"Run",
+    id:"s"+a.id, name:String(a.name||"Run").slice(0,128), type:a.sport_type||a.type||"Run",
     date:d.slice(0,10), dateTs:new Date(d).getTime(),
     distanceKm:parseFloat(distKm.toFixed(3)), movingTimeSec:a.moving_time||0,
     avgPaceSecKm:parseFloat(paceSecKm.toFixed(1)),

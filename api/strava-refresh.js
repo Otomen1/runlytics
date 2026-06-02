@@ -51,7 +51,7 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (!data.access_token) {
-      return res.status(401).json({ error: "Token refresh failed", details: data });
+      return res.status(401).json({ error: "Token refresh failed. Please reconnect Strava." });
     }
 
     res.json({
@@ -60,6 +60,7 @@ export default async function handler(req, res) {
       expires_at:    data.expires_at,
     });
   } catch (e) {
-    res.status(500).json({ error: "Refresh failed", message: e.message });
+    console.error("[strava-refresh] error:", e.message);
+    res.status(500).json({ error: "Token refresh failed. Please try again." });
   }
 }

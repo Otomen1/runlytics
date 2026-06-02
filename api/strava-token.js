@@ -28,23 +28,24 @@ export default async function handler(req, res) {
 
     const data = await response.json();
 
-    if (data.errors || data.message === "Bad Request") {
-      return res.status(400).json({ error: "Invalid code", details: data });
+    if (data.errors || data.message === "Bad Request" || !data.access_token) {
+      return res.status(400).json({ error: "Authorization failed. Please try connecting again." });
     }
 
-    // Return only what the frontend needs (never expose client_secret)
+    // Return only what the frontend needs — never expose client_secret or raw Strava errors
+    const firstname = String(data.athlete?.firstname || "").slice(0, 64);
+    const lastname  = String(data.athlete?.lastname  || "").slice(0, 64);
+    const profile   = typeof data.athlete?.profile_medium === "string" &&
+                      data.athlete.profile_medium.startsWith("https://")
+                        ? data.athlete.profile_medium : null;
     res.json({
       access_token:  data.access_token,
       refresh_token: data.refresh_token,
       expires_at:    data.expires_at,
-      athlete: {
-        id:        data.athlete?.id,
-        firstname: data.athlete?.firstname,
-        lastname:  data.athlete?.lastname,
-        profile:   data.athlete?.profile_medium,
-      },
+      athlete: { id: data.athlete?.id || null, firstname, lastname, profile },
     });
   } catch (e) {
-    res.status(500).json({ error: "Token exchange failed", message: e.message });
+    console.error("[strava-token] error:", e.message);
+    res.status(500).json({ error: "Token exchange failed. Please try again." });
   }
 }
