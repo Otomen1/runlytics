@@ -1,5 +1,5 @@
-export function fmtKm(km){return km==null?"0":parseFloat((+km).toFixed(2)).toString();}
-export function fmtPace(secPerKm){if(!secPerKm||!isFinite(secPerKm)||secPerKm<=0)return"--:--";const m=Math.floor(secPerKm/60),s=Math.round(secPerKm%60);return m+":"+(s<10?"0":"")+s;}
+export function fmtKm(km){if(km==null||!isFinite(+km))return"0";return parseFloat((+km).toFixed(2)).toString();}
+export function fmtPace(secPerKm){if(!secPerKm||!isFinite(secPerKm)||secPerKm<=0||secPerKm>3600)return"--:--";const m=Math.floor(secPerKm/60),s=Math.round(secPerKm%60);return m+":"+(s<10?"0":"")+s;}
 export function fmtDur(sec){if(!sec||!isFinite(sec))return"0:00";const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=Math.floor(sec%60);if(h>0)return h+":"+(m<10?"0":"")+m+":"+(s<10?"0":"")+s;return m+":"+(s<10?"0":"")+s;}
 export function fmtDate(str){if(!str)return"";try{const d=new Date(str);if(!isFinite(d.getTime()))return str;return d.toLocaleDateString("en-GB",{weekday:"short",day:"numeric",month:"short"});}catch(e){return str;}}
 export function fmtDateS(str){if(!str)return"";try{const d=new Date(str);if(!isFinite(d.getTime()))return str;return d.toLocaleDateString("en-US",{month:"short",day:"numeric"});}catch(e){return str;}}

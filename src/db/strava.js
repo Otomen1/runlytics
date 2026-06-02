@@ -1,8 +1,8 @@
-import { STRAVA_KEY } from '../constants/keys.js';
+import { STRAVA_KEY, STRAVA_ACCESS_KEY } from '../constants/keys.js';
 import { REFRESH_TOKEN_MAX_AGE_MS } from '../constants/limits.js';
 import { migrateActivity, decodePolyline, classifyRun } from '../utils/activity.js';
 
-const SESSION_TOKEN_KEY = 'runlytics_strava_access';
+const SESSION_TOKEN_KEY = STRAVA_ACCESS_KEY;
 
 // Persist only non-sensitive fields in localStorage; keep access_token in sessionStorage
 export function loadStravaAuth(){

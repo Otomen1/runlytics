@@ -13,7 +13,7 @@ export function readFileText(file){
 
 export function parseGPX(xmlStr,fileName){
   const pfx=`[GPX:${fileName||'?'}]`;
-  if(!xmlStr||typeof xmlStr!=="string"||xmlStr.length<100){console.warn(pfx,'empty/short input');return null;}
+  if(!xmlStr||typeof xmlStr!=="string"||xmlStr.length<30){console.warn(pfx,'empty/short input');return null;}
   if(xmlStr.length>MAX_GPX_BYTES){console.warn(pfx,'file >10MB');return null;}
   // Strip script tags and on* event attributes before parsing to prevent XSS
   const sanitized=xmlStr

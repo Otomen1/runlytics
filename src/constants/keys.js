@@ -9,6 +9,7 @@ export const BADGES_KEY         = 'runlytics_badges_v1';
 export const TIERS_KEY          = 'runlytics_tiers_v1';
 export const TAB_KEY            = 'runlytics_tab_v1';
 export const STRAVA_KEY         = 'runlytics_strava_v1';
+export const STRAVA_ACCESS_KEY  = 'runlytics_strava_access'; // sessionStorage only
 export const EDITOR_PRESETS_KEY = 'runlytics_share_presets_v1';
 
 export const SHOES_KEY          = 'runlytics_shoes_v1';

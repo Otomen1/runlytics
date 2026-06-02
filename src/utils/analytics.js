@@ -5,7 +5,7 @@ function loadGoals(){try{return JSON.parse(localStorage.getItem(GOALS_KEY)||'nul
 export function getMafHR(profile){
   if(!profile)return 150;
   if(profile.overrideMAF&&isFinite(profile.overrideMAF))return+profile.overrideMAF;
-  const age=profile.age&&isFinite(profile.age)?+profile.age:30;
+  const age=profile.age!=null&&isFinite(profile.age)&&+profile.age>0?+profile.age:30;
   const mod=profile.modifier&&isFinite(profile.modifier)?+profile.modifier:0;
   return Math.max(100,180-age+mod);
 }
@@ -88,7 +88,7 @@ export function computeYearWrapped(acts,year){
   return{totalKm,totalSec,totalElev,runCount,months,bestMonth,moodCounts,topMood,runDays,longest,bestPace,everests};
 }
 
-export function getTodayRecommendation(acts,hrProfile){
+export function getTodayRecommendation(acts){
   const todayStr=new Date().toISOString().slice(0,10);
   if(acts.some(a=>a.date===todayStr))return{type:"rest",icon:"🧘",title:"Rest Today",sub:"You already ran today. Time to recover."};
   const weekKm=acts.filter(a=>a.date>new Date(Date.now()-7*86400000).toISOString().slice(0,10)).reduce((s,a)=>s+a.distanceKm,0);

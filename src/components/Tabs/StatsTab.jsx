@@ -162,7 +162,7 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onView
               <div key={shoe.id} style={{marginBottom:12}}>
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
                   <span style={{fontSize:".82rem",fontWeight:600}}>{shoe.name}</span>
-                  <span style={{fontSize:".74rem",color:warn?"var(--rd)":"var(--tx2)",fontWeight:warn?700:400}}>{Math.round(km)}/{shoe.maxKm||600} km</span>
+                  <span style={{fontSize:".74rem",color:warn?"var(--rd)":"var(--tx2)",fontWeight:warn?700:400}}>{Math.round(km)}/{shoe.maxKm||DEFAULT_SHOE_MAX_KM} km</span>
                 </div>
                 <div style={{height:6,borderRadius:3,background:"var(--bd)",overflow:"hidden"}}>
                   <div style={{height:"100%",borderRadius:3,background:warn?"var(--rd)":shoe.color||"var(--or)",width:(pct*100)+"%"}}/>

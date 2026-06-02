@@ -170,6 +170,7 @@ export async function addPhoto(activityId, blob, thumbBlob, mimeType){
     const tx=db.transaction(IDB_PHOTOS,"readwrite");
     const req=tx.objectStore(IDB_PHOTOS).add({activityId,blob,thumbBlob,mimeType,addedAt:Date.now()});
     req.onsuccess=()=>resolve(req.result);
+    req.onerror=e=>reject(e.target.error);
     tx.onerror=e=>reject(e.target.error);
   }));
 }

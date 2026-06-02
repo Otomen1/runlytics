@@ -5,7 +5,6 @@ import { CoachCard } from '../common/CoachCard.jsx';
 import { ACT_CLR, IC_BG, IC_BD } from '../../constants/activityTypes.js';
 import { fmtKm, fmtPace, fmtDate, todayKey, greet } from '../../utils/formatters.js';
 import { getMafHR, getMafCoachingInsight, getTodayRecommendation } from '../../utils/analytics.js';
-import { GOALS_KEY } from '../../constants/keys.js';
 import { getPhotos } from '../../db/indexedDB.js';
 
 const MOODS_MAP = {
@@ -16,11 +15,10 @@ const MOODS_MAP = {
   strong: { emoji: '🔥', label: 'Strong' },
 };
 
-function loadGoals(){try{return JSON.parse(localStorage.getItem(GOALS_KEY)||'null')||{weekly:40,monthly:160};}catch(e){return{weekly:40,monthly:160};}}
 
 export function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUpload,onViewAll,onViewMonthly,onEditGoals}){
   const lastRun=acts.length?acts.reduce((b,a)=>a.dateTs>b.dateTs?a:b):null;
-  const mafHR=getMafHR(hrProfile);const insight=getMafCoachingInsight(acts,hrProfile);const rec=getTodayRecommendation(acts,hrProfile);
+  const mafHR=getMafHR(hrProfile);const insight=getMafCoachingInsight(acts,hrProfile);const rec=getTodayRecommendation(acts);
   const today=new Date();today.setHours(0,0,0,0);today.setDate(today.getDate()-((today.getDay()+6)%7));
   const thisWeekKm=acts.filter(a=>new Date(a.dateTs)>=today).reduce((s,a)=>s+a.distanceKm,0);
   const weekPct=Math.min(1,thisWeekKm/(goals.weekly||1));
@@ -54,7 +52,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAc
       active = false;
       Object.values(urls).forEach(u => URL.revokeObjectURL(u));
     };
-  }, [acts.length]);
+  }, [acts]);
   return(<div style={{padding:"10px 0 32px"}}>
     <div className="a0" style={{marginBottom:20}}>
       <div className="sl" style={{marginBottom:4}}>{greet()}</div>

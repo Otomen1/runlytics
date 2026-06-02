@@ -15,7 +15,7 @@ import { buildAnalytics, computeTierProgress, computeEarnedBadges } from './util
 // ── Constants ────────────────────────────────────────────────────────────────
 import {
   GOALS_KEY, HR_KEY, PROFILE_KEY, TASKS_KEY, BADGES_KEY,
-  TAB_KEY, ONBOARDING_KEY, MILESTONES_KEY, THEME_KEY,
+  TAB_KEY, ONBOARDING_KEY, MILESTONES_KEY, THEME_KEY, TIERS_KEY,
 } from './constants/keys.js';
 import { TABS } from './constants/activityTypes.js';
 
@@ -44,17 +44,23 @@ import { DebugPanel }    from './components/Modals/DebugPanel.jsx';
 import { Onboarding }   from './components/Modals/Onboarding.jsx';
 
 // ── localStorage helpers (lightweight prefs only) ────────────────────────────
-function loadGoals()    { try { return JSON.parse(localStorage.getItem(GOALS_KEY)||'null')||{weekly:40,monthly:160}; } catch { return {weekly:40,monthly:160}; } }
-function saveGoals(g)   { try { localStorage.setItem(GOALS_KEY, JSON.stringify(g)); } catch {} }
-function loadHRProfile(){ try { return JSON.parse(localStorage.getItem(HR_KEY)||'null')||{age:30,overrideMAF:null,modifier:0}; } catch { return {age:30,overrideMAF:null,modifier:0}; } }
-function saveHRProfile(p){ try { localStorage.setItem(HR_KEY, JSON.stringify(p)); } catch {} }
-function loadProfile()  { try { return JSON.parse(localStorage.getItem(PROFILE_KEY)||'null')||{name:'Runner'}; } catch { return {name:'Runner'}; } }
-function saveProfile(p) { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); } catch {} }
-function loadTasks()    { try { return JSON.parse(localStorage.getItem(TASKS_KEY)||'null')||defaultTasks(); } catch { return defaultTasks(); } }
-function saveTasks(t)   { try { localStorage.setItem(TASKS_KEY, JSON.stringify(t)); } catch {} }
-function loadSeenBadges(){ try { return new Set(JSON.parse(localStorage.getItem(BADGES_KEY)||'[]')); } catch { return new Set(); } }
-function saveSeenBadges(ids){ try { localStorage.setItem(BADGES_KEY, JSON.stringify([...ids])); } catch {} }
-function loadTheme(){ try { return localStorage.getItem(THEME_KEY)||'dark'; } catch { return 'dark'; } }
+let _onStorageError=null; // set by App to surface quota errors to the UI
+function lsSet(key,val){
+  try{localStorage.setItem(key,JSON.stringify(val));}
+  catch(e){if(_onStorageError&&(e.name==='QuotaExceededError'||e.code===22))_onStorageError('Settings storage full — some preferences may not persist.');}
+}
+function lsGet(key,fallback){try{return JSON.parse(localStorage.getItem(key)||'null')??fallback;}catch{return fallback;}}
+function loadGoals()    { return lsGet(GOALS_KEY,{weekly:40,monthly:160}); }
+function saveGoals(g)   { lsSet(GOALS_KEY,g); }
+function loadHRProfile(){ return lsGet(HR_KEY,{age:30,overrideMAF:null,modifier:0}); }
+function saveHRProfile(p){ lsSet(HR_KEY,p); }
+function loadProfile()  { return lsGet(PROFILE_KEY,{name:'Runner'}); }
+function saveProfile(p) { lsSet(PROFILE_KEY,p); }
+function loadTasks()    { return lsGet(TASKS_KEY,null)||defaultTasks(); }
+function saveTasks(t)   { lsSet(TASKS_KEY,t); }
+function loadSeenBadges(){ try{return new Set(JSON.parse(localStorage.getItem(BADGES_KEY)||'[]'));}catch{return new Set();} }
+function saveSeenBadges(ids){ lsSet(BADGES_KEY,[...ids]); }
+function loadTheme(){ try{return localStorage.getItem(THEME_KEY)||'dark';}catch{return 'dark';} }
 
 function checkMilestones(acts, analytics) {
   if (!acts.length) return null;
@@ -96,6 +102,7 @@ const App=()=>{
   const[acts,setActsRaw]=useState([]);
   const[dbReady,setDbReady]=useState(false);    // true once IDB load completes
   const[storageError,setStorageError]=useState(null); // visible error banner
+  _onStorageError=setStorageError; // route quota errors to the UI banner
   const[goals,setGoals]=useState(loadGoals);
   const[hrProfile,setHRProfile]=useState(loadHRProfile);
   const[profile,setProfile]=useState(loadProfile);
@@ -122,7 +129,7 @@ const App=()=>{
   const debugTapRef=useRef(0);
 
   const detRef=useRef(null),setRef=useRef(null),arRef=useRef(null),monRef=useRef(null),upRef=useRef(null),shaRef=useRef(null),prRef=useRef(null),yrRef=useRef(null),shRef=useRef(null);
-  const isSyncingRef=useRef(false),lastSyncRef=useRef(0);
+  const isSyncingRef=useRef(false),lastSyncRef=useRef(0),isRepairingRef=useRef(false);
 
   const edRef=useRef(null);
   useEffect(()=>{
@@ -253,34 +260,29 @@ const App=()=>{
       if(!r.ok){setStravaSync({loading:false,msg:"Sync failed ("+r.status+")."});isSyncingRef.current=false;return;}
       const data=await r.json();
       const mapped=data.map(mapStravaActivity).filter(Boolean);
-      let added=0,routesFixed=0;
-      const toSave=[];
       setActsRaw(prev=>{
+        const existingIds=new Set(prev.map(a=>a.id));
+        const newActs=mapped.filter(a=>!existingIds.has(a.id));
+        const toSave=[];
         const patched=prev.map(a=>{
           const fresh=mapped.find(m=>m.id===a.id);
           if(fresh&&(!a.route||a.route.length<2)&&fresh.route?.length>=2){
-            routesFixed++;
-            console.log(`[IDB] route restored for "${a.name}": ${fresh.route.length}pts`);
             const updated={...a,route:fresh.route};
             toSave.push(updated);
             return updated;
           }
           return a;
         });
-        const existingIds=new Set(prev.map(a=>a.id));
-        const newActs=mapped.filter(a=>!existingIds.has(a.id));
-        added=newActs.length;
         newActs.forEach(a=>toSave.push(a));
+        const routesFixed=toSave.length-newActs.length;
+        if(newActs.length)console.log(`[IDB] Strava sync: +${newActs.length} new`);
+        if(routesFixed)console.log(`[IDB] routes restored: ${routesFixed}`);
         if(!newActs.length&&!routesFixed)return prev;
+        if(toSave.length)saveActivitiesBatch(toSave).catch(err=>setStorageError(`Strava sync save failed: ${err.message}`));
+        const syncMsg=newActs.length?`✓ ${newActs.length} new run${newActs.length!==1?"s":""} synced`:routesFixed?`✓ ${routesFixed} route${routesFixed!==1?"s":""} restored`:"";
+        if(syncMsg)setTimeout(()=>setStravaSync({loading:false,msg:syncMsg}),0);
         return newActs.length?[...newActs,...patched]:patched;
       });
-      // Persist each changed/new activity individually — no full dataset rewrite
-      if(toSave.length){
-        saveActivitiesBatch(toSave)
-          .then(()=>console.log(`[IDB] Strava sync saved: +${added} new, ${routesFixed} routes fixed`))
-          .catch(err=>setStorageError(`Strava sync save failed: ${err.message}`));
-      }
-      setStravaSync({loading:false,msg:(!added&&!routesFixed)?"":added?`\u2713 ${added} new run${added!==1?"s":""} synced`:(routesFixed?`\u2713 ${routesFixed} route${routesFixed!==1?"s":""} restored`:"Already up to date")});
     }catch(e){setStravaSync({loading:false,msg:"Sync failed."});}
     isSyncingRef.current=false;
   },[]);
@@ -310,6 +312,15 @@ const App=()=>{
   const tierProgress=useMemo(()=>computeTierProgress(acts),[acts]);
   const earnedBadgeIds=useMemo(()=>computeEarnedBadges(acts),[acts]);
   const earnedBadgesSet=useMemo(()=>new Set(earnedBadgeIds),[earnedBadgeIds]);
+  const newTiers=useMemo(()=>{
+    if(!dbReady||!tierProgress.length)return[];
+    try{
+      const seen=new Set(JSON.parse(localStorage.getItem(TIERS_KEY)||'[]'));
+      const fresh=tierProgress.filter(tp=>tp.completed&&!seen.has(tp.id)).map(tp=>tp.id);
+      if(fresh.length){localStorage.setItem(TIERS_KEY,JSON.stringify([...seen,...fresh]));}
+      return fresh;
+    }catch{return[];}
+  },[tierProgress,dbReady]);
 
   useEffect(()=>{
     if(!dbReady||!acts.length)return;
@@ -365,7 +376,7 @@ const App=()=>{
             {tab==="stats"&&<StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/>}
             {tab==="hr"&&<HRTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings}/>}
             {tab==="tasks"&&<TasksTab tasks={tasks} setTasks={setTasks} hrProfile={hrProfile}/>}
-            {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={[]}/>}
+            {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={newTiers}/>}
           </div>
         </div>
       }
@@ -435,14 +446,16 @@ const App=()=>{
       )}
       {showDebug&&<DebugPanel acts={acts} onClose={()=>setShowDebug(false)}
         onRepairRoutes={()=>{
-          // Remove Strava activities with no route so next sync re-imports with decoded polyline
+          if(isRepairingRef.current)return;
+          isRepairingRef.current=true;
+          isSyncingRef.current=true;
           setActsRaw(prev=>{
             const fixed=prev.filter(a=>!(a.source==="strava"&&(!a.route||a.route.length<2)));
-            const removed=prev.length-fixed.length;
-            console.log(`[IDB] repairRoutes: removing ${removed} routeless Strava acts`);
+            console.log(`[IDB] repairRoutes: removing ${prev.length-fixed.length} routeless Strava acts`);
             clearAllActivities()
               .then(()=>saveActivitiesBatch(fixed))
-              .catch(err=>setStorageError("Repair failed: "+err.message));
+              .then(()=>{isRepairingRef.current=false;isSyncingRef.current=false;})
+              .catch(err=>{setStorageError("Repair failed: "+err.message);isRepairingRef.current=false;isSyncingRef.current=false;});
             return fixed;
           });
           setShowDebug(false);
