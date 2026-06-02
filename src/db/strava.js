@@ -1,10 +1,8 @@
 import { STRAVA_KEY } from '../constants/keys.js';
+import { REFRESH_TOKEN_MAX_AGE_MS } from '../constants/limits.js';
 import { migrateActivity, decodePolyline, classifyRun } from '../utils/activity.js';
-import { todayKey } from '../utils/formatters.js';
 
 const SESSION_TOKEN_KEY = 'runlytics_strava_access';
-// Refresh tokens older than 90 days are cleared — user must reconnect
-const REFRESH_TOKEN_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
 // Persist only non-sensitive fields in localStorage; keep access_token in sessionStorage
 export function loadStravaAuth(){

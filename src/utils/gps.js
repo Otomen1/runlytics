@@ -1,5 +1,5 @@
 import { normalizeRoute, migrateActivity, classifyRun } from './activity.js';
-import { todayKey } from './formatters.js';
+import { MAX_GPX_BYTES, MAX_GPX_POINTS, GPX_FALLBACK_SEC } from '../constants/limits.js';
 
 export function readFileText(file){
   if(typeof file.text==='function')return file.text();
@@ -14,7 +14,7 @@ export function readFileText(file){
 export function parseGPX(xmlStr,fileName){
   const pfx=`[GPX:${fileName||'?'}]`;
   if(!xmlStr||typeof xmlStr!=="string"||xmlStr.length<100){console.warn(pfx,'empty/short input');return null;}
-  if(xmlStr.length>10*1024*1024){console.warn(pfx,'file >10MB');return null;}
+  if(xmlStr.length>MAX_GPX_BYTES){console.warn(pfx,'file >10MB');return null;}
   // Strip script tags and on* event attributes before parsing to prevent XSS
   const sanitized=xmlStr
     .replace(/<script[\s\S]*?<\/script>/gi,'')
@@ -41,10 +41,9 @@ export function parseGPX(xmlStr,fileName){
     }
     console.log(pfx,`${trkpts.length} trackpoints via ${usedFallback?'getElementsByTagName(fallback)':'querySelectorAll'}`);
     if(trkpts.length<2){console.warn(pfx,'<2 trackpoints — not a valid track');return null;}
-    const MAX_PTS=8000;
-    if(trkpts.length>MAX_PTS){
+    if(trkpts.length>MAX_GPX_POINTS){
       // Evenly downsample to avoid O(n) memory/CPU exhaustion on huge files
-      const step=Math.ceil(trkpts.length/MAX_PTS);
+      const step=Math.ceil(trkpts.length/MAX_GPX_POINTS);
       trkpts=trkpts.filter((_,i)=>i%step===0||i===trkpts.length-1);
       console.warn(pfx,`Downsampled to ${trkpts.length} pts`);
     }
@@ -74,9 +73,8 @@ export function parseGPX(xmlStr,fileName){
     const validTimes=pts.filter(p=>p.time>0);
     const hasTimestamps=validTimes.length>=2;
     const t0=hasTimestamps?validTimes[0].time:0;
-    const totalFallbackSec=3600;
     pts.forEach((p,i)=>{
-      p.sec=hasTimestamps&&p.time>0?Math.max(0,Math.round((p.time-t0)/1000)):Math.round(i/(pts.length-1)*totalFallbackSec);
+      p.sec=hasTimestamps&&p.time>0?Math.max(0,Math.round((p.time-t0)/1000)):Math.round(i/(pts.length-1)*GPX_FALLBACK_SEC);
     });
     const R=6371000;let distM=0,elevGain=0,elevLoss=0;
     for(let i=1;i<pts.length;i++){
@@ -87,7 +85,7 @@ export function parseGPX(xmlStr,fileName){
       const de=b.ele-a.ele;if(de>0)elevGain+=de;else elevLoss+=Math.abs(de);
     }
     const distKm=distM/1000;
-    const timeSec=hasTimestamps?Math.max(1,(pts[pts.length-1].sec||0)):totalFallbackSec;
+    const timeSec=hasTimestamps?Math.max(1,(pts[pts.length-1].sec||0)):GPX_FALLBACK_SEC;
     const paceSecKm=distKm>0?timeSec/distKm:0;
     const hrPts=pts.filter(p=>p.hr&&p.hr>40&&p.hr<220);
     const avgHR=hrPts.length?Math.round(hrPts.reduce((s,p)=>s+p.hr,0)/hrPts.length):null;

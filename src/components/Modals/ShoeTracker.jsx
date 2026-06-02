@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { SHOES_KEY } from '../../constants/keys.js';
+import { DEFAULT_SHOE_MAX_KM, SHOE_WARN_THRESHOLD } from '../../constants/limits.js';
 import { fmtDateS } from '../../utils/formatters.js';
 
 const COLORS = ['#f97316','#22c55e','#3b82f6','#8b5cf6','#ef4444','#eab308','#06b6d4','#ec4899'];
@@ -78,8 +79,8 @@ export function ShoeTracker({ acts, onClose }) {
 
         {active.map(shoe => {
           const km = shoeKm[shoe.id] || 0;
-          const pct = Math.min(1, km / (shoe.maxKm || 600));
-          const warn = pct >= 0.85;
+          const pct = Math.min(1, km / (shoe.maxKm || DEFAULT_SHOE_MAX_KM));
+          const warn = pct >= SHOE_WARN_THRESHOLD;
           const last = lastUsed[shoe.id];
           return (
             <div key={shoe.id} className="card tap" style={{padding:16,cursor:'pointer',borderLeft:`4px solid ${shoe.color||'var(--or)'}`}} onClick={() => setView(shoe.id)}>
@@ -90,7 +91,7 @@ export function ShoeTracker({ acts, onClose }) {
                 </div>
                 <div style={{textAlign:'right'}}>
                   <div style={{fontSize:'1.1rem',fontWeight:800,color:warn?'var(--rd)':shoe.color||'var(--or)'}}>{Math.round(km)} km</div>
-                  <div style={{fontSize:'.62rem',color:'var(--tx3)'}}> / {shoe.maxKm||600} km</div>
+                  <div style={{fontSize:'.62rem',color:'var(--tx3)'}}> / {shoe.maxKm||DEFAULT_SHOE_MAX_KM} km</div>
                 </div>
               </div>
               <div style={{height:7,borderRadius:4,background:'var(--bd)',overflow:'hidden',marginBottom:6}}>
@@ -99,7 +100,7 @@ export function ShoeTracker({ acts, onClose }) {
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 {warn
                   ? <span style={{fontSize:'.7rem',color:'var(--rd)',fontWeight:600}}>⚠️ Consider replacing soon</span>
-                  : <span style={{fontSize:'.7rem',color:'var(--tx3)'}}>{Math.round((shoe.maxKm||600)-km)} km remaining</span>}
+                  : <span style={{fontSize:'.7rem',color:'var(--tx3)'}}>{Math.round((shoe.maxKm||DEFAULT_SHOE_MAX_KM)-km)} km remaining</span>}
                 {last && <span style={{fontSize:'.68rem',color:'var(--tx3)'}}>Last: {fmtDateS(last)}</span>}
               </div>
             </div>
@@ -131,7 +132,7 @@ function ShoeForm({ shoe, onSave, onRetire, onDelete, onCancel }) {
   const [name, setName]     = useState(shoe?.name || '');
   const [brand, setBrand]   = useState(shoe?.brand || '');
   const [color, setColor]   = useState(shoe?.color || COLORS[0]);
-  const [maxKm, setMaxKm]   = useState(shoe?.maxKm || 600);
+  const [maxKm, setMaxKm]   = useState(shoe?.maxKm || DEFAULT_SHOE_MAX_KM);
 
   return (
     <div style={{flex:1,overflowY:'auto',padding:'20px 18px 40px',display:'flex',flexDirection:'column',gap:14}}>

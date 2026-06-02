@@ -4,6 +4,7 @@ import { SH } from '../common/SH.jsx';
 import { fmtKm, fmtDur, fmtPace, fmtDateS } from '../../utils/formatters.js';
 import { computeRacePRs } from '../../utils/analytics.js';
 import { SHOES_KEY } from '../../constants/keys.js';
+import { DEFAULT_SHOE_MAX_KM, SHOE_WARN_THRESHOLD } from '../../constants/limits.js';
 
 export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onViewYearReview,onManageShoes}){
   const[range,setRange]=useState(8);
@@ -156,7 +157,7 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onView
             <button className="pill" style={{fontSize:".68rem"}} onClick={onManageShoes}>Manage</button>
           </div>
           {shoes.filter(s=>s.active!==false).map(shoe=>{
-            const km=shoeKm[shoe.id]||0,pct=Math.min(1,km/(shoe.maxKm||600)),warn=pct>=0.85;
+            const km=shoeKm[shoe.id]||0,pct=Math.min(1,km/(shoe.maxKm||DEFAULT_SHOE_MAX_KM)),warn=pct>=SHOE_WARN_THRESHOLD;
             return(
               <div key={shoe.id} style={{marginBottom:12}}>
                 <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
