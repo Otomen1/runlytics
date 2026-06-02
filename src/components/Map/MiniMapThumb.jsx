@@ -69,5 +69,3 @@ export const MiniMapThumb=React.memo(function MiniMapThumb({route,color}){
     </div>
   );
 });
-
-// FIX #12: Renamed prop onSelect → onSelectAct to match how App calls this component

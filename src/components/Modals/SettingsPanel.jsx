@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { getMafHR, getMafZones } from '../../utils/analytics.js';
-import { GOALS_KEY, HR_KEY, PROFILE_KEY } from '../../constants/keys.js';
+import { getMafZones } from '../../utils/analytics.js';
 
 export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onImport,onClose,stravaAuth,stravaSync,onStravaConnect,onStravaSync,onStravaDisconnect}){
   const[view,setView]=useState("main");
@@ -164,5 +163,3 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
     </div>
   );
 }
-
-// FIX #2: RouteMap → RouteMapSVG (was crashing — component was named RouteMapSVG but called as RouteMap)

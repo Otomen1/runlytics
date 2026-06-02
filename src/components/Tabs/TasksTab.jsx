@@ -16,7 +16,6 @@ export function TasksTab({tasks,setTasks,hrProfile}){
         const done=!!(t.completions&&t.completions[todayStr]);
         const completions=Object.assign({},t.completions||{});
         if(done){delete completions[todayStr];}else{completions[todayStr]=true;}
-        // FIX #4: getStreak is now defined above
         return Object.assign({},t,{completions,streak:getStreak(completions)});
       });
       saveTasks(updated);return updated;
@@ -45,7 +44,7 @@ export function TasksTab({tasks,setTasks,hrProfile}){
       <div style={{display:"flex",flexDirection:"column",gap:10}}>
         {tasks.filter(t=>t.enabled).map((task,i)=>{
           const done=!!(task.completions&&task.completions[todayStr]);
-          // FIX #16: Handle missing icon/category/desc from old localStorage data
+          // Fall back gracefully for older localStorage tasks missing icon/category/desc
           const taskIcon=task.icon||"🏃";
           const detail=task.category==="hr"&&hrProfile&&hrProfile.age?"MAF = "+mafHR+" bpm · Stay below this":(task.desc||"");
           return(

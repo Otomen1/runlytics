@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { Ring } from '../common/Ring.jsx';
-import { BADGE_DEFS, TIER_TRACKS, TIER_NAMES, TIER_COLS, TRACK_META, getTierIcon } from '../../constants/achievements.js';
+import { BADGE_DEFS } from '../../constants/achievements.js';
 
 export function AchievementsTab({earnedBadges,acts,analytics,tierProgress,newTiers}){
   const[exp,setExp]=useState(null);
-  // earnedBadges is a Set of IDs — .has() is correct
   const earned=BADGE_DEFS.filter(b=>earnedBadges.has(b.id));
   const pct=Math.round(earned.length/BADGE_DEFS.length*100);
   return(

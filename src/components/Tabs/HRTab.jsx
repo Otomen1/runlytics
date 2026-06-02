@@ -8,7 +8,6 @@ export function HRTab({acts,hrProfile,onEditHR}){
   const mafHR=getMafHR(hrProfile);
   const runsWithHR=acts.filter(a=>a.avgHR&&a.distanceKm>0);
   const last5=runsWithHR.slice(0,5);
-  // FIX #8: Use zone.seconds (not zone.minutes*60) — computeZones now provides seconds
   const aggZones=useMemo(()=>{
     if(!last5.length)return null;
     const secs=[0,0,0,0,0];let tot=0;

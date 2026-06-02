@@ -3,7 +3,7 @@ import { ACT_ICN, ACT_CLR } from '../../constants/activityTypes.js';
 import { fmtKm, fmtDur, fmtDateS } from '../../utils/formatters.js';
 import { parseGPX, readFileText } from '../../utils/gps.js';
 
-export function Upload({acts,hrProfile,onAdd,onClearAll}){
+export function Upload({acts,onAdd,onClearAll}){
   const[queue,setQueue]=useState([]);const[drag,setDrag]=useState(false);const ref=useRef(null);
   const process=useCallback(async files=>{
     const gpx=Array.from(files).filter(f=>f.name.toLowerCase().endsWith(".gpx"));
@@ -13,7 +13,6 @@ export function Upload({acts,hrProfile,onAdd,onClearAll}){
     const res=await Promise.all(items.map(async item=>{
       try{
         const text=await readFileText(item.file);
-        // FIX #6b: only pass text + filename (no hrProfile — parseGPX doesn't use it)
         const parsed=parseGPX(text,item.file.name);
         if(!parsed)return{...item,status:"error",error:"Could not parse GPX file"};
         const dupe=acts.some(a=>Math.abs(a.dateTs-parsed.dateTs)<60000&&Math.abs(a.distanceKm-parsed.distanceKm)<0.1);

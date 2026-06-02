@@ -383,7 +383,7 @@ const App=()=>{
       {showEditor&&editorAct&&<ShareEditor act={editorAct} onClose={back}/>}
       {prDetail&&<PRDetailModal entry={prDetail} onClose={back}
         onOpenRun={id=>{setPrDetail(null);const found=acts.find(a=>a.id===id);if(found)openDetail(found);}}/>}
-      {showUpload&&<Upload acts={acts} hrProfile={hrProfile} onAdd={newActs=>{newActs.forEach(a=>addAct(a));back();}}
+      {showUpload&&<Upload acts={acts} onAdd={newActs=>{newActs.forEach(a=>addAct(a));back();}}
         onClearAll={()=>{
           setActsRaw([]);
           clearAllActivities().catch(err=>setStorageError("Clear failed: "+err.message));

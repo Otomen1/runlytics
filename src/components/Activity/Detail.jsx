@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { RouteMapSVG } from '../Map/RouteMapSVG.jsx';
 import { SH } from '../common/SH.jsx';
 import { ACT_ICN, ACT_CLR } from '../../constants/activityTypes.js';
-import { fmtKm, fmtDur, fmtPace, fmtDate, fmtDateS } from '../../utils/formatters.js';
+import { fmtKm, fmtDur, fmtPace, fmtDate } from '../../utils/formatters.js';
 import { getMafHR, computeZones, computeSplits } from '../../utils/analytics.js';
 import { JournalTab } from './JournalTab.jsx';
 import { saveActivity, getPhotos } from '../../db/indexedDB.js';
@@ -215,17 +215,4 @@ function SplitsTab({ act, mafHR }) {
       <div style={{marginTop:10,fontSize:".7rem",color:"var(--tx3)",textAlign:"center"}}>Estimated from GPS · HR from sensor data</div>
     </div>
   );
-}
-
-// FileReader fallback for file.text() — file.text() is ES2019+ and missing
-// in iOS Safari <14, older Android WebView, and some Samsung Browser versions.
-// This is the primary cause of silent mobile upload failures.
-function readFileText(file){
-  if(typeof file.text==='function')return file.text();
-  return new Promise((resolve,reject)=>{
-    const reader=new FileReader();
-    reader.onload=e=>resolve(e.target.result);
-    reader.onerror=()=>reject(new Error('File read failed'));
-    reader.readAsText(file,'UTF-8');
-  });
 }

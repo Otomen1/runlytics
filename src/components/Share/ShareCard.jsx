@@ -1,6 +1,6 @@
 import React from 'react';
 import { MiniRoute } from '../Map/MiniRoute.jsx';
-import { fmtKm, fmtDur, fmtPace, fmtDate, fmtDateS } from '../../utils/formatters.js';
+import { fmtKm, fmtDur, fmtPace, fmtDate } from '../../utils/formatters.js';
 
 export function StatRow({dark,W,durFmt,paceFmt}){
   const f=n=>Math.round(n*W/270)+"px";
