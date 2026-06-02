@@ -9,24 +9,18 @@ import {
 import { loadStravaAuth, saveStravaAuth, clearStravaAuth, getStravaToken, mapStravaActivity } from './db/strava.js';
 
 // ── Utils ────────────────────────────────────────────────────────────────────
-import { fmtKm, fmtPace, fmtDur, fmtDate, fmtDateS, todayKey } from './utils/formatters.js';
-import { migrateActivity, normalizeRoute } from './utils/activity.js';
+import { migrateActivity } from './utils/activity.js';
 import { buildAnalytics, computeTierProgress, computeEarnedBadges } from './utils/analytics.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 import {
   GOALS_KEY, HR_KEY, PROFILE_KEY, TASKS_KEY, BADGES_KEY,
-  TAB_KEY, STRAVA_KEY, ONBOARDING_KEY, MILESTONES_KEY, THEME_KEY,
+  TAB_KEY, ONBOARDING_KEY, MILESTONES_KEY, THEME_KEY,
 } from './constants/keys.js';
 import { TABS } from './constants/activityTypes.js';
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 import { Styles } from './styles/GlobalStyles.jsx';
-
-// ── Common Components ────────────────────────────────────────────────────────
-import { Ring }      from './components/common/Ring.jsx';
-import { SH }        from './components/common/SH.jsx';
-import { CoachCard } from './components/common/CoachCard.jsx';
 
 // ── Tab Screens ───────────────────────────────────────────────────────────────
 import { HomeTab }         from './components/Tabs/HomeTab.jsx';
@@ -130,7 +124,6 @@ const App=()=>{
   const detRef=useRef(null),setRef=useRef(null),arRef=useRef(null),monRef=useRef(null),upRef=useRef(null),shaRef=useRef(null),prRef=useRef(null),yrRef=useRef(null),shRef=useRef(null);
   const isSyncingRef=useRef(false),lastSyncRef=useRef(0);
 
-  // FIX #1: Removed feedbackRun from deps (was never declared as state — caused ReferenceError)
   const edRef=useRef(null);
   useEffect(()=>{
     detRef.current=detail;setRef.current=showSettings;
@@ -160,6 +153,14 @@ const App=()=>{
   },[]);
 
   const back=useCallback(()=>history.back(),[]);
+
+  // Kick off the Strava OAuth authorize redirect (used by Settings and Onboarding).
+  const startStravaConnect=useCallback(()=>{
+    const cid=window.__STRAVA_CLIENT_ID;
+    if(!cid){alert("Strava client ID not configured.");return;}
+    const redirect=encodeURIComponent(window.location.origin+window.location.pathname);
+    window.location.href="https://www.strava.com/oauth/authorize?client_id="+cid+"&redirect_uri="+redirect+"&response_type=code&scope=activity:read_all";
+  },[]);
 
   // ── Async DB initialisation ─────────────────────────────────────────────────
   // Run once on mount: migrate legacy localStorage data → IDB, then load.
@@ -308,7 +309,6 @@ const App=()=>{
   const analytics=useMemo(()=>buildAnalytics(acts),[acts]);
   const tierProgress=useMemo(()=>computeTierProgress(acts),[acts]);
   const earnedBadgeIds=useMemo(()=>computeEarnedBadges(acts),[acts]);
-  // FIX #9: earnedBadges is a Set of IDs so AchievementsTab's .has() calls work
   const earnedBadgesSet=useMemo(()=>new Set(earnedBadgeIds),[earnedBadgeIds]);
 
   useEffect(()=>{
@@ -407,12 +407,7 @@ const App=()=>{
           back();
         }}
         stravaAuth={stravaAuth} stravaSync={stravaSync}
-        onStravaConnect={()=>{
-          const cid=window.__STRAVA_CLIENT_ID;
-          if(!cid){alert("Strava client ID not configured.");return;}
-          const redirect=encodeURIComponent(window.location.origin+window.location.pathname);
-          window.location.href="https://www.strava.com/oauth/authorize?client_id="+cid+"&redirect_uri="+redirect+"&response_type=code&scope=activity:read_all";
-        }}
+        onStravaConnect={startStravaConnect}
         onStravaDisconnect={()=>{clearStravaAuth();setStravaAuth(null);setStravaSync({loading:false,msg:"Disconnected."});if('caches' in window)caches.keys().then(ks=>ks.forEach(k=>caches.delete(k)));}}
         onStravaSync={()=>doStravaSync(false)}
         onClose={back}/>}
@@ -427,12 +422,7 @@ const App=()=>{
             const g={...goals,weekly:weeklyGoal};setGoals(g);saveGoals(g);
           }}
           onUpload={openUpload}
-          onStravaConnect={()=>{
-            const cid=window.__STRAVA_CLIENT_ID;
-            if(!cid){alert("Strava client ID not configured.");return;}
-            const redirect=encodeURIComponent(window.location.origin+window.location.pathname);
-            window.location.href="https://www.strava.com/oauth/authorize?client_id="+cid+"&redirect_uri="+redirect+"&response_type=code&scope=activity:read_all";
-          }}/>
+          onStravaConnect={startStravaConnect}/>
       )}
       {toast&&(
         <div style={{position:'fixed',bottom:96,left:'50%',transform:'translateX(-50%)',zIndex:400,animation:'fadeUp .3s ease both',pointerEvents:'auto'}}>
