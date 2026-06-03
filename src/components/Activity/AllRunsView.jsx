@@ -6,13 +6,6 @@ import { fmtKm, fmtDur, fmtPace, fmtDate, fmtDateS } from '../../utils/formatter
 const ITEM_H = 88;
 const BUFFER  = 5;
 
-const MOODS = [
-  { key:'strong', emoji:'🔥' },
-  { key:'great',  emoji:'😀' },
-  { key:'good',   emoji:'🙂' },
-  { key:'normal', emoji:'😐' },
-  { key:'tough',  emoji:'😫' },
-];
 const MOOD_EMOJI = { strong:'🔥', great:'😀', good:'🙂', normal:'😐', tough:'😫' };
 
 const SORT_OPTIONS = [
@@ -31,7 +24,6 @@ export function AllRunsView({ acts, onSelectAct, onClose }) {
   const [scrollTop,   setScrollTop]   = useState(0);
   const listRef = useRef(null);
 
-  const hasMoods = useMemo(() => acts.some(a => a.mood), [acts]);
 
   const list = useMemo(() => {
     let l = [...acts];
@@ -41,7 +33,7 @@ export function AllRunsView({ acts, onSelectAct, onClose }) {
     else if (sortBy === 'longest') l.sort((a, b) => b.distanceKm - a.distanceKm);
     else if (sortBy === 'fastest') l.sort((a, b) => (a.avgPaceSecKm||9999) - (b.avgPaceSecKm||9999));
     return l;
-  }, [acts, search, moodFilter, sortBy]);
+  }, [acts, search, sortBy]);
 
   const CONTAINER_H = typeof window !== 'undefined' ? window.innerHeight - 180 : 600;
 
