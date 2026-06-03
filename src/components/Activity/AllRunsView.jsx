@@ -24,7 +24,6 @@ const SORT_OPTIONS = [
 
 export function AllRunsView({ acts, onSelectAct, onClose }) {
   const [search,      setSearch]      = useState('');
-  const [moodFilter,  setMoodFilter]  = useState('all');
   const [sortBy,      setSortBy]      = useState('newest');
   const [compareMode, setCompareMode] = useState(false);
   const [selected,    setSelected]    = useState([]);
@@ -37,7 +36,6 @@ export function AllRunsView({ acts, onSelectAct, onClose }) {
   const list = useMemo(() => {
     let l = [...acts];
     if (search.trim()) l = l.filter(a => a.name.toLowerCase().includes(search.toLowerCase()));
-    if (moodFilter !== 'all') l = l.filter(a => a.mood === moodFilter);
     if (sortBy === 'newest')  l.sort((a, b) => b.dateTs - a.dateTs);
     else if (sortBy === 'oldest')  l.sort((a, b) => a.dateTs - b.dateTs);
     else if (sortBy === 'longest') l.sort((a, b) => b.distanceKm - a.distanceKm);
@@ -83,15 +81,6 @@ export function AllRunsView({ acts, onSelectAct, onClose }) {
           </select>
         </div>
 
-        {/* Mood filter */}
-        {hasMoods && (
-          <div style={{display:'flex',gap:6,overflowX:'auto',scrollbarWidth:'none',paddingBottom:10}}>
-            <button className={'pill '+(moodFilter==='all'?'on':'')} style={{flexShrink:0}} onClick={()=>setMoodFilter('all')}>All</button>
-            {MOODS.map(m=>(
-              <button key={m.key} className={'pill '+(moodFilter===m.key?'on':'')} style={{flexShrink:0}} onClick={()=>setMoodFilter(m.key)}>{m.emoji}</button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Compare hint */}
@@ -145,7 +134,6 @@ export function AllRunsView({ acts, onSelectAct, onClose }) {
                       {/* Row 1: name + mood/race */}
                       <div style={{display:'flex',alignItems:'center',gap:6}}>
                         <div style={{fontWeight:700,fontSize:'.88rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,letterSpacing:'-.01em'}}>{a.name}</div>
-                        {a.mood&&<span style={{fontSize:'.8rem',lineHeight:1,flexShrink:0}}>{MOOD_EMOJI[a.mood]}</span>}
                         {a.isRace&&<span style={{fontSize:'.58rem',background:'rgba(249,115,22,.15)',color:'var(--or)',padding:'2px 6px',borderRadius:20,fontWeight:700,flexShrink:0,letterSpacing:'.04em'}}>RACE</span>}
                       </div>
                       {/* Row 2: big distance + stats */}
