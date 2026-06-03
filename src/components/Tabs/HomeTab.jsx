@@ -64,24 +64,36 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
       </div>
     </div>
     {lastRun&&(
-      <div className="card a2 tap" style={{padding:16,marginBottom:14,cursor:"pointer"}} onClick={()=>onSelectAct(lastRun)}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
-          <div style={{minWidth:0,flex:1}}>
-            <div style={{fontSize:".6rem",fontWeight:700,color:ACT_CLR[lastRun.type]||"var(--or)",marginBottom:3,textTransform:"uppercase",letterSpacing:".06em"}}>{lastRun.type}</div>
-            <div style={{fontWeight:600,fontSize:".92rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginBottom:2}}>{lastRun.name}</div>
-            <div style={{fontSize:".72rem",color:"var(--tx2)"}}>{fmtDate(lastRun.date)}</div>
-          </div>
-          <span style={{background:(ACT_CLR[lastRun.type]||"var(--or)")+"1a",color:ACT_CLR[lastRun.type]||"var(--or)",padding:"3px 10px",borderRadius:20,fontSize:".66rem",fontWeight:700,flexShrink:0,marginLeft:8}}>{lastRun.runClass}</span>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-          {[{v:fmtKm(lastRun.distanceKm),l:"km",c:"var(--or)"},{v:fmtPace(lastRun.avgPaceSecKm)+"/km",l:"pace",c:"var(--tx)"},{v:lastRun.avgHR?lastRun.avgHR+" bpm":"--",l:"HR",c:lastRun.avgHR&&lastRun.avgHR>mafHR?"var(--yw)":"var(--gn)"}].map(s=>(
-            <div key={s.l} style={{textAlign:"center",padding:"10px 6px",background:"rgba(0,0,0,.22)",borderRadius:10}}>
-              <div style={{fontSize:"1.05rem",fontWeight:700,color:s.c,lineHeight:1}}>{s.v}</div>
-              <div style={{fontSize:".62rem",color:"var(--tx3)",marginTop:4,letterSpacing:".04em"}}>{s.l}</div>
+      <div className="card a2" style={{marginBottom:14,overflow:"hidden",cursor:"pointer"}} onClick={()=>onSelectAct(lastRun)}>
+        {/* Top accent bar */}
+        <div style={{height:3,background:`linear-gradient(90deg,${ACT_CLR[lastRun.type]||"var(--or)"},transparent)`}}/>
+        <div style={{padding:"16px 18px 18px"}}>
+          {/* Header */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div>
+              <div style={{fontSize:".6rem",fontWeight:700,color:ACT_CLR[lastRun.type]||"var(--or)",letterSpacing:".08em",textTransform:"uppercase",marginBottom:4}}>{lastRun.type} · {fmtDate(lastRun.date)}</div>
+              <div style={{fontWeight:800,fontSize:"1.05rem",lineHeight:1.2,letterSpacing:"-.01em"}}>{lastRun.name}</div>
             </div>
-          ))}
+            <span style={{fontSize:".66rem",fontWeight:700,color:"var(--tx3)",textTransform:"uppercase",letterSpacing:".06em"}}>{lastRun.runClass}</span>
+          </div>
+          {/* Stats — large, no boxes */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",borderTop:"1px solid var(--bd)",paddingTop:14,gap:4}}>
+            {[
+              {v:fmtKm(lastRun.distanceKm),u:"km",c:"var(--or)"},
+              {v:fmtPace(lastRun.avgPaceSecKm),u:"/km",c:"var(--tx)"},
+              {v:lastRun.avgHR?String(lastRun.avgHR):"—",u:"bpm",c:lastRun.avgHR&&lastRun.avgHR>mafHR?"var(--yw)":"var(--gn)"}
+            ].map(s=>(
+              <div key={s.u} style={{textAlign:"center"}}>
+                <div style={{fontSize:"1.45rem",fontWeight:800,color:s.c,lineHeight:1,letterSpacing:"-.02em"}}>{s.v}<span style={{fontSize:".65rem",fontWeight:500,color:"var(--tx3)",marginLeft:2}}>{s.u}</span></div>
+              </div>
+            ))}
+          </div>
+          {acts.length>1&&(
+            <div style={{marginTop:14,textAlign:"center"}}>
+              <span className="tap" style={{fontSize:".74rem",color:"var(--tx3)",fontWeight:500}} onClick={e=>{e.stopPropagation();onViewAll();}}>View all {acts.length} runs →</span>
+            </div>
+          )}
         </div>
-        {acts.length>1&&<div style={{marginTop:10,textAlign:"center",fontSize:".72rem"}}><span className="tap" style={{color:"var(--or)",fontWeight:600}} onClick={e=>{e.stopPropagation();onViewAll();}}>View all {acts.length} runs →</span></div>}
       </div>
     )}
     {!lastRun&&(
