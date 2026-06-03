@@ -1,0 +1,143 @@
+RUNLYTICS — PROJECT STRUCTURE & FEATURES
+=========================================
+
+WHAT IT IS
+----------
+A 100% offline, browser-based running analytics PWA. No account required —
+data lives on your device in IndexedDB. Built with React 18 + Vite, deployed
+on Vercel.
+
+
+PROJECT STRUCTURE
+-----------------
+
+runlytics/
+├── src/
+│   ├── App.jsx                   # Main shell — all state, routing, Strava auth
+│   ├── components/
+│   │   ├── Activity/             # Detail view, upload, journal, all-runs list
+│   │   ├── Map/                  # SVG route map, minimap thumbnail
+│   │   ├── Tabs/                 # 5 main screens (Home, Stats, HR, Tasks, Awards)
+│   │   ├── Modals/               # Settings, onboarding, monthly report, year review,
+│   │   │                         #   shoe tracker, PR detail, debug panel
+│   │   ├── Share/                # Share card preview, editor, canvas export
+│   │   └── common/               # Ring, CoachCard, SH header, ErrorBoundary
+│   ├── constants/                # Keys, limits, activity types, achievements
+│   ├── db/                       # IndexedDB layer + Strava API client
+│   ├── utils/                    # Analytics, GPS/GPX parsing, formatters, activity helpers
+│   └── styles/GlobalStyles.jsx   # CSS variables, dark/light theme, animations
+├── api/                          # Vercel serverless: Strava OAuth token exchange
+└── public/                       # Service worker, PWA manifest, icons
+
+
+KEY FILES
+---------
+
+Core
+  App.jsx               Main container. All state, modal routing, Strava OAuth,
+                        pull-to-refresh, offline detection, keyboard navigation.
+  main.jsx              React 18 entry point. Registers service worker, Vercel analytics.
+  index.html            HTML shell with PWA meta tags and manifest link.
+
+Database & Storage
+  db/indexedDB.js       Async IndexedDB v2 layer. Stores activities + photos.
+                        Handles migrations from legacy localStorage.
+  db/strava.js          Strava API client. Token refresh rotation, activity sync,
+                        polyline decoding, splits_metric fetch.
+
+Utilities
+  utils/activity.js     Activity normalization, run classification, route validation.
+  utils/analytics.js    Training metrics: HR zones, PRs, tier progress, badges,
+                        weekly/monthly aggregation, year-wrapped stats, streaks.
+  utils/gps.js          GPX parsing (XSS-sanitized), elevation calc, haversine distance,
+                        timestamp interpolation for accurate splits.
+  utils/formatters.js   Date, pace (min:sec/km), duration, km formatters.
+
+API (Vercel Serverless)
+  api/strava-token.js   Exchanges OAuth code for access + refresh tokens.
+  api/strava-refresh.js Refreshes stale access tokens. Returns 401 if invalid.
+  api/_security.js      Rate limiting (20 req/min/IP), CORS whitelist.
+
+Constants
+  constants/keys.js         localStorage/IDB key names.
+  constants/limits.js       10 MB GPX limit, 8000-point downsample, 90-day token expiry.
+  constants/achievements.js 16 tier levels, 20 badge definitions.
+  constants/activityTypes.js Run/Walk/Hike types with colors and icons.
+
+
+FEATURES
+--------
+
+Data Import
+  - GPX upload — drag-drop, auto-parsed (distance, pace, HR, elevation, GPS route)
+  - Strava sync — OAuth connect, pulls last 30 activities with real per-km splits
+
+Activity Detail (5 tabs per activity)
+  - Overview  — stats grid, mood card, cover photo
+  - Splits    — per-km pace + HR (real Strava data or GPS-interpolated)
+  - Heart Rate — 5-zone MAF breakdown with time in each zone
+  - Map        — interactive SVG route on OpenStreetMap tiles
+  - Journal    — mood selector, notes, photo carousel
+
+Analytics
+  - Weekly/monthly distance bar charts (4/8/12 week range selector)
+  - Race PRs — 5K, 10K, Half Marathon, Marathon best pace + top 3 + history
+  - Training load score per activity
+  - Year in Review (total km, elevation "Everests", mood breakdown, monthly chart)
+  - Monthly calendar heatmap
+
+Heart Rate & Coaching
+  - MAF HR auto-calculated (180 − age ± modifier), editable override
+  - 5-zone model: Recovery, Aerobic, MAF, Threshold, Anaerobic
+  - Overtraining detection ("Run Easier" if >60% of recent runs exceed MAF)
+  - Today's recommendation (rest / easy / aerobic) based on weekly load
+
+Gamification
+  - 20 badges — distance milestones, streaks, race distances, habits
+  - 16 tier levels across 4 tracks (Distance, Runs, Streak, Elevation)
+    Bronze I–IV → Silver → Gold → Platinum → Elite
+  - Milestone popups on first run, 100km, 500km, 7-day streak, etc.
+
+Daily Habits & Tasks
+  - Habit tracker with 4 defaults (stretch, hydrate, foam roll, sleep)
+  - Per-habit streak counter
+  - 7-day calendar view + completion ring
+
+Shoe Tracking
+  - Shoe inventory with cumulative mileage
+  - Wear warning at 85% of replacement distance (default 600 km)
+  - Per-run shoe assignment
+
+Sharing
+  - Activity share card (map + stats) with custom editor
+  - Export as PNG, copy to clipboard
+
+PWA & UX
+  - Installable on iOS/Android (standalone mode, home screen icon)
+  - Offline support via service worker with 1-week cache TTL
+  - Dark/light theme toggle
+  - Pull-to-refresh (triggers Strava sync)
+  - Shimmer loading skeletons while IndexedDB loads
+  - Keyboard navigation: Escape closes any modal, arrows navigate share carousel
+  - List virtualization in activity list (72px/row, 5-item buffer)
+
+Security
+  - Strict Content-Security-Policy (no unsafe-eval/unsafe-inline for scripts)
+  - CORS explicit allowlist
+  - Rate limiting on all API endpoints
+  - GPX XSS sanitization (strips script tags + on* attributes)
+  - Refresh token in localStorage, access token in sessionStorage only
+
+
+TECH STACK
+----------
+
+Layer        Tech
+-----------  -------------------------------------------------
+UI           React 18, CSS custom properties
+Build        Vite 7, lazy-loaded code split chunks
+Charts       Recharts (separate bundle, lazy-loaded)
+Storage      IndexedDB (activities/photos) + localStorage (prefs)
+Backend      Vercel serverless (Strava OAuth only)
+Maps         OpenStreetMap tiles with SVG route overlay
+Deployment   Vercel (auto-deploy on GitHub push)
