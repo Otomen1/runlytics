@@ -45,10 +45,12 @@ export function MonthlyWrapped({ acts, yearMonth, onClose, onSelectAct }) {
   }, []);
 
   if (!data) return (
-    <div style={{position:'fixed',inset:0,zIndex:260,background:'var(--bg)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12}}>
-      <div style={{fontSize:'2rem'}}>📭</div>
-      <div style={{color:'var(--tx2)'}}>No runs this month</div>
-      <button className="btn b-gh" style={{marginTop:8}} onClick={onClose}>Close</button>
+    <div style={{position:'fixed',inset:0,zIndex:260,background:'rgba(0,0,0,.5)',display:'flex',flexDirection:'column',justifyContent:'flex-end'}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{background:'var(--bg)',borderRadius:'20px 20px 0 0',height:'55vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12}}>
+        <div style={{fontSize:'2rem'}}>📭</div>
+        <div style={{color:'var(--tx2)'}}>No runs this month</div>
+        <button className="btn b-gh" style={{marginTop:8}} onClick={onClose}>Close</button>
+      </div>
     </div>
   );
 
@@ -149,7 +151,8 @@ export function MonthlyWrapped({ acts, yearMonth, onClose, onSelectAct }) {
   ].filter(Boolean);
 
   return (
-    <div style={{position:'fixed',inset:0,zIndex:260,background:'var(--bg)',display:'flex',flexDirection:'column'}}>
+    <div style={{position:'fixed',inset:0,zIndex:260,background:'rgba(0,0,0,.5)',display:'flex',flexDirection:'column',justifyContent:'flex-end'}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div style={{background:'var(--bg)',borderRadius:'20px 20px 0 0',height:'55vh',display:'flex',flexDirection:'column'}}>
       {/* Header */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 20px',borderBottom:'1px solid var(--bd)',flexShrink:0}}>
         <button className="btn b-gh" style={{padding:'6px 12px',fontSize:'.8rem'}} onClick={onClose}>✕ Close</button>
@@ -174,6 +177,7 @@ export function MonthlyWrapped({ acts, yearMonth, onClose, onSelectAct }) {
           : <button className="btn b-or" style={{flex:2,padding:'13px'}} onClick={onClose}>Done ✓</button>
         }
       </div>
+    </div>
     </div>
   );
 }
