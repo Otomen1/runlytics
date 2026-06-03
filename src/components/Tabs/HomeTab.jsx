@@ -3,7 +3,7 @@ import { Ring } from '../common/Ring.jsx';
 import { SH } from '../common/SH.jsx';
 import { ACT_CLR } from '../../constants/activityTypes.js';
 import { fmtKm, fmtPace, fmtDate, todayKey, greet } from '../../utils/formatters.js';
-import { getMafHR, computeAtlCtl, computeRacePRs, estimateVO2max } from '../../utils/analytics.js';
+import { getMafHR, computeAtlCtl, computeRacePRs, estimateVO2max, computeTierProgress } from '../../utils/analytics.js';
 import { getPhotos } from '../../db/indexedDB.js';
 
 const CONDITIONS = [
@@ -44,6 +44,18 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
   const thisMonthKm=acts.filter(a=>a.date&&a.date.startsWith(thisMonthKey)).reduce((s,a)=>s+a.distanceKm,0);
   const monthPct=Math.min(1,thisMonthKm/(goals.monthly||1));
   const monthLeft=parseFloat(Math.max(0,goals.monthly-thisMonthKm).toFixed(1));
+  const thisWeekRuns=acts.filter(a=>new Date(a.dateTs)>=today).length;
+  const lastMonthDate=new Date();lastMonthDate.setMonth(lastMonthDate.getMonth()-1);
+  const lastMonthKey=lastMonthDate.toISOString().slice(0,7);
+  const avgPaceArr=arr=>arr.length?arr.reduce((s,a)=>s+a.avgPaceSecKm,0)/arr.length:null;
+  const thisPaceAvg=avgPaceArr(acts.filter(a=>a.date?.startsWith(thisMonthKey)&&a.avgPaceSecKm>0));
+  const lastPaceAvg=avgPaceArr(acts.filter(a=>a.date?.startsWith(lastMonthKey)&&a.avgPaceSecKm>0));
+  const paceTrendPct=thisPaceAvg&&lastPaceAvg?Math.round((lastPaceAvg-thisPaceAvg)/lastPaceAvg*100):null;
+  const tierProgress=useMemo(()=>computeTierProgress(acts),[acts]);
+  const nextMilestone=useMemo(()=>{
+    const w=tierProgress.filter(t=>t.next);
+    return w.length?w.sort((a,b)=>b.pct-a.pct)[0]:null;
+  },[tierProgress]);
   const memories = (acts||[]).filter(a => a.mood || a.notes || a.photoCount > 0).slice(0, 5);
   const [thumbMap, setThumbMap] = useState({});
   useEffect(() => {
@@ -160,7 +172,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
             <span style={{fontSize:".76rem",color:"var(--tx2)",fontWeight:400}}> / {goals.weekly} km</span>
           </div>
           {weekPct>=1&&<span style={{background:"var(--gn2)",color:"var(--gn)",padding:"2px 9px",borderRadius:20,fontSize:".66rem",fontWeight:700}}>✓ Goal reached!</span>}
-          {weekPct<1&&<div style={{fontSize:".74rem",color:"var(--tx2)"}}>{weekLeft} km to go</div>}
+          {weekPct<1&&<div style={{fontSize:".74rem",color:"var(--tx2)"}}>{weekLeft} km to go · <span style={{color:"var(--or)",fontWeight:600}}>{thisWeekRuns} run{thisWeekRuns!==1?"s":""}</span> this week</div>}
         </div>
         <button className="tap" style={{background:"none",border:"none",color:"var(--tx3)",fontSize:".78rem",padding:"4px 6px"}} onClick={onEditGoals}>Edit</button>
       </div>
@@ -174,6 +186,33 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
           :<div style={{fontSize:".72rem",color:"var(--tx2)",marginTop:4}}>{monthLeft} km to go</div>}
       </div>
     </div>
+    {paceTrendPct!==null&&(
+      <div className="card a3" style={{padding:"11px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:"1.1rem"}}>{paceTrendPct>0?"📈":paceTrendPct<0?"📉":"➡️"}</span>
+        <div style={{flex:1}}>
+          <span style={{fontSize:".82rem",fontWeight:700,color:paceTrendPct>0?"var(--gn)":paceTrendPct<0?"var(--rd)":"var(--tx)"}}>
+            {paceTrendPct===0?"Same pace":paceTrendPct>0?`${paceTrendPct}% faster`:`${Math.abs(paceTrendPct)}% slower`}
+          </span>
+          <span style={{fontSize:".76rem",color:"var(--tx2)"}}> than last month</span>
+        </div>
+      </div>
+    )}
+    {nextMilestone&&(
+      <div className="card a3" style={{padding:"12px 16px",marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+          <span style={{fontSize:".9rem"}}>{nextMilestone.badge.icon}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <span style={{fontSize:".76rem",fontWeight:700,color:"var(--tx)"}}>{nextMilestone.next.label}</span>
+            <span style={{fontSize:".7rem",color:"var(--tx3)",marginLeft:5}}>{nextMilestone.badge.name}</span>
+          </div>
+          <span style={{fontSize:".68rem",fontWeight:700,color:nextMilestone.next.color}}>{nextMilestone.pct}%</span>
+        </div>
+        <div className="pb"><div className="pf" style={{width:nextMilestone.pct+"%",background:nextMilestone.next.color}}/></div>
+        <div style={{fontSize:".68rem",color:"var(--tx3)",marginTop:5}}>
+          {parseFloat((nextMilestone.next.req-nextMilestone.progress).toFixed(1))} {nextMilestone.badge.unit} to unlock
+        </div>
+      </div>
+    )}
     {memories.length > 0 && (
       <div style={{marginBottom:16}}>
         <div style={{fontSize:'.72rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.06em',textTransform:'uppercase',marginBottom:8}}>📸 Recent Memories</div>
