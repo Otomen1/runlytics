@@ -95,12 +95,15 @@ function MonthCard({ acts, ym, onOpen }) {
   })();
   return (
     <div className="card2" onClick={onOpen}
-      style={{cursor:'pointer',padding:'14px 10px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:6,aspectRatio:'1',textAlign:'center'}}>
-      {mood && <div style={{fontSize:'1.4rem',lineHeight:1}}>{mood.emoji}</div>}
-      <div style={{fontSize:'.9rem',fontWeight:700,lineHeight:1}}>{mon}</div>
-      <div style={{fontSize:'.62rem',color:'var(--tx3)'}}>{year}</div>
-      <div style={{fontSize:'.68rem',color:'var(--tx2)',marginTop:2}}>{fmtKm(data.totalDistance)} km</div>
-      <div style={{fontSize:'.62rem',color:'var(--tx3)'}}>{data.totalRuns} runs</div>
+      style={{cursor:'pointer',padding:'16px 14px',display:'flex',flexDirection:'column',justifyContent:'space-between',aspectRatio:'1'}}>
+      <div>
+        <div style={{fontSize:'1.15rem',fontWeight:800,lineHeight:1,letterSpacing:'-.01em'}}>{mon}</div>
+        <div style={{fontSize:'.72rem',color:'var(--tx3)',marginTop:2,fontWeight:500}}>{year}</div>
+      </div>
+      <div>
+        <div style={{fontSize:'1.1rem',fontWeight:700,color:'var(--or)',lineHeight:1}}>{fmtKm(data.totalDistance)}<span style={{fontSize:'.62rem',fontWeight:500,color:'var(--tx3)',marginLeft:3}}>km</span></div>
+        <div style={{fontSize:'.7rem',color:'var(--tx2)',marginTop:4}}>{data.totalRuns} run{data.totalRuns!==1?'s':''}</div>
+      </div>
     </div>
   );
 }
