@@ -88,11 +88,6 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
               </div>
             ))}
           </div>
-          {acts.length>1&&(
-            <div style={{marginTop:14,textAlign:"center"}}>
-              <span className="tap" style={{fontSize:".74rem",color:"var(--tx3)",fontWeight:500}} onClick={e=>{e.stopPropagation();onViewAll();}}>View all {acts.length} runs →</span>
-            </div>
-          )}
         </div>
       </div>
     )}
@@ -158,7 +153,12 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
         </div>
       </div>
     )}
-    {acts.length>0&&<button className="btn b-gh" style={{width:"100%",padding:"12px"}} onClick={onViewMonthly}>📅 Monthly Report</button>}
+    {acts.length>0&&(
+      <div style={{display:"flex",gap:10}}>
+        <button className="btn b-gh" style={{flex:1,padding:"12px"}} onClick={onViewAll}>🏃 All Runs</button>
+        <button className="btn b-gh" style={{flex:1,padding:"12px"}} onClick={onViewMonthly}>📅 Monthly</button>
+      </div>
+    )}
   </div>);
 }
 
