@@ -1,6 +1,6 @@
 import { todayKey } from './formatters.js';
 
-export function storageSizeKB(str){return Math.round(str.length*2/1024);}
+export function storageSizeKB(str){if(!str||typeof str!=='string')return 0;return Math.round(str.length*2/1024);}
 
 export function normalizeRoute(pts){
   if(!Array.isArray(pts)||!pts.length)return[];
@@ -18,7 +18,7 @@ export function normalizeRoute(pts){
 
 export function classifyRun(distKm,paceSecKm){
   if(distKm>=15)return"long";
-  if(paceSecKm&&paceSecKm<320)return"workout";
+  if(paceSecKm>0&&paceSecKm<320)return"workout";
   return"easy";
 }
 
@@ -61,7 +61,7 @@ export function migrateActivity(a){
     dateTs:a.dateTs||0,
     distanceKm:isFinite(a.distanceKm)?+a.distanceKm:0,
     movingTimeSec:isFinite(a.movingTimeSec)?+a.movingTimeSec:0,
-    avgPaceSecKm:isFinite(a.avgPaceSecKm)?+a.avgPaceSecKm:0,
+    avgPaceSecKm:isFinite(a.avgPaceSecKm)&&+a.avgPaceSecKm>0?+a.avgPaceSecKm:0,
     avgHR:isFinite(a.avgHR)&&a.avgHR>0?+a.avgHR:null,
     maxHR:isFinite(a.maxHR)&&a.maxHR>0?+a.maxHR:null,
     elevGainM:isFinite(a.elevGainM)?+a.elevGainM:0,

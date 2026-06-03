@@ -9,6 +9,7 @@ describe('fmtKm', () => {
   it('returns "0" for null', () => { expect(fmtKm(null)).toBe('0'); });
   it('returns "0" for NaN', () => { expect(fmtKm(NaN)).toBe('0'); });
   it('returns "0" for undefined', () => { expect(fmtKm(undefined)).toBe('0'); });
+  it('returns "0" for negative', () => { expect(fmtKm(-5)).toBe('0'); });
 });
 
 describe('fmtPace', () => {
@@ -28,6 +29,7 @@ describe('fmtDur', () => {
   it('pads seconds', () => { expect(fmtDur(65)).toBe('1:05'); });
   it('returns "0:00" for zero', () => { expect(fmtDur(0)).toBe('0:00'); });
   it('returns "0:00" for null', () => { expect(fmtDur(null)).toBe('0:00'); });
+  it('returns "0:00" for negative', () => { expect(fmtDur(-1)).toBe('0:00'); });
   it('fmtRaceTime aliases fmtDur', () => { expect(fmtRaceTime(3661)).toBe(fmtDur(3661)); });
 });
 

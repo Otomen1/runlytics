@@ -56,7 +56,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
     const w=tierProgress.filter(t=>t.next);
     return w.length?w.sort((a,b)=>b.pct-a.pct)[0]:null;
   },[tierProgress]);
-  const memories = (acts||[]).filter(a => a.mood || a.notes || a.photoCount > 0).slice(0, 5);
+  const memories = useMemo(() => (acts||[]).filter(a => a.mood || a.notes || a.photoCount > 0).slice(0, 5), [acts]);
   const [thumbMap, setThumbMap] = useState({});
   useEffect(() => {
     if (!memories.length) return;
@@ -77,7 +77,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
       active = false;
       Object.values(urls).forEach(u => URL.revokeObjectURL(u));
     };
-  }, [acts]);
+  }, [memories]);
   return(<div style={{padding:"10px 0 32px"}}>
     <div className="a0" style={{marginBottom:20}}>
       <div className="sl" style={{marginBottom:4}}>{greet()}</div>

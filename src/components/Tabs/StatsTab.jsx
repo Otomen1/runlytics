@@ -17,7 +17,7 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onView
   const currentForm=atlCtl.length?atlCtl[atlCtl.length-1].form:0;
   const recentRacePRs=useMemo(()=>{
     const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-6);
-    return computeRacePRs(acts.filter(a=>a.date>=cutoff.toISOString().slice(0,10)));
+    return computeRacePRs(acts.filter(a=>a.date&&a.date>=cutoff.toISOString().slice(0,10)));
   },[acts]);
   const predictions=useMemo(()=>predictRaceTimes(racePRs,recentRacePRs,currentForm),[racePRs,recentRacePRs,currentForm]);
   const vo2maxEst=useMemo(()=>estimateVO2max(racePRs),[racePRs]);

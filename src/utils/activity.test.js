@@ -7,6 +7,8 @@ describe('storageSizeKB', () => {
     expect(storageSizeKB('a'.repeat(1024))).toBe(2);
   });
   it('returns 0 for empty string', () => { expect(storageSizeKB('')).toBe(0); });
+  it('returns 0 for null', () => { expect(storageSizeKB(null)).toBe(0); });
+  it('returns 0 for undefined', () => { expect(storageSizeKB(undefined)).toBe(0); });
 });
 
 describe('normalizeRoute', () => {
@@ -27,6 +29,10 @@ describe('normalizeRoute', () => {
     const result = normalizeRoute([{ lat: 51.5, lon: -0.1 }, { lat: 200, lon: 0 }]);
     expect(result).toEqual([{ lat: 51.5, lon: -0.1 }]);
   });
+  it('skips null entries in array', () => {
+    const result = normalizeRoute([null, { lat: 51.5, lon: -0.1 }, null]);
+    expect(result).toEqual([{ lat: 51.5, lon: -0.1 }]);
+  });
 });
 
 describe('classifyRun', () => {
@@ -35,11 +41,15 @@ describe('classifyRun', () => {
   it('classifies everything else as easy', () => { expect(classifyRun(5, 400)).toBe('easy'); });
   it('long distance takes priority over fast pace', () => { expect(classifyRun(20, 280)).toBe('long'); });
   it('returns easy when pace is null', () => { expect(classifyRun(5, null)).toBe('easy'); });
+  it('returns easy when pace is 0', () => { expect(classifyRun(5, 0)).toBe('easy'); });
 });
 
 describe('decodePolyline', () => {
   it('returns empty array for empty string', () => { expect(decodePolyline('')).toEqual([]); });
   it('returns empty array for null', () => { expect(decodePolyline(null)).toEqual([]); });
+  it('does not throw for truncated polyline input', () => {
+    expect(() => decodePolyline('_p~iF~ps')).not.toThrow();
+  });
   it('decodes a known polyline string', () => {
     // "_p~iF~ps|U_ulLnnqC_mqNvxq`@" is Google's canonical example
     // encodes [(38.5, -120.2), (40.7, -120.95), (43.252, -126.453)]
@@ -91,6 +101,9 @@ describe('migrateActivity', () => {
     const result = migrateActivity({ avgHR: -5, maxHR: 0 });
     expect(result.avgHR).toBeNull();
     expect(result.maxHR).toBeNull();
+  });
+  it('clamps negative avgPaceSecKm to 0', () => {
+    expect(migrateActivity({ avgPaceSecKm: -50 }).avgPaceSecKm).toBe(0);
   });
   it('filters invalid hrSamples', () => {
     const result = migrateActivity({

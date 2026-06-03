@@ -85,6 +85,11 @@ describe('computeZones', () => {
     expect(total).toBeGreaterThanOrEqual(99);
     expect(total).toBeLessThanOrEqual(101);
   });
+  it('handles single HR sample (no intervals to compute — all pct 0)', () => {
+    const zones = computeZones([{ sec: 0, hr: 145 }], 150);
+    expect(zones).toHaveLength(5);
+    zones.forEach(z => expect(z.pct).toBe(0));
+  });
 });
 
 describe('computeRacePRs', () => {
@@ -253,6 +258,16 @@ describe('computeAtlCtl', () => {
     const result = computeAtlCtl(acts, 30);
     result.forEach(r => {
       expect(r.form).toBeCloseTo(r.ctl - r.atl, 0);
+    });
+  });
+  it('returns all-zero atl/ctl/form when trainingLoad is 0 for all activities', () => {
+    const acts = [makeAct({ date: '2024-01-10', trainingLoad: 0 })];
+    const result = computeAtlCtl(acts, 30);
+    expect(result.length).toBeGreaterThan(0);
+    result.forEach(r => {
+      expect(r.atl).toBe(0);
+      expect(r.ctl).toBe(0);
+      expect(r.form).toBe(0);
     });
   });
 });

@@ -53,7 +53,7 @@ export function buildAnalytics(acts){
 export function computeRacePRs(acts){
   const cats=[{cat:"5K",min:4.2,max:5.8,color:"#22c55e"},{cat:"10K",min:8.5,max:11.5,color:"#f97316"},{cat:"HM",min:19,max:23,color:"#8b5cf6"},{cat:"Marathon",min:40,max:44,color:"#ef4444"}];
   return cats.map(c=>{
-    const candidates=acts.filter(a=>a.distanceKm>=c.min&&a.distanceKm<=c.max&&a.movingTimeSec>0).sort((a,b)=>a.avgPaceSecKm-b.avgPaceSecKm);
+    const candidates=acts.filter(a=>a.distanceKm>=c.min&&a.distanceKm<=c.max&&a.movingTimeSec>0&&a.avgPaceSecKm>0).sort((a,b)=>a.avgPaceSecKm-b.avgPaceSecKm);
     if(!candidates.length)return{...c,best:null,top3:[],history:[]};
     const best=candidates[0];
     const top3=candidates.slice(0,3).map(r=>({...r,paceSecKm:r.avgPaceSecKm,stravaId:r.source==="strava"?r.id.replace(/^s/,""):null}));
@@ -105,7 +105,7 @@ export function computeTierProgress(acts){
     const next=nextIdx>=0?tiers[nextIdx]:null;
     const prevThresh=currentIdx>0?t.thresholds[currentIdx-1]:0;
     const nextThreshVal=next?next.req:null;
-    const pct=nextThreshVal?Math.min(100,Math.round(Math.max(0,val-prevThresh)/(nextThreshVal-prevThresh)*100)):nextThreshVal===null?100:0;
+    const pct=nextThreshVal?Math.min(100,Math.round(Math.max(0,val-prevThresh)/Math.max(1,nextThreshVal-prevThresh)*100)):nextThreshVal===null?100:0;
     return{id:t.id,progress:parseFloat(val.toFixed(1)),pct,badge:{icon:meta.icon,name:t.label,unit:t.unit,tiers},current,next};
   });
 }
@@ -113,7 +113,7 @@ export function computeTierProgress(acts){
 function haversineKm(a,b){
   const R=6371,toR=Math.PI/180;
   const dLat=(b.lat-a.lat)*toR,dLon=((b.lon??b.lng)-(a.lon??a.lng))*toR;
-  const x=Math.sin(dLat/2)**2+Math.cos(a.lat*toR)*Math.cos(b.lat*toR)*Math.sin(dLon/2)**2;
+  const x=Math.min(1,Math.sin(dLat/2)**2+Math.cos(a.lat*toR)*Math.cos(b.lat*toR)*Math.sin(dLon/2)**2);
   return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));
 }
 
