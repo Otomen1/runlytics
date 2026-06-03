@@ -45,14 +45,10 @@ export function MonthlyWrapped({ acts, yearMonth, onClose, onSelectAct }) {
   }, []);
 
   if (!data) return (
-    <div style={overlay}>
-      <div style={sheet}>
-        <div style={{textAlign:'center',padding:'60px 20px',color:'var(--tx2)'}}>
-          <div style={{fontSize:'2rem',marginBottom:8}}>📭</div>
-          <div>No runs this month</div>
-        </div>
-        <button className="btn b-gh" style={{width:'100%',marginTop:16}} onClick={onClose}>Close</button>
-      </div>
+    <div style={{position:'fixed',inset:0,zIndex:260,background:'var(--bg)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12}}>
+      <div style={{fontSize:'2rem'}}>📭</div>
+      <div style={{color:'var(--tx2)'}}>No runs this month</div>
+      <button className="btn b-gh" style={{marginTop:8}} onClick={onClose}>Close</button>
     </div>
   );
 
@@ -153,35 +149,34 @@ export function MonthlyWrapped({ acts, yearMonth, onClose, onSelectAct }) {
   ].filter(Boolean);
 
   return (
-    <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={sheet}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,padding:'0 4px'}}>
-          <div style={{fontSize:'.78rem',fontWeight:700,color:'var(--or)'}}>{monthLabel(yearMonth)}</div>
-          <div style={{display:'flex',gap:5}}>
-            {slides.map((_, i) => (
-              <div key={i} onClick={() => setSlide(i)} style={{width:i===slide?18:6,height:6,borderRadius:3,background:i===slide?'var(--or)':'var(--bd)',cursor:'pointer',transition:'width .2s'}}/>
-            ))}
-          </div>
-          <button className="btn b-gh" style={{padding:'4px 10px',fontSize:'.76rem'}} onClick={onClose}>✕</button>
+    <div style={{position:'fixed',inset:0,zIndex:260,background:'var(--bg)',display:'flex',flexDirection:'column'}}>
+      {/* Header */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 20px',borderBottom:'1px solid var(--bd)',flexShrink:0}}>
+        <button className="btn b-gh" style={{padding:'6px 12px',fontSize:'.8rem'}} onClick={onClose}>✕ Close</button>
+        <div style={{fontSize:'.82rem',fontWeight:700,color:'var(--or)'}}>{monthLabel(yearMonth)}</div>
+        <div style={{display:'flex',gap:5,alignItems:'center'}}>
+          {slides.map((_, i) => (
+            <div key={i} onClick={() => setSlide(i)} style={{width:i===slide?18:6,height:6,borderRadius:3,background:i===slide?'var(--or)':'var(--bd)',cursor:'pointer',transition:'width .2s'}}/>
+          ))}
         </div>
+      </div>
 
-        <div style={{minHeight:320,display:'flex',alignItems:'center',justifyContent:'center'}}>
-          {slides[slide]}
-        </div>
+      {/* Slide content */}
+      <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:'24px 20px',overflowY:'auto'}}>
+        {slides[slide]}
+      </div>
 
-        <div style={{display:'flex',gap:10,marginTop:16}}>
-          <button className="btn b-gh" style={{flex:1,padding:'11px'}} onClick={() => setSlide(s => Math.max(0, s-1))} disabled={slide===0}>← Back</button>
-          {slide < slides.length - 1
-            ? <button className="btn b-or" style={{flex:2,padding:'11px'}} onClick={() => setSlide(s => s+1)}>Next →</button>
-            : <button className="btn b-or" style={{flex:2,padding:'11px'}} onClick={onClose}>Done ✓</button>
-          }
-        </div>
+      {/* Navigation */}
+      <div style={{display:'flex',gap:10,padding:'16px 20px',paddingBottom:'calc(16px + env(safe-area-inset-bottom))',borderTop:'1px solid var(--bd)',flexShrink:0}}>
+        <button className="btn b-gh" style={{flex:1,padding:'13px'}} onClick={() => setSlide(s => Math.max(0, s-1))} disabled={slide===0}>← Back</button>
+        {slide < slides.length - 1
+          ? <button className="btn b-or" style={{flex:2,padding:'13px'}} onClick={() => setSlide(s => s+1)}>Next →</button>
+          : <button className="btn b-or" style={{flex:2,padding:'13px'}} onClick={onClose}>Done ✓</button>
+        }
       </div>
     </div>
   );
 }
 
-const overlay = {position:'fixed',inset:0,zIndex:260,background:'rgba(0,0,0,.6)',display:'flex',alignItems:'flex-end',justifyContent:'center'};
-const sheet = {background:'var(--bg)',borderRadius:'20px 20px 0 0',padding:'20px 20px calc(32px + env(safe-area-inset-bottom))',width:'100%',maxWidth:480,maxHeight:'90vh',overflowY:'auto'};
-const slideWrap = {display:'flex',flexDirection:'column',alignItems:'center',padding:'8px 0',width:'100%'};
+const slideWrap = {display:'flex',flexDirection:'column',alignItems:'center',width:'100%',maxWidth:400};
 const viewBtn = {marginTop:16,background:'none',border:'1px solid var(--bd)',borderRadius:20,padding:'7px 18px',fontSize:'.78rem',color:'var(--or)',cursor:'pointer',fontFamily:'inherit'};
