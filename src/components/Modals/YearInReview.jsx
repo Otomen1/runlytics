@@ -20,6 +20,8 @@ export function YearInReview({ acts, onClose }) {
 
   const [selYear, setSelYear] = useState(() => years[0] || String(new Date().getFullYear()));
   const wrapped = useMemo(() => computeYearWrapped(acts, selYear), [acts, selYear]);
+  const prevYear = String(parseInt(selYear) - 1);
+  const prevWrapped = useMemo(() => computeYearWrapped(acts, prevYear), [acts, prevYear]);
 
   if (!years.length) return (
     <div style={shell}>
@@ -142,6 +144,39 @@ export function YearInReview({ acts, onClose }) {
               {wrapped.runCount} run{wrapped.runCount>1?'s':''} across {[...wrapped.runDays].map(d=>d.slice(0,7)).filter((v,i,a)=>a.indexOf(v)===i).length} months
             </div>
           </Slide>
+
+          {/* ── YEAR vs YEAR ── */}
+          {prevWrapped && (
+            <Slide icon="📊" title={`${selYear} vs ${prevYear}`}>
+              {[
+                {label:'Distance', curr:fmtKm(wrapped.totalKm)+' km', prev:fmtKm(prevWrapped.totalKm)+' km', currN:wrapped.totalKm, prevN:prevWrapped.totalKm},
+                {label:'Runs', curr:String(wrapped.runCount), prev:String(prevWrapped.runCount), currN:wrapped.runCount, prevN:prevWrapped.runCount},
+                {label:'Time', curr:fmtDur(wrapped.totalSec), prev:fmtDur(prevWrapped.totalSec), currN:wrapped.totalSec, prevN:prevWrapped.totalSec},
+                {label:'Elevation', curr:Math.round(wrapped.totalElev)+'m', prev:Math.round(prevWrapped.totalElev)+'m', currN:wrapped.totalElev, prevN:prevWrapped.totalElev},
+              ].map(({label,curr,prev,currN,prevN})=>{
+                const pct=prevN>0?Math.round((currN-prevN)/prevN*100):null;
+                const up=pct>0;
+                return(
+                  <div key={label} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 0',borderBottom:'1px solid var(--bd)'}}>
+                    <div style={{fontSize:'.8rem',color:'var(--tx2)',minWidth:70}}>{label}</div>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      <span style={{fontSize:'.72rem',color:'var(--tx3)'}}>{prev}</span>
+                      <span style={{fontSize:'.7rem',color:'var(--tx3)'}}>→</span>
+                      <span style={{fontSize:'.82rem',fontWeight:700}}>{curr}</span>
+                      {pct!==null&&(
+                        <span style={{fontSize:'.66rem',fontWeight:700,
+                          color:up?'var(--gn)':pct<0?'var(--rd)':'var(--tx3)',
+                          background:up?'var(--gn2)':pct<0?'var(--rd2)':'transparent',
+                          padding:'2px 7px',borderRadius:20,minWidth:36,textAlign:'center'}}>
+                          {pct===0?'—':(up?'+':'')+pct+'%'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </Slide>
+          )}
 
         </> : (
           <div style={{textAlign:'center',padding:'40px 0',color:'var(--tx2)'}}>No runs in {selYear}.</div>

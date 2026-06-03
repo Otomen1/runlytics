@@ -1,17 +1,20 @@
 import React, { useState, useMemo } from 'react';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import { ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { SH } from '../common/SH.jsx';
 import { fmtKm, fmtDur, fmtPace, fmtDateS } from '../../utils/formatters.js';
-import { computeRacePRs } from '../../utils/analytics.js';
+import { computeRacePRs, computeAtlCtl, predictRaceTimes } from '../../utils/analytics.js';
 import { SHOES_KEY } from '../../constants/keys.js';
 import { DEFAULT_SHOE_MAX_KM, SHOE_WARN_THRESHOLD } from '../../constants/limits.js';
 
 export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onViewYearReview,onManageShoes}){
   const[range,setRange]=useState(8);
+  const[atlRange,setAtlRange]=useState(90);
   const runs=acts.filter(a=>a.type==="Run"||a.type==="Walk");
   const totalKm=runs.reduce((s,a)=>s+a.distanceKm,0);
   const weeklyData=(analytics.weeklyKm||[]).slice(-range);
   const racePRs=useMemo(()=>computeRacePRs(acts),[acts]);
+  const atlCtl=useMemo(()=>computeAtlCtl(acts,atlRange),[acts,atlRange]);
+  const predictions=useMemo(()=>predictRaceTimes(racePRs),[racePRs]);
   const races=useMemo(()=>acts.filter(a=>a.isRace).sort((a,b)=>b.dateTs-a.dateTs),[acts]);
   const shoes=useMemo(()=>{try{return JSON.parse(localStorage.getItem(SHOES_KEY)||'[]');}catch{return[];}}, []);
   const shoeKm=useMemo(()=>{const m={};acts.forEach(a=>{if(a.shoeId)m[a.shoeId]=(m[a.shoeId]||0)+a.distanceKm;});return m;},[acts]);
@@ -108,6 +111,60 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onView
           <div style={{fontSize:".72rem",color:"var(--tx3)",marginTop:6,textAlign:"center"}}>Training stress based on distance × effort</div>
         </div>
       )}
+      {atlCtl.length>7&&(
+        <div className="card a2" style={{padding:16,marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <SH title="Fitness & Fatigue"/>
+            <div style={{display:"flex",gap:5}}>
+              {[30,60,90].map(d=><button key={d} className={"pill "+(atlRange===d?"on":"")} onClick={()=>setAtlRange(d)}>{d}d</button>)}
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={140}>
+            <LineChart data={atlCtl} margin={{top:4,right:4,bottom:0,left:-20}}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,.06)" vertical={false}/>
+              <XAxis dataKey="date" tick={{fill:"var(--tx3)",fontSize:9}} axisLine={false} tickLine={false}
+                tickFormatter={d=>d?d.slice(5):''}
+                interval={Math.floor(atlCtl.length/4)}/>
+              <YAxis tick={{fill:"var(--tx3)",fontSize:9}} axisLine={false} tickLine={false} width={32}/>
+              <Tooltip cursor={{stroke:"rgba(255,255,255,.08)"}} content={({active,payload,label})=>{
+                if(!active||!payload||!payload.length)return null;
+                const c=payload.find(p=>p.dataKey==='ctl'),a=payload.find(p=>p.dataKey==='atl');
+                const form=c&&a?Math.round((c.value-a.value)*10)/10:null;
+                return(
+                  <div className="chart-tip">
+                    <div style={{fontSize:'.7rem',color:'var(--tx3)',marginBottom:4}}>{label}</div>
+                    {c&&<div style={{fontSize:'.76rem',color:'#3b82f6',fontWeight:600}}>Fitness: {c.value}</div>}
+                    {a&&<div style={{fontSize:'.76rem',color:'#ef4444',fontWeight:600}}>Fatigue: {a.value}</div>}
+                    {form!==null&&<div style={{fontSize:'.72rem',color:form>0?'var(--gn)':'var(--rd)',marginTop:3}}>Form: {form>0?'+':''}{form}</div>}
+                  </div>
+                );
+              }}/>
+              <Line dataKey="ctl" stroke="#3b82f6" dot={false} strokeWidth={2}/>
+              <Line dataKey="atl" stroke="#ef4444" dot={false} strokeWidth={2}/>
+            </LineChart>
+          </ResponsiveContainer>
+          <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:8}}>
+            {[["#3b82f6","Fitness (CTL)"],["#ef4444","Fatigue (ATL)"]].map(([c,l])=>(
+              <div key={l} style={{display:"flex",alignItems:"center",gap:4}}>
+                <div style={{width:16,height:2,background:c,borderRadius:1}}/>
+                <span style={{fontSize:".68rem",color:"var(--tx3)"}}>{l}</span>
+              </div>
+            ))}
+          </div>
+          {(()=>{
+            const last=atlCtl[atlCtl.length-1];
+            const form=last?last.form:0;
+            const label=form>10?"Peak Form":form>5?"Good Form":form<-10?"Heavy Load":form<-5?"Fatigued":"Neutral";
+            return(
+              <div style={{marginTop:8,fontSize:".74rem",textAlign:"center",padding:"6px 10px",borderRadius:9,
+                background:form>5?"var(--gn2)":form<-5?"var(--rd2)":"var(--s2)",
+                color:form>5?"var(--gn)":form<-5?"var(--rd)":"var(--tx2)",fontWeight:600}}>
+                {label} · Form: {form>0?"+":""}{form}
+              </div>
+            );
+          })()}
+        </div>
+      )}
       <div className="a2" style={{marginBottom:14}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
           <SH title="Personal Records"/>
@@ -135,6 +192,25 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onView
         </div>
         {!racePRs.length&&acts.length>0&&<div style={{marginTop:12,padding:"12px 14px",borderRadius:12,background:"var(--s2)",fontSize:".78rem",color:"var(--tx2)",lineHeight:1.7}}>Run near standard race distances (5K, 10K, 21K, 42K) to see PRs here.</div>}
       </div>
+      {predictions.length>0&&(
+        <div className="card a2" style={{padding:16,marginBottom:14}}>
+          <SH title="Pace Predictor"/>
+          <div style={{fontSize:".72rem",color:"var(--tx3)",margin:"6px 0 12px"}}>Riegel formula based on your {predictions[0].source} PR</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            {predictions.map(p=>(
+              <div key={p.cat} style={{borderRadius:10,padding:"10px 12px",
+                border:p.isBase?"1.5px solid rgba(249,115,22,.4)":"1px solid var(--bd)",
+                background:p.isBase?"rgba(249,115,22,.06)":"var(--s2)"}}>
+                <div style={{fontSize:".6rem",fontWeight:700,color:p.isBase?"var(--or)":"var(--tx3)",textTransform:"uppercase",letterSpacing:".08em",marginBottom:4}}>
+                  {p.cat}{p.isBase?" · actual":""}
+                </div>
+                <div style={{fontSize:"1.05rem",fontWeight:800,fontFamily:"monospace",color:p.isBase?"var(--or)":"var(--tx)"}}>{fmtDur(p.predictedSec)}</div>
+                {p.actualSec&&!p.isBase&&<div style={{fontSize:".62rem",color:"var(--gn)",marginTop:3}}>Actual: {fmtDur(p.actualSec)}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {overallPRs&&(
         <div className="card a3" style={{padding:16,marginBottom:14}}>
           <SH title="Overall Bests"/>

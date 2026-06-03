@@ -171,3 +171,37 @@ export function computeSplits(act){
 }
 
 export function computeEarnedBadges(acts){return BADGE_DEFS.filter(b=>{try{return b.check(acts);}catch(e){return false;}}).map(b=>b.id);}
+
+export function computeAtlCtl(acts,displayDays=90){
+  if(!acts||!acts.length)return[];
+  const loadByDate={};
+  acts.forEach(a=>{if(a.date)loadByDate[a.date]=(loadByDate[a.date]||0)+(a.trainingLoad||0);});
+  const dates=Object.keys(loadByDate).sort();
+  if(!dates.length)return[];
+  const start=new Date(dates[0]+'T12:00:00Z');
+  const end=new Date();end.setUTCHours(12,0,0,0);
+  let atl=0,ctl=0;
+  const ATL_K=1/7,CTL_K=1/42;
+  const all=[];
+  for(let d=new Date(start);d<=end;d.setUTCDate(d.getUTCDate()+1)){
+    const key=d.toISOString().slice(0,10);
+    const load=loadByDate[key]||0;
+    atl=atl*(1-ATL_K)+load*ATL_K;
+    ctl=ctl*(1-CTL_K)+load*CTL_K;
+    all.push({date:key,atl:Math.round(atl*10)/10,ctl:Math.round(ctl*10)/10,form:Math.round((ctl-atl)*10)/10});
+  }
+  return all.slice(-displayDays);
+}
+
+export function predictRaceTimes(prs){
+  const DISTS=[{cat:'5K',dist:5},{cat:'10K',dist:10},{cat:'HM',dist:21.0975},{cat:'Marathon',dist:42.195}];
+  const avail=prs.filter(p=>p.best&&p.best.movingTimeSec>0&&p.best.distanceKm>0);
+  if(!avail.length)return[];
+  const base=avail.reduce((b,p)=>p.best.avgPaceSecKm<b.best.avgPaceSecKm?p:b);
+  const baseDist=base.best.distanceKm,baseTime=base.best.movingTimeSec;
+  return DISTS.map(r=>{
+    const actual=avail.find(p=>p.cat===r.cat);
+    const predicted=Math.round(baseTime*Math.pow(r.dist/baseDist,1.06));
+    return{cat:r.cat,dist:r.dist,predictedSec:predicted,actualSec:actual?actual.best.movingTimeSec:null,isBase:base.cat===r.cat,source:base.cat};
+  });
+}

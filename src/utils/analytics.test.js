@@ -7,6 +7,8 @@ import {
   computeYearWrapped,
   computeTierProgress,
   computeEarnedBadges,
+  computeAtlCtl,
+  predictRaceTimes,
 } from './analytics.js';
 
 // Minimal activity factory
@@ -202,5 +204,108 @@ describe('computeEarnedBadges', () => {
   });
   it('earns half marathon badge for single 21km run', () => {
     expect(computeEarnedBadges([makeAct({ distanceKm: 21.1 })])).toContain('long_21');
+  });
+});
+
+describe('computeAtlCtl', () => {
+  it('returns empty array for no activities', () => {
+    expect(computeAtlCtl([])).toEqual([]);
+  });
+  it('returns array of objects with date, atl, ctl, form', () => {
+    const acts = [makeAct({ date: '2024-01-10', trainingLoad: 80 })];
+    const result = computeAtlCtl(acts, 30);
+    expect(result.length).toBeGreaterThan(0);
+    const last = result[result.length - 1];
+    expect(last).toHaveProperty('date');
+    expect(last).toHaveProperty('atl');
+    expect(last).toHaveProperty('ctl');
+    expect(last).toHaveProperty('form');
+  });
+  it('ATL rises faster than CTL after high-load days', () => {
+    // 10 consecutive high-load days ending today — both values are current
+    const today = new Date();
+    today.setUTCHours(12, 0, 0, 0);
+    const acts = Array.from({ length: 10 }, (_, i) => {
+      const d = new Date(today);
+      d.setUTCDate(d.getUTCDate() - (9 - i));
+      return makeAct({ date: d.toISOString().slice(0, 10), trainingLoad: 100 });
+    });
+    const result = computeAtlCtl(acts, 90);
+    const last = result[result.length - 1];
+    // ATL (7-day window) responds faster than CTL (42-day window)
+    expect(last.atl).toBeGreaterThan(last.ctl);
+    expect(last.form).toBeLessThan(0);
+  });
+  it('respects displayDays limit', () => {
+    const today = new Date();
+    today.setUTCHours(12, 0, 0, 0);
+    const acts = Array.from({ length: 5 }, (_, i) => {
+      const d = new Date(today);
+      d.setUTCDate(d.getUTCDate() - (4 - i));
+      return makeAct({ date: d.toISOString().slice(0, 10), trainingLoad: 50 });
+    });
+    const result = computeAtlCtl(acts, 30);
+    expect(result.length).toBeLessThanOrEqual(30);
+  });
+  it('form equals ctl minus atl', () => {
+    const acts = [makeAct({ date: '2024-01-10', trainingLoad: 60 })];
+    const result = computeAtlCtl(acts, 30);
+    result.forEach(r => {
+      expect(r.form).toBeCloseTo(r.ctl - r.atl, 0);
+    });
+  });
+});
+
+describe('predictRaceTimes', () => {
+  it('returns empty array for empty prs', () => {
+    expect(predictRaceTimes([])).toEqual([]);
+  });
+  it('returns 4 predictions when base PR exists', () => {
+    const prs = [{
+      cat: '5K', best: { distanceKm: 5.0, movingTimeSec: 1200, avgPaceSecKm: 240 },
+      top3: [], history: [],
+    }];
+    expect(predictRaceTimes(prs)).toHaveLength(4);
+  });
+  it('marks the base PR as isBase=true', () => {
+    const prs = [{
+      cat: '5K', best: { distanceKm: 5.0, movingTimeSec: 1200, avgPaceSecKm: 240 },
+      top3: [], history: [],
+    }];
+    const results = predictRaceTimes(prs);
+    const base = results.find(r => r.isBase);
+    expect(base).toBeDefined();
+    expect(base.cat).toBe('5K');
+    expect(base.predictedSec).toBe(1200);
+  });
+  it('applies Riegel formula correctly for 10K from 5K', () => {
+    // T2 = T1 * (D2/D1)^1.06
+    const prs = [{
+      cat: '5K', best: { distanceKm: 5.0, movingTimeSec: 1200, avgPaceSecKm: 240 },
+      top3: [], history: [],
+    }];
+    const results = predictRaceTimes(prs);
+    const tenK = results.find(r => r.cat === '10K');
+    const expected = Math.round(1200 * Math.pow(10 / 5, 1.06));
+    expect(tenK.predictedSec).toBe(expected);
+  });
+  it('sets actualSec on PRs that have real data', () => {
+    const prs = [
+      { cat: '5K', best: { distanceKm: 5.0, movingTimeSec: 1200, avgPaceSecKm: 240 }, top3: [], history: [] },
+      { cat: '10K', best: { distanceKm: 10.0, movingTimeSec: 2600, avgPaceSecKm: 260 }, top3: [], history: [] },
+    ];
+    const results = predictRaceTimes(prs);
+    const tenK = results.find(r => r.cat === '10K');
+    expect(tenK.actualSec).toBe(2600);
+  });
+  it('uses fastest pace PR as base', () => {
+    const prs = [
+      { cat: '5K', best: { distanceKm: 5.0, movingTimeSec: 1500, avgPaceSecKm: 300 }, top3: [], history: [] },
+      { cat: '10K', best: { distanceKm: 10.0, movingTimeSec: 2500, avgPaceSecKm: 250 }, top3: [], history: [] },
+    ];
+    const results = predictRaceTimes(prs);
+    const base = results.find(r => r.isBase);
+    // 10K has faster pace (250 < 300), so should be chosen as base
+    expect(base.cat).toBe('10K');
   });
 });

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { getMafZones } from '../../utils/analytics.js';
+import { fmtDur, fmtPace } from '../../utils/formatters.js';
 
 export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onImport,onClose,stravaAuth,stravaSync,isOnline,onStravaConnect,onStravaSync,onStravaDisconnect}){
   const[view,setView]=useState("main");
@@ -110,6 +111,28 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
               document.body.appendChild(a);a.click();document.body.removeChild(a);
               URL.revokeObjectURL(url);
             }}>⬇️ Export JSON backup</button>
+            <button className="btn b-gh" style={{width:"100%",padding:"12px",marginBottom:10}} onClick={()=>{
+              const headers=['Date','Name','Type','Distance (km)','Time','Pace (min/km)','HR (bpm)','Elevation (m)','Mood','Notes'];
+              const rows=acts.map(a=>[
+                a.date||'',
+                '"'+(a.name||'').replace(/"/g,'""')+'"',
+                a.type||'Run',
+                (+(a.distanceKm||0)).toFixed(2),
+                fmtDur(a.movingTimeSec||0),
+                fmtPace(a.avgPaceSecKm||0),
+                a.avgHR||'',
+                Math.round(a.elevGainM||0),
+                a.mood||'',
+                '"'+(a.notes||'').replace(/"/g,'""')+'"',
+              ]);
+              const csv=[headers.join(','),...rows.map(r=>r.join(','))].join('\n');
+              const blob=new Blob([csv],{type:"text/csv"});
+              const url=URL.createObjectURL(blob);
+              const a=document.createElement("a");
+              a.href=url;a.download="runlytics-export-"+new Date().toISOString().slice(0,10)+".csv";
+              document.body.appendChild(a);a.click();document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }}>📊 Export CSV</button>
             <div style={{borderTop:"1px solid var(--bd)",paddingTop:16,marginTop:4}}>
               <div style={{fontSize:".76rem",fontWeight:600,marginBottom:8}}>Restore from backup</div>
               <div style={{fontSize:".74rem",color:"var(--tx2)",marginBottom:12,lineHeight:1.6}}>Import a previously exported JSON file. Existing activities are kept — duplicates are skipped.</div>
