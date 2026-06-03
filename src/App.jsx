@@ -26,7 +26,8 @@ import { Styles } from './styles/GlobalStyles.jsx';
 import { HomeTab }         from './components/Tabs/HomeTab.jsx';
 const StatsTab = lazy(()=>import('./components/Tabs/StatsTab.jsx').then(m=>({default:m.StatsTab})));
 import { HRTab }           from './components/Tabs/HRTab.jsx';
-import { TasksTab }        from './components/Tabs/TasksTab.jsx';
+import { TasksTab }        from './components/Tabs/TasksTab.jsx'; // kept, not in nav
+import { MemoriesTab }     from './components/Tabs/MemoriesTab.jsx';
 import { AchievementsTab } from './components/Tabs/AchievementsTab.jsx';
 
 // ── Overlays & Modals ────────────────────────────────────────────────────────
@@ -107,7 +108,7 @@ const App=()=>{
   const[hrProfile,setHRProfile]=useState(loadHRProfile);
   const[profile,setProfile]=useState(loadProfile);
   const[tasks,setTasksRaw]=useState(loadTasks);
-  const[tab,setTabRaw]=useState(()=>localStorage.getItem(TAB_KEY)||"home");
+  const[tab,setTabRaw]=useState(()=>{const t=localStorage.getItem(TAB_KEY)||"home";return t==="tasks"?"home":t;});
   const[detail,setDetail]=useState(null);
   const[showUpload,setShowUpload]=useState(false);
   const[showSettings,setShowSettings]=useState(false);
@@ -467,7 +468,7 @@ const App=()=>{
             {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} tasks={tasks} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings}/>}
             {tab==="stats"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/></Suspense>}
             {tab==="hr"&&<HRTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings}/>}
-            {tab==="tasks"&&<TasksTab tasks={tasks} setTasks={setTasks} hrProfile={hrProfile}/>}
+            {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail}/>}
             {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={newTiers}/>}
           </div>
         </div>

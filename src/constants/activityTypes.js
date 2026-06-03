@@ -7,7 +7,7 @@ export const IC_BD={"rest":"rgba(34,197,94,.18)","easy":"rgba(249,115,22,.15)","
 export const TABS=[
   {id:"home",icon:"🏠",label:"Home"},
   {id:"stats",icon:"📊",label:"Stats"},
-  {id:"hr",icon:"❤️",label:"HR Zones"},
-  {id:"tasks",icon:"✅",label:"Habits"},
+  {id:"memories",icon:"📸",label:"Memories"},
   {id:"awards",icon:"🏆",label:"Awards"},
+  {id:"hr",icon:"❤️",label:"HR"},
 ];
