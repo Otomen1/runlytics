@@ -3,6 +3,49 @@ import { SH } from '../common/SH.jsx';
 import { Ring } from '../common/Ring.jsx';
 import { getMafHR, getMafZones, computeZones } from '../../utils/analytics.js';
 
+function StreakCalendar({ acts }) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const monthLabel = now.toLocaleString('default', { month: 'long', year: 'numeric' });
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDow = new Date(year, month, 1).getDay(); // 0=Sun
+  const runDays = useMemo(() => {
+    const s = new Set();
+    acts.forEach(a => { if (a.date && a.date.startsWith(`${year}-${String(month+1).padStart(2,'0')}`)) s.add(+a.date.slice(8,10)); });
+    return s;
+  }, [acts, year, month]);
+  const todayD = now.getDate();
+  // Build grid cells: empty slots + day cells
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+  const DAY_LABELS = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  return (
+    <div className="card a1" style={{padding:16,marginBottom:14}}>
+      <SH title="Streak Calendar" sub={monthLabel}/>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:3,marginBottom:6}}>
+        {DAY_LABELS.map(d=>(
+          <div key={d} style={{textAlign:'center',fontSize:'.58rem',fontWeight:700,color:'var(--tx3)',letterSpacing:'.04em',paddingBottom:4}}>{d}</div>
+        ))}
+        {cells.map((d,i)=> d===null ? <div key={'e'+i}/> : (
+          <div key={d} style={{
+            aspectRatio:'1',borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',
+            fontSize:'.7rem',fontWeight:d===todayD?700:400,
+            background: runDays.has(d) ? 'var(--or)' : d===todayD ? 'var(--bd)' : 'transparent',
+            color: runDays.has(d) ? '#fff' : d===todayD ? 'var(--tx)' : d<todayD ? 'var(--tx2)' : 'var(--tx3)',
+            border: d===todayD&&!runDays.has(d) ? '1px solid var(--bd2)' : 'none',
+          }}>{d}</div>
+        ))}
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:6,marginTop:8}}>
+        <div style={{width:10,height:10,borderRadius:3,background:'var(--or)'}}/>
+        <span style={{fontSize:'.7rem',color:'var(--tx2)'}}>{runDays.size} run day{runDays.size!==1?'s':''} this month</span>
+      </div>
+    </div>
+  );
+}
+
 export function HRTab({acts,hrProfile,onEditHR}){
   const mafHR=getMafHR(hrProfile);
   const runsWithHR=acts.filter(a=>a.avgHR&&a.distanceKm>0);
@@ -16,6 +59,7 @@ export function HRTab({acts,hrProfile,onEditHR}){
   },[last5,mafHR]);
   return(
     <div style={{padding:"4px 0 32px"}}>
+      <StreakCalendar acts={acts}/>
       <div className="card a0" style={{padding:20,marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
           <div style={{width:64,height:64,borderRadius:18,background:"rgba(249,115,22,.1)",border:"1px solid rgba(249,115,22,.2)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
@@ -66,4 +110,3 @@ export function HRTab({acts,hrProfile,onEditHR}){
     </div>
   );
 }
-

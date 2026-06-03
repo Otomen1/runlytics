@@ -9,5 +9,5 @@ export const TABS=[
   {id:"stats",icon:"📊",label:"Stats"},
   {id:"memories",icon:"📸",label:"Memories"},
   {id:"awards",icon:"🏆",label:"Awards"},
-  {id:"hr",icon:"❤️",label:"HR"},
+  {id:"hr",icon:"❤️",label:"More"},
 ];
