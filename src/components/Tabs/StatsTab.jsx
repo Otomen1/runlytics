@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { SH } from '../common/SH.jsx';
 import { fmtKm, fmtDur, fmtPace, fmtDateS } from '../../utils/formatters.js';
-import { computeRacePRs, computeAtlCtl, predictRaceTimes } from '../../utils/analytics.js';
+import { computeRacePRs, computeAtlCtl, predictRaceTimes, estimateVO2max } from '../../utils/analytics.js';
 import { SHOES_KEY } from '../../constants/keys.js';
 import { DEFAULT_SHOE_MAX_KM, SHOE_WARN_THRESHOLD } from '../../constants/limits.js';
 
@@ -20,6 +20,7 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onView
     return computeRacePRs(acts.filter(a=>a.date>=cutoff.toISOString().slice(0,10)));
   },[acts]);
   const predictions=useMemo(()=>predictRaceTimes(racePRs,recentRacePRs,currentForm),[racePRs,recentRacePRs,currentForm]);
+  const vo2maxEst=useMemo(()=>estimateVO2max(racePRs),[racePRs]);
   const races=useMemo(()=>acts.filter(a=>a.isRace).sort((a,b)=>b.dateTs-a.dateTs),[acts]);
   const shoes=useMemo(()=>{try{return JSON.parse(localStorage.getItem(SHOES_KEY)||'[]');}catch{return[];}}, []);
   const shoeKm=useMemo(()=>{const m={};acts.forEach(a=>{if(a.shoeId)m[a.shoeId]=(m[a.shoeId]||0)+a.distanceKm;});return m;},[acts]);
@@ -197,6 +198,45 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onView
         </div>
         {!racePRs.length&&acts.length>0&&<div style={{marginTop:12,padding:"12px 14px",borderRadius:12,background:"var(--s2)",fontSize:".78rem",color:"var(--tx2)",lineHeight:1.7}}>Run near standard race distances (5K, 10K, 21K, 42K) to see PRs here.</div>}
       </div>
+      {vo2maxEst&&(
+        <div className="card a3" style={{padding:16,marginBottom:14}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+            <SH title="VO₂max Estimate"/>
+            <span style={{fontSize:'.72rem',fontWeight:700,padding:'3px 10px',borderRadius:20,
+              color:vo2maxEst.color,background:vo2maxEst.color+'22',border:`1px solid ${vo2maxEst.color}44`}}>
+              {vo2maxEst.label}
+            </span>
+          </div>
+          <div style={{display:'flex',alignItems:'flex-end',gap:6,marginBottom:14}}>
+            <div style={{fontSize:'2.6rem',fontWeight:800,color:vo2maxEst.color,lineHeight:1,letterSpacing:'-.02em'}}>{vo2maxEst.vo2max}</div>
+            <div style={{fontSize:'.62rem',color:'var(--tx3)',paddingBottom:5,letterSpacing:'.04em'}}>ml / kg / min</div>
+          </div>
+          <div style={{position:'relative',marginBottom:16}}>
+            <div style={{height:8,borderRadius:4,background:'linear-gradient(90deg,#9ca3af 0%,#3b82f6 25%,#22c55e 45%,#f97316 65%,#8b5cf6 82%,#f59e0b 100%)'}}/>
+            <div style={{
+              position:'absolute',top:-3,
+              left:`${Math.min(97,Math.max(3,(vo2maxEst.vo2max-30)/40*100))}%`,
+              transform:'translateX(-50%)',
+              width:14,height:14,borderRadius:7,
+              background:vo2maxEst.color,border:'2.5px solid var(--bg)',
+              boxShadow:'0 0 0 1.5px '+vo2maxEst.color,
+            }}/>
+            <div style={{display:'flex',justifyContent:'space-between',marginTop:5,fontSize:'.6rem',color:'var(--tx3)'}}>
+              <span>30</span><span>40</span><span>50</span><span>60</span><span>70+</span>
+            </div>
+          </div>
+          {vo2maxEst.estimates.length>1&&(
+            <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:8}}>
+              {vo2maxEst.estimates.map(e=>(
+                <div key={e.cat} style={{fontSize:'.7rem',fontWeight:e.cat===vo2maxEst.basedOn?700:400,color:e.cat===vo2maxEst.basedOn?'var(--tx)':'var(--tx3)'}}>
+                  {e.cat}: <span style={{color:e.cat===vo2maxEst.basedOn?vo2maxEst.color:'var(--tx2)'}}>{e.vo2max}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{fontSize:'.68rem',color:'var(--tx3)'}}>Jack Daniels VDOT from {vo2maxEst.basedOn} PR · ±3 ml/kg/min accuracy</div>
+        </div>
+      )}
       {predictions.length>0&&(()=>{
         const p0=predictions[0];
         const pctAdj=Math.round((1-p0.formFactor)*100);

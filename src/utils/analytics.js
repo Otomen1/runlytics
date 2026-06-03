@@ -193,6 +193,33 @@ export function computeAtlCtl(acts,displayDays=90){
   return all.slice(-displayDays);
 }
 
+function jackDanielsVO2(distKm,timeSec){
+  const v=distKm*1000/(timeSec/60);
+  const t=timeSec/60;
+  const pct=0.8+0.1894393*Math.exp(-0.012778*t)+0.2989558*Math.exp(-0.1932605*t);
+  const vo2=-4.60+0.182258*v+0.000104*v*v;
+  return Math.max(10,Math.round(vo2/pct*10)/10);
+}
+
+const VO2_CATS=[
+  {min:60,label:'Elite',        color:'#f59e0b'},
+  {min:55,label:'Advanced',     color:'#8b5cf6'},
+  {min:50,label:'Excellent',    color:'#f97316'},
+  {min:45,label:'Good',         color:'#22c55e'},
+  {min:40,label:'Above Average',color:'#3b82f6'},
+  {min:35,label:'Average',      color:'#6b7280'},
+  {min:0, label:'Below Average',color:'#9ca3af'},
+];
+
+export function estimateVO2max(prs){
+  const valid=(prs||[]).filter(p=>p.best&&p.best.movingTimeSec>0&&p.best.distanceKm>0);
+  if(!valid.length)return null;
+  const estimates=valid.map(p=>({cat:p.cat,vo2max:jackDanielsVO2(p.best.distanceKm,p.best.movingTimeSec)}));
+  const best=estimates.reduce((b,e)=>e.vo2max>b.vo2max?e:b);
+  const{label,color}=VO2_CATS.find(c=>best.vo2max>=c.min)||VO2_CATS[VO2_CATS.length-1];
+  return{vo2max:best.vo2max,label,color,basedOn:best.cat,estimates};
+}
+
 export function predictRaceTimes(allPRs,recentPRs=[],form=0){
   const DISTS=[{cat:'5K',dist:5},{cat:'10K',dist:10},{cat:'HM',dist:21.0975},{cat:'Marathon',dist:42.195}];
   // Prefer recent 6-month PRs; fall back to all-time when no recent race data

@@ -9,6 +9,7 @@ import {
   computeEarnedBadges,
   computeAtlCtl,
   predictRaceTimes,
+  estimateVO2max,
 } from './analytics.js';
 
 // Minimal activity factory
@@ -253,6 +254,55 @@ describe('computeAtlCtl', () => {
     result.forEach(r => {
       expect(r.form).toBeCloseTo(r.ctl - r.atl, 0);
     });
+  });
+});
+
+describe('estimateVO2max', () => {
+  const pr5k  = { cat:'5K',  best:{ distanceKm:5.0,  movingTimeSec:1200, avgPaceSecKm:240 }, top3:[], history:[] };
+  const pr10k = { cat:'10K', best:{ distanceKm:10.0, movingTimeSec:2520, avgPaceSecKm:252 }, top3:[], history:[] };
+
+  it('returns null for empty array', () => { expect(estimateVO2max([])).toBeNull(); });
+  it('returns null for null input', () => { expect(estimateVO2max(null)).toBeNull(); });
+  it('returns null when no PR has a best', () => {
+    expect(estimateVO2max([{cat:'5K',best:null}])).toBeNull();
+  });
+  it('returns object with required fields', () => {
+    const r = estimateVO2max([pr5k]);
+    expect(r).toHaveProperty('vo2max');
+    expect(r).toHaveProperty('label');
+    expect(r).toHaveProperty('color');
+    expect(r).toHaveProperty('basedOn');
+    expect(r).toHaveProperty('estimates');
+  });
+  it('computes correct VO2max for 20-min 5K (Jack Daniels VDOT ≈ 49.8)', () => {
+    const r = estimateVO2max([pr5k]);
+    expect(r.vo2max).toBeCloseTo(49.8, 0);
+  });
+  it('uses the PR that yields the highest VO2max as basedOn', () => {
+    // pr5k gives ~49.8, pr10k (42-min 10K) gives ~49.1 — 5K wins
+    const r = estimateVO2max([pr5k, pr10k]);
+    expect(r.basedOn).toBe('5K');
+  });
+  it('includes an estimate entry for each PR', () => {
+    const r = estimateVO2max([pr5k, pr10k]);
+    expect(r.estimates).toHaveLength(2);
+    expect(r.estimates.map(e=>e.cat)).toContain('5K');
+    expect(r.estimates.map(e=>e.cat)).toContain('10K');
+  });
+  it('assigns Good category for VO2max ~49.8', () => {
+    const r = estimateVO2max([pr5k]);
+    expect(r.label).toBe('Good');
+  });
+  it('assigns Elite category for fast runner', () => {
+    const elitePR = { cat:'5K', best:{ distanceKm:5.0, movingTimeSec:780, avgPaceSecKm:156 }, top3:[], history:[] };
+    const r = estimateVO2max([elitePR]);
+    expect(r.label).toBe('Elite');
+    expect(r.vo2max).toBeGreaterThanOrEqual(60);
+  });
+  it('vo2max is a positive finite number', () => {
+    const r = estimateVO2max([pr5k]);
+    expect(r.vo2max).toBeGreaterThan(0);
+    expect(isFinite(r.vo2max)).toBe(true);
   });
 });
 
