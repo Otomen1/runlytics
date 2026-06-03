@@ -3,7 +3,7 @@ import { MiniMapThumb } from '../Map/MiniMapThumb.jsx';
 import { ACT_ICN, ACT_CLR } from '../../constants/activityTypes.js';
 import { fmtKm, fmtDur, fmtPace, fmtDate, fmtDateS } from '../../utils/formatters.js';
 
-const ITEM_H = 80;
+const ITEM_H = 88;
 const BUFFER  = 5;
 
 const MOODS = [
@@ -120,39 +120,51 @@ export function AllRunsView({ acts, onSelectAct, onClose }) {
                   <div key={a.id}
                     onClick={()=>compareMode?toggleSelect(a):onSelectAct(a)}
                     style={{
-                      height:ITEM_H, marginBottom:8, borderRadius:14, overflow:'hidden',
-                      background:'var(--s2)', border:'1px solid '+(isSel&&compareMode?'var(--or)':'var(--bd)'),
+                      height:ITEM_H, marginBottom:8, borderRadius:16, overflow:'hidden',
+                      background:'var(--s2)',
+                      border:'1px solid '+(isSel&&compareMode?'var(--or)':'var(--bd)'),
                       display:'flex', alignItems:'stretch', cursor:'pointer',
-                      opacity:!isSel&&compareMode&&selected.length===2?0.4:1,
+                      opacity:!isSel&&compareMode&&selected.length===2?0.35:1,
                       transition:'opacity .15s,border-color .15s',
+                      boxShadow:'0 1px 3px rgba(0,0,0,.18)',
                     }}>
-                    {/* Left accent */}
-                    <div style={{width:3,background:clr,flexShrink:0}}/>
-                    {/* Compare badge */}
+                    {/* Left accent bar */}
+                    <div style={{width:4,background:`linear-gradient(180deg,${clr},${clr}88)`,flexShrink:0}}/>
+
+                    {/* Compare circle */}
                     {compareMode && (
-                      <div style={{width:28,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                        <div style={{width:18,height:18,borderRadius:'50%',border:'2px solid '+(isSel?'var(--or)':'var(--bd)'),background:isSel?'var(--or)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'.62rem',fontWeight:700,color:'#fff'}}>
+                      <div style={{width:32,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                        <div style={{width:20,height:20,borderRadius:'50%',border:'2px solid '+(isSel?'var(--or)':'var(--bd)'),background:isSel?'var(--or)':'transparent',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'.65rem',fontWeight:800,color:'#fff'}}>
                           {isSel?selIdx+1:''}
                         </div>
                       </div>
                     )}
-                    {/* Content */}
-                    <div style={{flex:1,minWidth:0,padding:'10px 10px 10px 12px',display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
-                      <div style={{display:'flex',alignItems:'center',gap:5}}>
-                        <span style={{fontSize:'.78rem',flexShrink:0}}>{ACT_ICN[a.type]||'🏃'}</span>
-                        <div style={{fontWeight:700,fontSize:'.86rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>{a.name}</div>
-                        {a.mood&&<span style={{fontSize:'.78rem',flexShrink:0}}>{MOOD_EMOJI[a.mood]}</span>}
-                        {a.isRace&&<span style={{fontSize:'.6rem',background:'rgba(249,115,22,.15)',color:'var(--or)',padding:'1px 5px',borderRadius:6,fontWeight:700,flexShrink:0}}>🏁</span>}
+
+                    {/* Main content */}
+                    <div style={{flex:1,minWidth:0,padding:'11px 8px 11px 14px',display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
+                      {/* Row 1: name + mood/race */}
+                      <div style={{display:'flex',alignItems:'center',gap:6}}>
+                        <div style={{fontWeight:700,fontSize:'.88rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,letterSpacing:'-.01em'}}>{a.name}</div>
+                        {a.mood&&<span style={{fontSize:'.8rem',lineHeight:1,flexShrink:0}}>{MOOD_EMOJI[a.mood]}</span>}
+                        {a.isRace&&<span style={{fontSize:'.58rem',background:'rgba(249,115,22,.15)',color:'var(--or)',padding:'2px 6px',borderRadius:20,fontWeight:700,flexShrink:0,letterSpacing:'.04em'}}>RACE</span>}
                       </div>
-                      <div style={{display:'flex',alignItems:'baseline',gap:8}}>
-                        <span style={{fontSize:'1.2rem',fontWeight:800,color:clr,lineHeight:1,letterSpacing:'-.02em'}}>{fmtKm(a.distanceKm)}<span style={{fontSize:'.6rem',fontWeight:500,color:'var(--tx3)',marginLeft:2}}>km</span></span>
-                        <span style={{fontSize:'.7rem',color:'var(--tx2)'}}>{fmtPace(a.avgPaceSecKm)}/km</span>
-                        {a.avgHR&&<span style={{fontSize:'.7rem',color:'var(--tx2)'}}>HR {a.avgHR}</span>}
+                      {/* Row 2: big distance + stats */}
+                      <div style={{display:'flex',alignItems:'baseline',gap:10}}>
+                        <span style={{fontSize:'1.35rem',fontWeight:900,color:clr,lineHeight:1,letterSpacing:'-.03em'}}>{fmtKm(a.distanceKm)}<span style={{fontSize:'.58rem',fontWeight:500,color:'var(--tx3)',marginLeft:2}}>km</span></span>
+                        <span style={{fontSize:'.72rem',color:'var(--tx2)',fontWeight:500}}>{fmtPace(a.avgPaceSecKm)}/km</span>
+                        {a.avgHR&&<span style={{fontSize:'.72rem',color:'var(--tx2)',fontWeight:500}}>❤ {a.avgHR}</span>}
                       </div>
-                      <div style={{fontSize:'.64rem',color:'var(--tx3)'}}>{fmtDate(a.date)} · {fmtDur(a.movingTimeSec)}</div>
+                      {/* Row 3: date + duration */}
+                      <div style={{display:'flex',alignItems:'center',gap:5,fontSize:'.63rem',color:'var(--tx3)',letterSpacing:'.01em'}}>
+                        <span>{fmtDate(a.date)}</span>
+                        <span style={{opacity:.4}}>·</span>
+                        <span>{fmtDur(a.movingTimeSec)}</span>
+                        {a.elevGainM>0&&<><span style={{opacity:.4}}>·</span><span>↑{Math.round(a.elevGainM)}m</span></>}
+                      </div>
                     </div>
+
                     {/* Mini map */}
-                    <div style={{width:62,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',padding:'8px 8px 8px 0'}}>
+                    <div style={{width:64,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',padding:'10px 10px 10px 0'}}>
                       <MiniMapThumb route={a.route} color={clr}/>
                     </div>
                   </div>
