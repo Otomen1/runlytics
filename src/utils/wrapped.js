@@ -45,7 +45,7 @@ export function computeWrapped(acts, yearMonth) {
 
 export function getMonthsWithActivity(acts) {
   const seen = new Set();
-  acts.forEach(a => { if (a.date) seen.add(monthOf(a.dateTs || new Date(a.date).getTime())); });
+  acts.forEach(a => { if (a.date && a.date.length >= 7) seen.add(a.date.slice(0, 7)); });
   return Array.from(seen).sort((a, b) => b.localeCompare(a)); // newest first
 }
 
