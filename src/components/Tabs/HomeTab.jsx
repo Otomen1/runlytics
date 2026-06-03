@@ -1,10 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Ring } from '../common/Ring.jsx';
 import { SH } from '../common/SH.jsx';
 import { ACT_CLR } from '../../constants/activityTypes.js';
 import { fmtKm, fmtPace, fmtDate, todayKey, greet } from '../../utils/formatters.js';
-import { getMafHR } from '../../utils/analytics.js';
+import { getMafHR, computeAtlCtl } from '../../utils/analytics.js';
 import { getPhotos } from '../../db/indexedDB.js';
+
+const CONDITIONS = [
+  { minForm:  8, label: "Energetic",  emoji: "⚡", color: "#f97316", desc: "Peak form — great day for a hard effort or race pace." },
+  { minForm:  3, label: "Fresh",      emoji: "✨", color: "#22c55e", desc: "You're in good shape. Solid training day ahead." },
+  { minForm: -3, label: "Balanced",   emoji: "😊", color: "#3b82f6", desc: "Normal training day. Stick to your plan." },
+  { minForm: -8, label: "Tired",      emoji: "😓", color: "#eab308", desc: "Your body is working hard. Keep it easy today." },
+  { minForm: -Infinity, label: "Fatigued", emoji: "😴", color: "#ef4444", desc: "Rest day recommended. Recovery is training too." },
+];
 
 const MOODS_MAP = {
   great:  { emoji: '😀', label: 'Great' },
@@ -18,6 +26,13 @@ const MOODS_MAP = {
 export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUpload,onViewAll,onViewMonthly,onEditGoals}){
   const lastRun=acts.length?acts.reduce((b,a)=>a.dateTs>b.dateTs?a:b):null;
   const mafHR=getMafHR(hrProfile);
+  const condition=useMemo(()=>{
+    if(!acts.length||!acts.some(a=>a.trainingLoad>0))return null;
+    const data=computeAtlCtl(acts,30);
+    if(!data.length)return null;
+    const{form}=data[data.length-1];
+    return{...(CONDITIONS.find(c=>form>=c.minForm)||CONDITIONS[CONDITIONS.length-1]),form};
+  },[acts]);
   const today=new Date();today.setHours(0,0,0,0);today.setDate(today.getDate()-((today.getDay()+6)%7));
   const thisWeekKm=acts.filter(a=>new Date(a.dateTs)>=today).reduce((s,a)=>s+a.distanceKm,0);
   const weekPct=Math.min(1,thisWeekKm/(goals.weekly||1));
@@ -63,6 +78,22 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
         )}
       </div>
     </div>
+    {condition&&(
+      <div className="card a1" style={{padding:"14px 16px",marginBottom:14,border:`1.5px solid ${condition.color}33`,background:`${condition.color}0d`}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:46,height:46,borderRadius:13,background:`${condition.color}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.5rem",flexShrink:0}}>{condition.emoji}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:".6rem",fontWeight:700,color:condition.color,letterSpacing:".1em",textTransform:"uppercase",marginBottom:3}}>Today's Condition</div>
+            <div style={{fontWeight:800,fontSize:"1rem",color:"var(--tx)",marginBottom:2}}>{condition.label}</div>
+            <div style={{fontSize:".76rem",color:"var(--tx2)",lineHeight:1.5}}>{condition.desc}</div>
+          </div>
+          <div style={{textAlign:"center",flexShrink:0}}>
+            <div style={{fontSize:"1rem",fontWeight:800,color:condition.color,lineHeight:1}}>{condition.form>0?"+":""}{condition.form}</div>
+            <div style={{fontSize:".52rem",color:"var(--tx3)",letterSpacing:".05em",marginTop:2}}>FORM</div>
+          </div>
+        </div>
+      </div>
+    )}
     {lastRun&&(
       <div className="card a2" style={{marginBottom:14,overflow:"hidden",cursor:"pointer"}} onClick={()=>onSelectAct(lastRun)}>
         {/* Top accent bar */}
