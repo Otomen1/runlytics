@@ -95,9 +95,9 @@ function MonthCard({ acts, ym, onOpen }) {
   })();
   return (
     <div className="card2" onClick={onOpen}
-      style={{cursor:'pointer',padding:'18px 12px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:8,aspectRatio:'1',textAlign:'center'}}>
-      <div style={{fontSize:'1.4rem',fontWeight:800,lineHeight:1,letterSpacing:'-.02em'}}>{mon}</div>
-      <div style={{fontSize:'.65rem',color:'var(--tx3)',fontWeight:500,letterSpacing:'.04em',textTransform:'uppercase'}}>{year}</div>
+      style={{cursor:'pointer',padding:'18px 12px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:6,aspectRatio:'1',textAlign:'center'}}>
+      <div style={{fontSize:'1.75rem',fontWeight:800,lineHeight:1,letterSpacing:'-.02em'}}>{mon}</div>
+      <div style={{fontSize:'.65rem',color:'var(--tx3)',fontWeight:500,letterSpacing:'.04em',textTransform:'uppercase',marginTop:2}}>{year}</div>
       <div style={{width:24,height:1,background:'var(--bd)',margin:'2px 0'}}/>
       <div style={{fontSize:'.92rem',fontWeight:700,color:'var(--or)',lineHeight:1}}>{fmtKm(data.totalDistance)} <span style={{fontSize:'.6rem',fontWeight:500,color:'var(--tx3)'}}>km</span></div>
       <div style={{fontSize:'.68rem',color:'var(--tx2)'}}>{data.totalRuns} runs</div>
