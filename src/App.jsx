@@ -167,6 +167,27 @@ const App=()=>{
     window.addEventListener("popstate",h);return()=>window.removeEventListener("popstate",h);
   },[]);
 
+  // Keyboard navigation: Escape closes any open overlay
+  useEffect(()=>{
+    const onKey=(e)=>{
+      if(e.key!=='Escape')return;
+      const tag=document.activeElement&&document.activeElement.tagName;
+      if(tag==='INPUT'||tag==='TEXTAREA')return;
+      if(edRef.current){setShowEditor(false);history.replaceState({_rl:"s"},"");return;}
+      if(shaRef.current){setShareAct(null);history.replaceState({_rl:"s"},"");return;}
+      if(prRef.current){setPrDetail(null);history.replaceState({_rl:"s"},"");return;}
+      if(detRef.current){setDetail(null);history.replaceState({_rl:"s"},"");return;}
+      if(setRef.current){setShowSettings(false);history.replaceState({_rl:"s"},"");return;}
+      if(arRef.current){setShowAllRuns(false);history.replaceState({_rl:"s"},"");return;}
+      if(monRef.current){setShowMonthly(false);history.replaceState({_rl:"s"},"");return;}
+      if(yrRef.current){setShowYearReview(false);history.replaceState({_rl:"s"},"");return;}
+      if(shRef.current){setShowShoes(false);history.replaceState({_rl:"s"},"");return;}
+      if(upRef.current){setShowUpload(false);history.replaceState({_rl:"s"},"");return;}
+    };
+    window.addEventListener('keydown',onKey);
+    return()=>window.removeEventListener('keydown',onKey);
+  },[]);
+
   const back=useCallback(()=>history.back(),[]);
 
   // Kick off the Strava OAuth authorize redirect (used by Settings and Onboarding).
@@ -408,11 +429,26 @@ const App=()=>{
       )}
       {/* Loading state while IDB initialises */}
       {!dbReady
-        ?<div style={{flex:1,padding:"16px 14px"}}>
-            {[1,2,3].map(i=>(
-              <div key={i} style={{background:'var(--s1)',border:'1px solid var(--bd)',borderRadius:14,padding:16,marginBottom:10,overflow:'hidden',position:'relative'}}>
-                <div style={{height:10,borderRadius:5,background:'var(--bd)',width:'55%',marginBottom:10,backgroundImage:'linear-gradient(90deg,var(--bd) 25%,var(--bd2) 50%,var(--bd) 75%)',backgroundSize:'200% 100%',animation:'shimmer 1.4s ease infinite'}}/>
-                <div style={{height:8,borderRadius:4,background:'var(--bd)',width:'35%',backgroundImage:'linear-gradient(90deg,var(--bd) 25%,var(--bd2) 50%,var(--bd) 75%)',backgroundSize:'200% 100%',animation:'shimmer 1.4s '+(i*0.15)+'s ease infinite'}}/>
+        ?<div style={{flex:1,padding:"16px 14px",overflowY:"hidden"}}>
+            {/* Fake stats header */}
+            <div style={{background:'var(--s1)',border:'1px solid var(--bd)',borderRadius:14,padding:16,marginBottom:14}}>
+              <div style={{height:10,borderRadius:5,width:'40%',marginBottom:14,backgroundImage:'linear-gradient(90deg,var(--bd) 25%,var(--bd2) 50%,var(--bd) 75%)',backgroundSize:'200% 100%',animation:'shimmer 1.4s ease infinite'}}/>
+              <div style={{display:'flex',gap:10,marginBottom:10}}>
+                {[0,1,2].map(i=>(
+                  <div key={i} style={{flex:1,height:52,borderRadius:10,backgroundImage:'linear-gradient(90deg,var(--bd) 25%,var(--bd2) 50%,var(--bd) 75%)',backgroundSize:'200% 100%',animation:`shimmer 1.4s ${i*0.12}s ease infinite`}}/>
+                ))}
+              </div>
+              <div style={{height:8,borderRadius:4,width:'60%',backgroundImage:'linear-gradient(90deg,var(--bd) 25%,var(--bd2) 50%,var(--bd) 75%)',backgroundSize:'200% 100%',animation:'shimmer 1.4s 0.3s ease infinite'}}/>
+            </div>
+            {/* Fake run card rows */}
+            {[0,1,2,3].map(i=>(
+              <div key={i} style={{background:'var(--s2)',border:'1px solid var(--bd)',borderRadius:14,padding:'13px 13px',marginBottom:9,display:'flex',alignItems:'center',gap:12}}>
+                <div style={{flex:1}}>
+                  <div style={{height:10,borderRadius:5,width:'65%',marginBottom:10,backgroundImage:'linear-gradient(90deg,var(--bd) 25%,var(--bd2) 50%,var(--bd) 75%)',backgroundSize:'200% 100%',animation:`shimmer 1.4s ${i*0.1}s ease infinite`}}/>
+                  <div style={{height:18,borderRadius:5,width:'40%',marginBottom:8,backgroundImage:'linear-gradient(90deg,var(--bd) 25%,var(--bd2) 50%,var(--bd) 75%)',backgroundSize:'200% 100%',animation:`shimmer 1.4s ${i*0.1+0.1}s ease infinite`}}/>
+                  <div style={{height:8,borderRadius:4,width:'50%',backgroundImage:'linear-gradient(90deg,var(--bd) 25%,var(--bd2) 50%,var(--bd) 75%)',backgroundSize:'200% 100%',animation:`shimmer 1.4s ${i*0.1+0.2}s ease infinite`}}/>
+                </div>
+                <div style={{width:52,height:52,borderRadius:10,flexShrink:0,backgroundImage:'linear-gradient(90deg,var(--bd) 25%,var(--bd2) 50%,var(--bd) 75%)',backgroundSize:'200% 100%',animation:`shimmer 1.4s ${i*0.1+0.15}s ease infinite`}}/>
               </div>
             ))}
           </div>

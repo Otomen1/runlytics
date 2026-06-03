@@ -16,9 +16,21 @@ export function ShareModal({act,onClose,onOpenEditor}){
 
   useEffect(()=>{const t=requestAnimationFrame(()=>setMounted(true));return()=>cancelAnimationFrame(t);},[]);
 
-  // Escape key closes the modal
+  // Keyboard navigation: Escape closes, ArrowLeft/ArrowRight changes slide
   useEffect(()=>{
-    const onKey=e=>{if(e.key==='Escape')onClose();};
+    const onKey=e=>{
+      if(e.key==='Escape'){onClose();return;}
+      if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
+        setIdx(prev=>{
+          const next=e.key==='ArrowLeft'?Math.max(0,prev-1):Math.min(SHARE_TEMPLATES.length-1,prev+1);
+          if(scrollRef.current){
+            slideRefs.current.forEach(el=>{if(el)el.style.transition='transform .3s ease,opacity .3s ease';});
+            scrollRef.current.scrollTo({left:next*scrollRef.current.offsetWidth,behavior:'smooth'});
+          }
+          return next;
+        });
+      }
+    };
     document.addEventListener('keydown',onKey);
     return()=>document.removeEventListener('keydown',onKey);
   },[onClose]);

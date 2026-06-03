@@ -1,4 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
+
+const ITEM_H = 72;
+const BUFFER = 5;
 import { MiniMapThumb } from '../Map/MiniMapThumb.jsx';
 import { ACT_ICN, ACT_CLR } from '../../constants/activityTypes.js';
 import { fmtKm, fmtDur, fmtPace, fmtDateS } from '../../utils/formatters.js';
@@ -34,6 +37,9 @@ export function AllRunsView({ acts, onSelectAct, onClose }) {
   const [compareMode, setCompareMode] = useState(false);
   const [selected, setSelected]     = useState([]);
   const [showCompare, setShowCompare] = useState(false);
+  const [scrollTop, setScrollTop]   = useState(0);
+  const listRef = useRef(null);
+  const CONTAINER_H = typeof window !== 'undefined' ? Math.min(window.innerHeight - 200, 600) : 600;
 
   const types = useMemo(() => ["all", ...new Set(acts.map(a => a.type))], [acts]);
   const hasMoods = useMemo(() => acts.some(a => a.mood), [acts]);
@@ -122,47 +128,62 @@ export function AllRunsView({ acts, onSelectAct, onClose }) {
         </div>
       </div>
 
-      {/* List */}
-      <div style={{flex:1,overflowY:"auto",padding:"10px 14px",paddingBottom:compareMode&&selected.length===2?"90px":"max(32px,calc(env(safe-area-inset-bottom)+16px))"}}>
+      {/* Virtualized List */}
+      <div ref={listRef}
+        onScroll={e => setScrollTop(e.currentTarget.scrollTop)}
+        style={{flex:1,overflowY:"auto",height:CONTAINER_H,padding:"10px 14px",paddingBottom:compareMode&&selected.length===2?"90px":"max(32px,calc(env(safe-area-inset-bottom)+16px))"}}>
         {compareMode && (
           <div style={{padding:"9px 12px",marginBottom:10,borderRadius:10,background:"rgba(249,115,22,.08)",border:"1px solid rgba(249,115,22,.2)",fontSize:".78rem",color:"var(--or)"}}>
             {selected.length===0?"Tap two runs to compare them":selected.length===1?"Select one more run":"Ready — tap Compare below"}
           </div>
         )}
-        {list.map(a => {
-          const clr = ACT_CLR[a.type] || "#6b7280";
-          const isSel = !!selected.find(x => x.id === a.id);
-          const selIdx = selected.findIndex(x => x.id === a.id);
+        {(() => {
+          const startIdx = Math.max(0, Math.floor(scrollTop / ITEM_H) - BUFFER);
+          const visibleCount = Math.ceil(CONTAINER_H / ITEM_H) + BUFFER * 2;
+          const endIdx = Math.min(list.length, startIdx + visibleCount);
+          const topSpacer = startIdx * ITEM_H;
+          const bottomSpacer = Math.max(0, (list.length - endIdx) * ITEM_H);
+          const visible = list.slice(startIdx, endIdx);
           return (
-            <div key={a.id} className="run-card"
-              style={compareMode ? {border:"2px solid "+(isSel?"var(--or)":"var(--bd)"),opacity:!isSel&&selected.length===2?0.45:1,transition:"opacity .15s,border-color .15s"} : {}}
-              onClick={() => compareMode ? toggleSelect(a) : onSelectAct(a)}>
-              {compareMode && (
-                <div style={{width:22,height:22,borderRadius:"50%",border:"2px solid "+(isSel?"var(--or)":"var(--bd)"),background:isSel?"var(--or)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginRight:10,transition:"all .15s"}}>
-                  {isSel && <span style={{color:"#fff",fontSize:".7rem",fontWeight:700}}>{selIdx+1}</span>}
-                </div>
-              )}
-              <div style={{flex:1,minWidth:0,paddingRight:11}}>
-                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
-                  <span style={{fontSize:".82rem",flexShrink:0}}>{ACT_ICN[a.type]||"🏃"}</span>
-                  <div style={{fontWeight:700,fontSize:".88rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--tx)",flex:1}}>{a.name}</div>
-                  {a.isRace&&<span style={{fontSize:".7rem",background:"rgba(249,115,22,.15)",color:"var(--or)",padding:"1px 6px",borderRadius:8,fontWeight:700,flexShrink:0}}>🏁</span>}
-                </div>
-                <div style={{fontSize:"1.32rem",fontWeight:800,color:clr,lineHeight:1,marginBottom:5,letterSpacing:"-.01em"}}>
-                  {fmtKm(a.distanceKm)}<span style={{fontSize:".68rem",fontWeight:500,color:"var(--tx3)",marginLeft:3}}>km</span>
-                </div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:5,fontSize:".7rem",color:"var(--tx2)",marginBottom:3}}>
-                  <span>{fmtDur(a.movingTimeSec)}</span>
-                  <span style={{color:"var(--tx3)"}}>·</span>
-                  <span>{fmtPace(a.avgPaceSecKm)}/km</span>
-                  {a.avgHR&&<><span style={{color:"var(--tx3)"}}>·</span><span>HR {a.avgHR}</span></>}
-                </div>
-                <div style={{fontSize:".66rem",color:"var(--tx3)"}}>{fmtDateS(a.date)}</div>
-              </div>
-              <MiniMapThumb route={a.route} color={clr}/>
-            </div>
+            <>
+              {topSpacer > 0 && <div style={{height: topSpacer}}/>}
+              {visible.map(a => {
+                const clr = ACT_CLR[a.type] || "#6b7280";
+                const isSel = !!selected.find(x => x.id === a.id);
+                const selIdx = selected.findIndex(x => x.id === a.id);
+                return (
+                  <div key={a.id} className="run-card"
+                    style={compareMode ? {border:"2px solid "+(isSel?"var(--or)":"var(--bd)"),opacity:!isSel&&selected.length===2?0.45:1,transition:"opacity .15s,border-color .15s",height:ITEM_H,marginBottom:9} : {height:ITEM_H,marginBottom:9}}
+                    onClick={() => compareMode ? toggleSelect(a) : onSelectAct(a)}>
+                    {compareMode && (
+                      <div style={{width:22,height:22,borderRadius:"50%",border:"2px solid "+(isSel?"var(--or)":"var(--bd)"),background:isSel?"var(--or)":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginRight:10,transition:"all .15s"}}>
+                        {isSel && <span style={{color:"#fff",fontSize:".7rem",fontWeight:700}}>{selIdx+1}</span>}
+                      </div>
+                    )}
+                    <div style={{flex:1,minWidth:0,paddingRight:11}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+                        <span style={{fontSize:".82rem",flexShrink:0}}>{ACT_ICN[a.type]||"🏃"}</span>
+                        <div style={{fontWeight:700,fontSize:".88rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:"var(--tx)",flex:1}}>{a.name}</div>
+                        {a.isRace&&<span style={{fontSize:".7rem",background:"rgba(249,115,22,.15)",color:"var(--or)",padding:"1px 6px",borderRadius:8,fontWeight:700,flexShrink:0}}>🏁</span>}
+                      </div>
+                      <div style={{fontSize:"1.1rem",fontWeight:800,color:clr,lineHeight:1,marginBottom:4,letterSpacing:"-.01em"}}>
+                        {fmtKm(a.distanceKm)}<span style={{fontSize:".68rem",fontWeight:500,color:"var(--tx3)",marginLeft:3}}>km</span>
+                      </div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:5,fontSize:".7rem",color:"var(--tx2)"}}>
+                        <span>{fmtDur(a.movingTimeSec)}</span>
+                        <span style={{color:"var(--tx3)"}}>·</span>
+                        <span>{fmtPace(a.avgPaceSecKm)}/km</span>
+                        {a.avgHR&&<><span style={{color:"var(--tx3)"}}>·</span><span>HR {a.avgHR}</span></>}
+                      </div>
+                    </div>
+                    <MiniMapThumb route={a.route} color={clr}/>
+                  </div>
+                );
+              })}
+              {bottomSpacer > 0 && <div style={{height: bottomSpacer}}/>}
+            </>
           );
-        })}
+        })()}
         <div style={{textAlign:"center",fontSize:".7rem",color:"var(--tx3)",padding:"10px 0"}}>{list.length} {list.length===1?"run":"runs"}</div>
       </div>
 
