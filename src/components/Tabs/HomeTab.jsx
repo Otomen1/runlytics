@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Ring } from '../common/Ring.jsx';
 import { SH } from '../common/SH.jsx';
-import { CoachCard } from '../common/CoachCard.jsx';
-import { ACT_CLR, IC_BG, IC_BD } from '../../constants/activityTypes.js';
+import { ACT_CLR } from '../../constants/activityTypes.js';
 import { fmtKm, fmtPace, fmtDate, todayKey, greet } from '../../utils/formatters.js';
-import { getMafHR, getMafCoachingInsight, getTodayRecommendation } from '../../utils/analytics.js';
+import { getMafHR } from '../../utils/analytics.js';
 import { getPhotos } from '../../db/indexedDB.js';
 
 const MOODS_MAP = {
@@ -16,15 +15,12 @@ const MOODS_MAP = {
 };
 
 
-export function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAct,onUpload,onViewAll,onViewMonthly,onEditGoals}){
+export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUpload,onViewAll,onViewMonthly,onEditGoals}){
   const lastRun=acts.length?acts.reduce((b,a)=>a.dateTs>b.dateTs?a:b):null;
-  const mafHR=getMafHR(hrProfile);const insight=getMafCoachingInsight(acts,hrProfile);const rec=getTodayRecommendation(acts);
+  const mafHR=getMafHR(hrProfile);
   const today=new Date();today.setHours(0,0,0,0);today.setDate(today.getDate()-((today.getDay()+6)%7));
   const thisWeekKm=acts.filter(a=>new Date(a.dateTs)>=today).reduce((s,a)=>s+a.distanceKm,0);
   const weekPct=Math.min(1,thisWeekKm/(goals.weekly||1));
-  const todayStr=todayKey();
-  const todayTasks=tasks.filter(t=>t.enabled).slice(0,3);
-  const todayDone=todayTasks.filter(t=>!!(t.completions&&t.completions[todayStr])).length;
   const greetPfx=profile.name==="Runner"?"Welcome back":"Welcome back, "+profile.name;
   const weekLeft=parseFloat((goals.weekly-thisWeekKm).toFixed(1));
   const thisMonthKey=new Date().toISOString().slice(0,7);
@@ -67,13 +63,6 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAc
         )}
       </div>
     </div>
-    <div className="a1" style={{marginBottom:14}}>
-      <div className="sl" style={{marginBottom:7}}>Today's Recommendation</div>
-      <div style={{background:IC_BG[rec.type]||"rgba(255,255,255,.04)",border:"1px solid "+(IC_BD[rec.type]||"rgba(255,255,255,.1)"),borderRadius:"var(--r-lg)",padding:"13px 15px",display:"flex",alignItems:"center",gap:12}}>
-        <span style={{fontSize:"1.35rem",flexShrink:0}}>{rec.icon}</span>
-        <div><div style={{fontWeight:700,fontSize:".88rem",marginBottom:2}}>{rec.title}</div><div style={{fontSize:".77rem",color:"var(--tx2)",lineHeight:1.5}}>{rec.sub}</div></div>
-      </div>
-    </div>
     {lastRun&&(
       <div className="card a2 tap" style={{padding:16,marginBottom:14,cursor:"pointer"}} onClick={()=>onSelectAct(lastRun)}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
@@ -103,10 +92,6 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAc
         <button className="btn b-or" style={{padding:"11px 24px"}} onClick={onUpload}>Upload GPX</button>
       </div>
     )}
-    <div className="a3" style={{marginBottom:14}}>
-      <div className="sl" style={{marginBottom:7}}>Coach Insight</div>
-      <CoachCard insight={insight}/>
-    </div>
     <div className="card a3" style={{padding:16,marginBottom:14}}>
       <div style={{display:"flex",alignItems:"center",gap:14}}>
         <Ring pct={weekPct} size={60} color={weekPct>=1?"var(--gn)":"var(--or)"}>
@@ -133,23 +118,6 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,tasks,onSelectAc
           :<div style={{fontSize:".72rem",color:"var(--tx2)",marginTop:4}}>{monthLeft} km to go</div>}
       </div>
     </div>
-    {todayTasks.length>0&&(
-      <div className="card a3" style={{padding:16,marginBottom:14}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <div className="sl">Today's Habits</div>
-          <span style={{fontSize:".72rem",color:"var(--tx2)",fontWeight:600}}>{todayDone}/{todayTasks.length}</span>
-        </div>
-        {todayTasks.map(t=>{const done=!!(t.completions&&t.completions[todayStr]);return(
-          <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:9}}>
-            <div style={{width:20,height:20,borderRadius:6,flexShrink:0,border:"2px solid "+(done?"var(--gn)":"var(--bd2)"),background:done?"var(--gn)":"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>
-              {done&&<span style={{fontSize:".6rem",color:"#fff",fontWeight:700}}>✓</span>}
-            </div>
-            <span style={{fontSize:".84rem",flex:1,color:done?"var(--tx3)":"var(--tx)",textDecoration:done?"line-through":"none"}}>{t.title}</span>
-          </div>
-        );})}
-        <div className="pb" style={{marginTop:8}}><div className="pf" style={{width:Math.round(todayDone/(todayTasks.length||1)*100)+"%",background:"var(--gn)"}}/></div>
-      </div>
-    )}
     {memories.length > 0 && (
       <div style={{marginBottom:16}}>
         <div style={{fontSize:'.72rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.06em',textTransform:'uppercase',marginBottom:8}}>📸 Recent Memories</div>

@@ -14,7 +14,7 @@ import { buildAnalytics, computeTierProgress, computeEarnedBadges } from './util
 
 // ── Constants ────────────────────────────────────────────────────────────────
 import {
-  GOALS_KEY, HR_KEY, PROFILE_KEY, TASKS_KEY, BADGES_KEY,
+  GOALS_KEY, HR_KEY, PROFILE_KEY, BADGES_KEY,
   TAB_KEY, ONBOARDING_KEY, MILESTONES_KEY, THEME_KEY, TIERS_KEY,
 } from './constants/keys.js';
 import { TABS } from './constants/activityTypes.js';
@@ -26,7 +26,6 @@ import { Styles } from './styles/GlobalStyles.jsx';
 import { HomeTab }         from './components/Tabs/HomeTab.jsx';
 const StatsTab = lazy(()=>import('./components/Tabs/StatsTab.jsx').then(m=>({default:m.StatsTab})));
 import { HRTab }           from './components/Tabs/HRTab.jsx';
-import { TasksTab }        from './components/Tabs/TasksTab.jsx'; // kept, not in nav
 import { MemoriesTab }     from './components/Tabs/MemoriesTab.jsx';
 import { AchievementsTab } from './components/Tabs/AchievementsTab.jsx';
 
@@ -58,8 +57,6 @@ function loadHRProfile(){ return lsGet(HR_KEY,{age:30,overrideMAF:null,modifier:
 function saveHRProfile(p){ lsSet(HR_KEY,p); }
 function loadProfile()  { return lsGet(PROFILE_KEY,{name:'Runner'}); }
 function saveProfile(p) { lsSet(PROFILE_KEY,p); }
-function loadTasks()    { return lsGet(TASKS_KEY,null)||defaultTasks(); }
-function saveTasks(t)   { lsSet(TASKS_KEY,t); }
 function loadSeenBadges(){ try{return new Set(JSON.parse(localStorage.getItem(BADGES_KEY)||'[]'));}catch{return new Set();} }
 function saveSeenBadges(ids){ lsSet(BADGES_KEY,[...ids]); }
 function loadTheme(){ try{return localStorage.getItem(THEME_KEY)||'dark';}catch{return 'dark';} }
@@ -89,14 +86,6 @@ function checkMilestones(acts, analytics) {
   return null;
 }
 
-function defaultTasks(){
-  return[
-    {id:"t1",title:"Morning stretch",icon:"🧘",color:"#3b82f6",category:"recovery",desc:"5 min of light stretching after waking up",enabled:true,streak:0,completions:{}},
-    {id:"t2",title:"Hydrate 2L",icon:"💧",color:"#06b6d4",category:"wellness",desc:"Drink at least 2 litres of water today",enabled:true,streak:0,completions:{}},
-    {id:"t3",title:"Post-run foam roll",icon:"🪴",color:"#8b5cf6",category:"recovery",desc:"Roll quads, calves and IT band after running",enabled:false,streak:0,completions:{}},
-    {id:"t4",title:"Sleep 7-8 hours",icon:"😴",color:"#f97316",category:"wellness",desc:"Prioritise 7-8 hours of quality sleep",enabled:true,streak:0,completions:{}},
-  ];
-}
 
 const App=()=>{
   // Activities start empty — populated async from IndexedDB in useEffect below.
@@ -108,7 +97,6 @@ const App=()=>{
   const[goals,setGoals]=useState(loadGoals);
   const[hrProfile,setHRProfile]=useState(loadHRProfile);
   const[profile,setProfile]=useState(loadProfile);
-  const[tasks,setTasksRaw]=useState(loadTasks);
   const[tab,setTabRaw]=useState(()=>{const t=localStorage.getItem(TAB_KEY)||"home";return t==="tasks"?"home":t;});
   const[detail,setDetail]=useState(null);
   const[showUpload,setShowUpload]=useState(false);
@@ -229,9 +217,6 @@ const App=()=>{
   // Do NOT use this for saves — use saveActivity/deleteActivity/clearAllActivities.
   const setActs=useCallback(updater=>{setActsRaw(updater);},[]);
 
-  const setTasks=useCallback(updater=>{
-    setTasksRaw(prev=>{const next=typeof updater==="function"?updater(prev):updater;saveTasks(next);return next;});
-  },[]);
   const setTab=useCallback(t=>{setTabRaw(t);try{localStorage.setItem(TAB_KEY,t);}catch(e){}},[]); 
 
   const openDetail=useCallback(act=>{history.pushState({_rl:"d"},"");setDetail(act);},[]);
@@ -467,7 +452,7 @@ const App=()=>{
           <div key={tab} className="tab-in"
             style={{transform:`translateY(${pullY}px)`,transition:pullReleasing?"transform .25s ease":"none"}}
             onTransitionEnd={()=>{if(pullReleasing)setPullReleasing(false);}}>
-            {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} tasks={tasks} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings}/>}
+            {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings}/>}
             {tab==="stats"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/></Suspense>}
             {tab==="hr"&&<HRTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings}/>}
             {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail} onOpenWrapped={setWrappedMonth}/>}

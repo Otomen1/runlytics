@@ -1,8 +1,7 @@
 import React, { useMemo } from 'react';
 import { SH } from '../common/SH.jsx';
 import { Ring } from '../common/Ring.jsx';
-import { CoachCard } from '../common/CoachCard.jsx';
-import { getMafHR, getMafZones, getMafCoachingInsight, computeZones } from '../../utils/analytics.js';
+import { getMafHR, getMafZones, computeZones } from '../../utils/analytics.js';
 
 export function HRTab({acts,hrProfile,onEditHR}){
   const mafHR=getMafHR(hrProfile);
@@ -15,7 +14,6 @@ export function HRTab({acts,hrProfile,onEditHR}){
     if(!tot)return null;
     return getMafZones(mafHR).map((z,i)=>({...z,pct:Math.round(secs[i]/tot*100),minutes:parseFloat((secs[i]/60).toFixed(1))}));
   },[last5,mafHR]);
-  const insight=useMemo(()=>getMafCoachingInsight(acts,hrProfile),[acts,hrProfile]);
   return(
     <div style={{padding:"4px 0 32px"}}>
       <div className="card a0" style={{padding:20,marginBottom:14}}>
@@ -50,7 +48,6 @@ export function HRTab({acts,hrProfile,onEditHR}){
           ))}
         </div>
       )}
-      <div className="a2" style={{marginBottom:14}}><SH title="Coach Assessment"/><CoachCard insight={insight}/></div>
       {!runsWithHR.length&&(
         <div style={{textAlign:"center",padding:"40px 0 20px"}}>
           <div style={{fontSize:"2.8rem",marginBottom:14}}>❤️</div>
