@@ -182,6 +182,6 @@ export function MonthlyWrapped({ acts, yearMonth, onClose, onSelectAct }) {
 }
 
 const overlay = {position:'fixed',inset:0,zIndex:260,background:'rgba(0,0,0,.6)',display:'flex',alignItems:'flex-end',justifyContent:'center'};
-const sheet = {background:'var(--bg)',borderRadius:'20px 20px 0 0',padding:'20px 20px 32px',width:'100%',maxWidth:480,maxHeight:'90vh',overflowY:'auto'};
+const sheet = {background:'var(--bg)',borderRadius:'20px 20px 0 0',padding:'20px 20px calc(32px + env(safe-area-inset-bottom))',width:'100%',maxWidth:480,maxHeight:'90vh',overflowY:'auto'};
 const slideWrap = {display:'flex',flexDirection:'column',alignItems:'center',padding:'8px 0',width:'100%'};
 const viewBtn = {marginTop:16,background:'none',border:'1px solid var(--bd)',borderRadius:20,padding:'7px 18px',fontSize:'.78rem',color:'var(--or)',cursor:'pointer',fontFamily:'inherit'};
