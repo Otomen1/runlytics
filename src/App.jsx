@@ -38,6 +38,7 @@ import { ShareModal }    from './components/Share/ShareModal.jsx';
 import { ShareEditor }   from './components/Share/ShareEditor.jsx';
 import { SettingsPanel } from './components/Modals/SettingsPanel.jsx';
 import { MonthlyReport } from './components/Modals/MonthlyReport.jsx';
+import { MonthlyWrapped } from './components/Modals/MonthlyWrapped.jsx';
 import { YearInReview }  from './components/Modals/YearInReview.jsx';
 import { ShoeTracker }   from './components/Modals/ShoeTracker.jsx';
 import { PRDetailModal } from './components/Modals/PRDetailModal.jsx';
@@ -114,6 +115,7 @@ const App=()=>{
   const[showSettings,setShowSettings]=useState(false);
   const[showAllRuns,setShowAllRuns]=useState(false);
   const[showMonthly,setShowMonthly]=useState(false);
+  const[wrappedMonth,setWrappedMonth]=useState(null);
   const[showYearReview,setShowYearReview]=useState(false);
   const[showShoes,setShowShoes]=useState(false);
   const[shareAct,setShareAct]=useState(null);
@@ -468,7 +470,7 @@ const App=()=>{
             {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} tasks={tasks} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings}/>}
             {tab==="stats"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><StatsTab acts={acts} analytics={analytics} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/></Suspense>}
             {tab==="hr"&&<HRTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings}/>}
-            {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail}/>}
+            {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail} onOpenWrapped={setWrappedMonth}/>}
             {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={newTiers}/>}
           </div>
         </div>
@@ -517,6 +519,7 @@ const App=()=>{
         onClose={back}/>}
       {showAllRuns&&<AllRunsView acts={acts} onClose={back} onSelectAct={act=>{setShowAllRuns(false);openDetail(act);}}/>}
       {showMonthly&&<MonthlyReport acts={acts} onClose={back}/>}
+      {wrappedMonth&&<MonthlyWrapped acts={acts} yearMonth={wrappedMonth} onClose={()=>setWrappedMonth(null)} onSelectAct={a=>{setWrappedMonth(null);openDetail(a);}}/>}
       {showYearReview&&<YearInReview acts={acts} onClose={back}/>}
       {showShoes&&<ShoeTracker acts={acts} onClose={back}/>}
       {dbReady&&acts.length===0&&!localStorage.getItem(ONBOARDING_KEY)&&(

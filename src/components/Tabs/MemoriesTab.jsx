@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { getPhotos } from '../../db/indexedDB.js';
 import { fmtKm, fmtPace, fmtDate } from '../../utils/formatters.js';
 import { getMemories, getHighlights, getMonthsWithActivity, computeWrapped } from '../../utils/wrapped.js';
-import { MonthlyWrapped } from '../Modals/MonthlyWrapped.jsx';
 
 const MOODS_MAP = {
   great:  { emoji: '😀', label: 'Great' },
@@ -102,8 +101,7 @@ function MonthCard({ acts, ym, onOpen }) {
   );
 }
 
-export function MemoriesTab({ acts, onSelectAct }) {
-  const [wrappedMonth, setWrappedMonth] = useState(null);
+export function MemoriesTab({ acts, onSelectAct, onOpenWrapped }) {
 
   const memories = useMemo(() => getMemories(acts), [acts]);
   const highlights = useMemo(() => getHighlights(acts), [acts]);
@@ -144,20 +142,12 @@ export function MemoriesTab({ acts, onSelectAct }) {
           <div style={{fontSize:'.62rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.08em',textTransform:'uppercase',marginBottom:10}}>🗓 Monthly Wrapped</div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
             {months.map(ym => (
-              <MonthCard key={ym} acts={acts} ym={ym} onOpen={() => setWrappedMonth(ym)}/>
+              <MonthCard key={ym} acts={acts} ym={ym} onOpen={() => onOpenWrapped(ym)}/>
             ))}
           </div>
         </section>
       )}
 
-      {wrappedMonth && (
-        <MonthlyWrapped
-          acts={acts}
-          yearMonth={wrappedMonth}
-          onClose={() => setWrappedMonth(null)}
-          onSelectAct={act => { setWrappedMonth(null); onSelectAct(act); }}
-        />
-      )}
     </div>
   );
 }
