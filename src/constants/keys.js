@@ -4,7 +4,6 @@ export const DATA_KEY           = 'runlytics_data_v1';   // legacy: migration re
 export const GOALS_KEY          = 'runlytics_goals_v1';
 export const HR_KEY             = 'runlytics_hr_profile_v1';
 export const PROFILE_KEY        = 'runlytics_profile_v1';
-export const TASKS_KEY          = 'runlytics_tasks_v2';
 export const BADGES_KEY         = 'runlytics_badges_v1';
 export const TIERS_KEY          = 'runlytics_tiers_v1';
 export const TAB_KEY            = 'runlytics_tab_v1';

@@ -1,7 +1,5 @@
 import { TIER_TRACKS, TRACK_META, TIER_NAMES, TIER_COLS, BADGE_DEFS, getTierIcon } from '../constants/achievements.js';
 import { weekOf, monthOf } from './formatters.js';
-import { GOALS_KEY } from '../constants/keys.js';
-function loadGoals(){try{return JSON.parse(localStorage.getItem(GOALS_KEY)||'null')||{weekly:40,monthly:160};}catch{return{weekly:40,monthly:160};}}
 export function getMafHR(profile){
   if(!profile)return 150;
   if(profile.overrideMAF&&isFinite(profile.overrideMAF))return+profile.overrideMAF;
@@ -86,30 +84,6 @@ export function computeYearWrapped(acts,year){
   const longest=[...yearActs].sort((a,b)=>b.distanceKm-a.distanceKm)[0];
   const bestPace=yearActs.filter(a=>a.avgPaceSecKm>0).sort((a,b)=>a.avgPaceSecKm-b.avgPaceSecKm)[0]||null;
   return{totalKm,totalSec,totalElev,runCount,months,bestMonth,moodCounts,topMood,runDays,longest,bestPace,everests};
-}
-
-export function getTodayRecommendation(acts){
-  const todayStr=new Date().toISOString().slice(0,10);
-  if(acts.some(a=>a.date===todayStr))return{type:"rest",icon:"🧘",title:"Rest Today",sub:"You already ran today. Time to recover."};
-  const weekKm=acts.filter(a=>a.date>new Date(Date.now()-7*86400000).toISOString().slice(0,10)).reduce((s,a)=>s+a.distanceKm,0);
-  const goals=loadGoals();
-  if(weekKm>=goals.weekly)return{type:"rest",icon:"🛌",title:"Goal Complete!",sub:"Weekly target hit. A rest day or light jog is perfect."};
-  if(weekKm<goals.weekly*0.4)return{type:"easy",icon:"🏃",title:"Easy Run Day",sub:"Keep it aerobic — run at MAF heart rate, enjoy the motion."};
-  return{type:"easy",icon:"🏃",title:"Aerobic Run",sub:"Steady aerobic effort. Keep HR below MAF for best adaptation."};
-}
-
-export function getMafCoachingInsight(acts,hrProfile){
-  if(!acts||acts.length<1)return{title:"Start Your Journey",body:"Upload a GPX or connect Strava to begin.",icon:"🏃"};
-  const maf=getMafHR(hrProfile);
-  const hrActs=acts.slice(0,10).filter(a=>a.avgHR&&a.avgHR>0);
-  if(hrActs.length){
-    const over=hrActs.filter(a=>a.avgHR>maf);
-    if(over.length>hrActs.length*0.6)return{title:"Run Easier",body:"Many runs exceed MAF ("+maf+" bpm). Slow down to build your aerobic base.",icon:"❤️"};
-    return{title:"Great HR Control",body:"Your HR stays near MAF ("+maf+" bpm). Aerobic fitness is building!",icon:"💪"};
-  }
-  const weekKm=acts.slice(0,5).reduce((s,a)=>s+a.distanceKm,0);
-  if(weekKm>50)return{title:"High Mileage",body:"Strong week with "+Math.round(weekKm)+"km. Prioritize recovery.",icon:"🔥"};
-  return{title:"Keep Going",body:"Consistency is the key to improvement. Aim for 3-5 runs per week.",icon:"📈"};
 }
 
 export function computeTierProgress(acts){

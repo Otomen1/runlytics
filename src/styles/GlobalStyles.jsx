@@ -80,8 +80,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   *,*::before,*::after{animation-duration:0.01ms!important;animation-iteration-count:1!important;transition-duration:0.01ms!important;}
   .pf{transition:none!important;}
 }
-.coach-body{overflow:hidden;max-height:0;opacity:0;transition:max-height .24s ease,opacity .2s ease;}
-.coach-body.open{max-height:120px;opacity:1;}
 .icon-wrap{display:flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:var(--r-md);}
 .screen-title{font-weight:700;font-size:var(--fs-lg);}
 .run-card{display:flex;align-items:center;background:var(--s2);border:1px solid var(--bd);border-radius:var(--r-lg);padding:13px 13px;margin-bottom:9px;cursor:pointer;transition:border-color .18s,background .18s;-webkit-tap-highlight-color:transparent;}
