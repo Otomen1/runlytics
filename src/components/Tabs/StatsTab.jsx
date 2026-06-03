@@ -14,7 +14,12 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onView
   const weeklyData=(analytics.weeklyKm||[]).slice(-range);
   const racePRs=useMemo(()=>computeRacePRs(acts),[acts]);
   const atlCtl=useMemo(()=>computeAtlCtl(acts,atlRange),[acts,atlRange]);
-  const predictions=useMemo(()=>predictRaceTimes(racePRs),[racePRs]);
+  const currentForm=atlCtl.length?atlCtl[atlCtl.length-1].form:0;
+  const recentRacePRs=useMemo(()=>{
+    const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-6);
+    return computeRacePRs(acts.filter(a=>a.date>=cutoff.toISOString().slice(0,10)));
+  },[acts]);
+  const predictions=useMemo(()=>predictRaceTimes(racePRs,recentRacePRs,currentForm),[racePRs,recentRacePRs,currentForm]);
   const races=useMemo(()=>acts.filter(a=>a.isRace).sort((a,b)=>b.dateTs-a.dateTs),[acts]);
   const shoes=useMemo(()=>{try{return JSON.parse(localStorage.getItem(SHOES_KEY)||'[]');}catch{return[];}}, []);
   const shoeKm=useMemo(()=>{const m={};acts.forEach(a=>{if(a.shoeId)m[a.shoeId]=(m[a.shoeId]||0)+a.distanceKm;});return m;},[acts]);
@@ -192,25 +197,41 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onView
         </div>
         {!racePRs.length&&acts.length>0&&<div style={{marginTop:12,padding:"12px 14px",borderRadius:12,background:"var(--s2)",fontSize:".78rem",color:"var(--tx2)",lineHeight:1.7}}>Run near standard race distances (5K, 10K, 21K, 42K) to see PRs here.</div>}
       </div>
-      {predictions.length>0&&(
-        <div className="card a2" style={{padding:16,marginBottom:14}}>
-          <SH title="Pace Predictor"/>
-          <div style={{fontSize:".72rem",color:"var(--tx3)",margin:"6px 0 12px"}}>Riegel formula based on your {predictions[0].source} PR</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            {predictions.map(p=>(
-              <div key={p.cat} style={{borderRadius:10,padding:"10px 12px",
-                border:p.isBase?"1.5px solid rgba(249,115,22,.4)":"1px solid var(--bd)",
-                background:p.isBase?"rgba(249,115,22,.06)":"var(--s2)"}}>
-                <div style={{fontSize:".6rem",fontWeight:700,color:p.isBase?"var(--or)":"var(--tx3)",textTransform:"uppercase",letterSpacing:".08em",marginBottom:4}}>
-                  {p.cat}{p.isBase?" · actual":""}
+      {predictions.length>0&&(()=>{
+        const p0=predictions[0];
+        const pctAdj=Math.round((1-p0.formFactor)*100);
+        return(
+          <div className="card a2" style={{padding:16,marginBottom:14}}>
+            <SH title="Pace Predictor"/>
+            <div style={{display:"flex",alignItems:"center",gap:6,margin:"6px 0 12px",flexWrap:"wrap"}}>
+              <span style={{fontSize:".72rem",color:"var(--tx3)"}}>
+                {p0.usingRecent?"Last 6 months":"All-time best"} · Riegel from {p0.source}
+              </span>
+              {pctAdj!==0&&(
+                <span style={{fontSize:".64rem",fontWeight:700,padding:"2px 7px",borderRadius:20,
+                  color:pctAdj>0?"var(--gn)":"var(--rd)",
+                  background:pctAdj>0?"var(--gn2)":"var(--rd2)"}}>
+                  {pctAdj>0?"⚡":"😓"} Form {pctAdj>0?"+":""}{pctAdj}%
+                </span>
+              )}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {predictions.map(p=>(
+                <div key={p.cat} style={{borderRadius:10,padding:"10px 12px",
+                  border:p.isBase?"1.5px solid rgba(249,115,22,.4)":"1px solid var(--bd)",
+                  background:p.isBase?"rgba(249,115,22,.06)":"var(--s2)"}}>
+                  <div style={{fontSize:".6rem",fontWeight:700,color:p.isBase?"var(--or)":"var(--tx3)",textTransform:"uppercase",letterSpacing:".08em",marginBottom:4}}>
+                    {p.cat}{p.isBase?" · actual":""}
+                  </div>
+                  <div style={{fontSize:"1.05rem",fontWeight:800,fontFamily:"monospace",color:p.isBase?"var(--or)":"var(--tx)"}}>{fmtDur(p.predictedSec)}</div>
+                  {p.actualSec&&!p.isBase&&<div style={{fontSize:".62rem",color:"var(--gn)",marginTop:2}}>Actual: {fmtDur(p.actualSec)}</div>}
+                  {pctAdj!==0&&!p.isBase&&<div style={{fontSize:".6rem",color:"var(--tx3)",marginTop:1}}>Base: {fmtDur(p.rawSec)}</div>}
                 </div>
-                <div style={{fontSize:"1.05rem",fontWeight:800,fontFamily:"monospace",color:p.isBase?"var(--or)":"var(--tx)"}}>{fmtDur(p.predictedSec)}</div>
-                {p.actualSec&&!p.isBase&&<div style={{fontSize:".62rem",color:"var(--gn)",marginTop:3}}>Actual: {fmtDur(p.actualSec)}</div>}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       {overallPRs&&(
         <div className="card a3" style={{padding:16,marginBottom:14}}>
           <SH title="Overall Bests"/>

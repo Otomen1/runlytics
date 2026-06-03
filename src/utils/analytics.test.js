@@ -257,55 +257,58 @@ describe('computeAtlCtl', () => {
 });
 
 describe('predictRaceTimes', () => {
+  const pr5k  = { cat:'5K',  best:{ distanceKm:5.0,  movingTimeSec:1200, avgPaceSecKm:240 }, top3:[], history:[] };
+  const pr10k = { cat:'10K', best:{ distanceKm:10.0, movingTimeSec:2600, avgPaceSecKm:260 }, top3:[], history:[] };
+
   it('returns empty array for empty prs', () => {
-    expect(predictRaceTimes([])).toEqual([]);
+    expect(predictRaceTimes([], [], 0)).toEqual([]);
   });
   it('returns 4 predictions when base PR exists', () => {
-    const prs = [{
-      cat: '5K', best: { distanceKm: 5.0, movingTimeSec: 1200, avgPaceSecKm: 240 },
-      top3: [], history: [],
-    }];
-    expect(predictRaceTimes(prs)).toHaveLength(4);
+    expect(predictRaceTimes([pr5k], [], 0)).toHaveLength(4);
   });
-  it('marks the base PR as isBase=true', () => {
-    const prs = [{
-      cat: '5K', best: { distanceKm: 5.0, movingTimeSec: 1200, avgPaceSecKm: 240 },
-      top3: [], history: [],
-    }];
-    const results = predictRaceTimes(prs);
-    const base = results.find(r => r.isBase);
-    expect(base).toBeDefined();
+  it('marks the base PR as isBase with correct time', () => {
+    const base = predictRaceTimes([pr5k], [], 0).find(r => r.isBase);
     expect(base.cat).toBe('5K');
     expect(base.predictedSec).toBe(1200);
   });
-  it('applies Riegel formula correctly for 10K from 5K', () => {
-    // T2 = T1 * (D2/D1)^1.06
-    const prs = [{
-      cat: '5K', best: { distanceKm: 5.0, movingTimeSec: 1200, avgPaceSecKm: 240 },
-      top3: [], history: [],
-    }];
-    const results = predictRaceTimes(prs);
-    const tenK = results.find(r => r.cat === '10K');
-    const expected = Math.round(1200 * Math.pow(10 / 5, 1.06));
-    expect(tenK.predictedSec).toBe(expected);
+  it('applies Riegel formula for 10K from 5K', () => {
+    const tenK = predictRaceTimes([pr5k], [], 0).find(r => r.cat === '10K');
+    expect(tenK.predictedSec).toBe(Math.round(1200 * Math.pow(10 / 5, 1.06)));
   });
-  it('sets actualSec on PRs that have real data', () => {
-    const prs = [
-      { cat: '5K', best: { distanceKm: 5.0, movingTimeSec: 1200, avgPaceSecKm: 240 }, top3: [], history: [] },
-      { cat: '10K', best: { distanceKm: 10.0, movingTimeSec: 2600, avgPaceSecKm: 260 }, top3: [], history: [] },
-    ];
-    const results = predictRaceTimes(prs);
-    const tenK = results.find(r => r.cat === '10K');
-    expect(tenK.actualSec).toBe(2600);
+  it('sets actualSec when that distance has a real PR', () => {
+    expect(predictRaceTimes([pr5k, pr10k], [], 0).find(r => r.cat === '10K').actualSec).toBe(2600);
   });
   it('uses fastest pace PR as base', () => {
     const prs = [
-      { cat: '5K', best: { distanceKm: 5.0, movingTimeSec: 1500, avgPaceSecKm: 300 }, top3: [], history: [] },
-      { cat: '10K', best: { distanceKm: 10.0, movingTimeSec: 2500, avgPaceSecKm: 250 }, top3: [], history: [] },
+      { cat:'5K',  best:{ distanceKm:5.0,  movingTimeSec:1500, avgPaceSecKm:300 }, top3:[], history:[] },
+      { cat:'10K', best:{ distanceKm:10.0, movingTimeSec:2500, avgPaceSecKm:250 }, top3:[], history:[] },
     ];
-    const results = predictRaceTimes(prs);
-    const base = results.find(r => r.isBase);
-    // 10K has faster pace (250 < 300), so should be chosen as base
-    expect(base.cat).toBe('10K');
+    expect(predictRaceTimes(prs, [], 0).find(r => r.isBase).cat).toBe('10K');
+  });
+  it('prefers recent PRs over all-time when available', () => {
+    const recent = [{ cat:'10K', best:{ distanceKm:10.0, movingTimeSec:2400, avgPaceSecKm:240 }, top3:[], history:[] }];
+    const results = predictRaceTimes([pr5k], recent, 0);
+    expect(results[0].usingRecent).toBe(true);
+    expect(results.find(r => r.isBase).cat).toBe('10K');
+  });
+  it('falls back to all-time when no recent PRs', () => {
+    expect(predictRaceTimes([pr5k], [], 0)[0].usingRecent).toBe(false);
+  });
+  it('boosts predictions when form > 8 (Energetic)', () => {
+    const normal  = predictRaceTimes([pr5k], [], 0).find(r => r.cat === 'HM');
+    const boosted = predictRaceTimes([pr5k], [], 10).find(r => r.cat === 'HM');
+    expect(boosted.predictedSec).toBeLessThan(normal.predictedSec);
+    expect(boosted.formFactor).toBe(0.97);
+  });
+  it('adds time when form < -8 (Fatigued)', () => {
+    const normal   = predictRaceTimes([pr5k], [], 0).find(r => r.cat === 'HM');
+    const fatigued = predictRaceTimes([pr5k], [], -10).find(r => r.cat === 'HM');
+    expect(fatigued.predictedSec).toBeGreaterThan(normal.predictedSec);
+    expect(fatigued.formFactor).toBe(1.05);
+  });
+  it('no form adjustment at form = 0', () => {
+    const results = predictRaceTimes([pr5k], [], 0);
+    expect(results[0].formFactor).toBe(1.0);
+    results.forEach(r => expect(r.predictedSec).toBe(r.rawSec));
   });
 });

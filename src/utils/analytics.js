@@ -193,15 +193,22 @@ export function computeAtlCtl(acts,displayDays=90){
   return all.slice(-displayDays);
 }
 
-export function predictRaceTimes(prs){
+export function predictRaceTimes(allPRs,recentPRs=[],form=0){
   const DISTS=[{cat:'5K',dist:5},{cat:'10K',dist:10},{cat:'HM',dist:21.0975},{cat:'Marathon',dist:42.195}];
-  const avail=prs.filter(p=>p.best&&p.best.movingTimeSec>0&&p.best.distanceKm>0);
+  // Prefer recent 6-month PRs; fall back to all-time when no recent race data
+  const usingRecent=recentPRs.some(p=>p.best);
+  const avail=(usingRecent?recentPRs:allPRs).filter(p=>p.best&&p.best.movingTimeSec>0&&p.best.distanceKm>0);
   if(!avail.length)return[];
   const base=avail.reduce((b,p)=>p.best.avgPaceSecKm<b.best.avgPaceSecKm?p:b);
-  const baseDist=base.best.distanceKm,baseTime=base.best.movingTimeSec;
+  const{distanceKm:baseDist,movingTimeSec:baseTime}=base.best;
+  // Shift predicted time based on current ATL/CTL form score
+  const formFactor=form>8?0.97:form>3?0.99:form<-8?1.05:form<-3?1.02:1.0;
   return DISTS.map(r=>{
     const actual=avail.find(p=>p.cat===r.cat);
-    const predicted=Math.round(baseTime*Math.pow(r.dist/baseDist,1.06));
-    return{cat:r.cat,dist:r.dist,predictedSec:predicted,actualSec:actual?actual.best.movingTimeSec:null,isBase:base.cat===r.cat,source:base.cat};
+    const raw=Math.round(baseTime*Math.pow(r.dist/baseDist,1.06));
+    const predicted=Math.round(raw*formFactor);
+    return{cat:r.cat,dist:r.dist,predictedSec:predicted,rawSec:raw,
+      actualSec:actual?actual.best.movingTimeSec:null,
+      isBase:base.cat===r.cat,source:base.cat,usingRecent,form,formFactor};
   });
 }
