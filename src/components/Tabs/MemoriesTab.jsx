@@ -96,8 +96,8 @@ function MonthCard({ acts, ym, onOpen }) {
   return (
     <div className="card2" onClick={onOpen}
       style={{cursor:'pointer',padding:'18px 12px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',aspectRatio:'1',textAlign:'center'}}>
-      <div style={{fontSize:'2.4rem',fontWeight:900,lineHeight:1,letterSpacing:'-.03em',textTransform:'uppercase',color:'var(--or)'}}>{mon}</div>
-      <div style={{fontSize:'.75rem',fontWeight:600,color:'var(--or)',opacity:.7,marginTop:4,letterSpacing:'.02em'}}>{year}</div>
+      <div style={{fontSize:'2.4rem',fontWeight:900,lineHeight:1,letterSpacing:'-.03em',textTransform:'uppercase',color:'var(--tx)'}}>{mon}</div>
+      <div style={{fontSize:'.75rem',fontWeight:600,color:'var(--tx2)',opacity:.7,marginTop:4,letterSpacing:'.02em'}}>{year}</div>
     </div>
   );
 }
