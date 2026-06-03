@@ -88,20 +88,19 @@ function MonthCard({ acts, ym, onOpen }) {
   const data = useMemo(() => computeWrapped(acts, ym), [acts, ym]);
   if (!data) return null;
   const mood = data.topMood ? MOODS_MAP[data.topMood] : null;
+  const [mon, year] = (() => {
+    const [y, m] = ym.split('-');
+    const d = new Date(+y, +m - 1, 1);
+    return [d.toLocaleString('default',{month:'short'}), y];
+  })();
   return (
-    <div className="card" onClick={onOpen}
-      style={{padding:'14px 16px',cursor:'pointer',marginBottom:8,display:'flex',alignItems:'center',gap:12}}>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:'.86rem',fontWeight:700,marginBottom:4}}>{monthLabel(ym)}</div>
-        <div style={{fontSize:'.72rem',color:'var(--tx2)'}}>
-          {fmtKm(data.totalDistance)} km · {data.totalRuns} run{data.totalRuns !== 1 ? 's' : ''}
-          {data.memoryCount > 0 && ` · ${data.memoryCount} memor${data.memoryCount !== 1 ? 'ies' : 'y'}`}
-        </div>
-      </div>
-      <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
-        {mood && <span style={{fontSize:'1.2rem'}}>{mood.emoji}</span>}
-        <span style={{fontSize:'1rem',color:'var(--tx3)'}}>›</span>
-      </div>
+    <div className="card2" onClick={onOpen}
+      style={{cursor:'pointer',padding:'14px 10px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:6,aspectRatio:'1',textAlign:'center'}}>
+      {mood && <div style={{fontSize:'1.4rem',lineHeight:1}}>{mood.emoji}</div>}
+      <div style={{fontSize:'.9rem',fontWeight:700,lineHeight:1}}>{mon}</div>
+      <div style={{fontSize:'.62rem',color:'var(--tx3)'}}>{year}</div>
+      <div style={{fontSize:'.68rem',color:'var(--tx2)',marginTop:2}}>{fmtKm(data.totalDistance)} km</div>
+      <div style={{fontSize:'.62rem',color:'var(--tx3)'}}>{data.totalRuns} runs</div>
     </div>
   );
 }
@@ -146,9 +145,11 @@ export function MemoriesTab({ acts, onSelectAct }) {
       {months.length > 0 && (
         <section>
           <div style={{fontSize:'.62rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.08em',textTransform:'uppercase',marginBottom:10}}>🗓 Monthly Wrapped</div>
-          {months.map(ym => (
-            <MonthCard key={ym} acts={acts} ym={ym} onOpen={() => setWrappedMonth(ym)}/>
-          ))}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            {months.map(ym => (
+              <MonthCard key={ym} acts={acts} ym={ym} onOpen={() => setWrappedMonth(ym)}/>
+            ))}
+          </div>
         </section>
       )}
 
