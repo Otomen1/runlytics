@@ -3,7 +3,7 @@ import { Ring } from '../common/Ring.jsx';
 import { SH } from '../common/SH.jsx';
 import { ACT_CLR } from '../../constants/activityTypes.js';
 import { fmtKm, fmtPace, fmtDate, todayKey, greet } from '../../utils/formatters.js';
-import { getMafHR, computeAtlCtl } from '../../utils/analytics.js';
+import { getMafHR, computeAtlCtl, computeRacePRs, estimateVO2max } from '../../utils/analytics.js';
 import { getPhotos } from '../../db/indexedDB.js';
 
 const CONDITIONS = [
@@ -26,6 +26,8 @@ const MOODS_MAP = {
 export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUpload,onViewAll,onViewMonthly,onEditGoals}){
   const lastRun=acts.length?acts.reduce((b,a)=>a.dateTs>b.dateTs?a:b):null;
   const mafHR=getMafHR(hrProfile);
+  const racePRs=useMemo(()=>computeRacePRs(acts),[acts]);
+  const vo2maxEst=useMemo(()=>estimateVO2max(racePRs),[racePRs]);
   const condition=useMemo(()=>{
     if(!acts.length||!acts.some(a=>a.trainingLoad>0))return null;
     const data=computeAtlCtl(acts,30);
@@ -87,11 +89,27 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
             <div style={{fontWeight:800,fontSize:"1rem",color:"var(--tx)",marginBottom:2}}>{condition.label}</div>
             <div style={{fontSize:".76rem",color:"var(--tx2)",lineHeight:1.5}}>{condition.desc}</div>
           </div>
-          <div style={{textAlign:"center",flexShrink:0}}>
-            <div style={{fontSize:"1rem",fontWeight:800,color:condition.color,lineHeight:1}}>{condition.form>0?"+":""}{condition.form}</div>
-            <div style={{fontSize:".52rem",color:"var(--tx3)",letterSpacing:".05em",marginTop:2}}>FORM</div>
+          <div style={{display:"flex",gap:14,flexShrink:0}}>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:"1rem",fontWeight:800,color:condition.color,lineHeight:1}}>{condition.form>0?"+":""}{condition.form}</div>
+              <div style={{fontSize:".52rem",color:"var(--tx3)",letterSpacing:".05em",marginTop:2}}>FORM</div>
+            </div>
+            {vo2maxEst&&(
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:"1rem",fontWeight:800,color:vo2maxEst.color,lineHeight:1}}>{vo2maxEst.vo2max}</div>
+                <div style={{fontSize:".52rem",color:"var(--tx3)",letterSpacing:".05em",marginTop:2}}>VO₂MAX</div>
+              </div>
+            )}
           </div>
         </div>
+      </div>
+    )}
+    {!condition&&vo2maxEst&&(
+      <div className="card a1" style={{padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:".6rem",fontWeight:700,color:"var(--tx3)",letterSpacing:".08em",textTransform:"uppercase",flex:1}}>VO₂max</span>
+        <span style={{fontSize:"1.1rem",fontWeight:800,color:vo2maxEst.color}}>{vo2maxEst.vo2max}</span>
+        <span style={{fontSize:".6rem",color:"var(--tx3)"}}>ml/kg/min</span>
+        <span style={{fontSize:".68rem",fontWeight:700,color:vo2maxEst.color,padding:"2px 9px",borderRadius:20,background:vo2maxEst.color+"22"}}>{vo2maxEst.label}</span>
       </div>
     )}
     {lastRun&&(
