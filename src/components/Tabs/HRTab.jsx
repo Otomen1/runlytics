@@ -46,7 +46,7 @@ function StreakCalendar({ acts }) {
   );
 }
 
-export function HRTab({acts,hrProfile,onEditHR}){
+export function HRTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview}){
   const mafHR=getMafHR(hrProfile);
   const runsWithHR=acts.filter(a=>a.avgHR&&a.distanceKm>0);
   const last5=runsWithHR.slice(0,5);
@@ -60,6 +60,10 @@ export function HRTab({acts,hrProfile,onEditHR}){
   return(
     <div style={{padding:"4px 0 32px"}}>
       <StreakCalendar acts={acts}/>
+      <div style={{display:"flex",gap:10,marginBottom:14}}>
+        <button className="btn b-gh" style={{flex:1,padding:"13px",fontSize:".86rem"}} onClick={onViewMonthly}>📅 Monthly Wrapped</button>
+        <button className="btn b-gh" style={{flex:1,padding:"13px",fontSize:".86rem"}} onClick={onViewYearReview}>🎁 Year Review</button>
+      </div>
       <div className="card a0" style={{padding:20,marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
           <div style={{width:64,height:64,borderRadius:18,background:"rgba(249,115,22,.1)",border:"1px solid rgba(249,115,22,.2)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
