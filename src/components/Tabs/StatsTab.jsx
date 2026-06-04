@@ -8,8 +8,9 @@ import { SH } from '../common/SH.jsx';
 import { CalendarHeatmap } from '../CalendarHeatmap.jsx';
 import { fmtKm, fmtDur, fmtPace, fmtDateS, weekOf } from '../../utils/formatters.js';
 import { computeRacePRs, computeAtlCtl, predictRaceTimes, estimateVO2max, getMafHR, computeZones, getMafZones } from '../../utils/analytics.js';
-import { SHOES_KEY } from '../../constants/keys.js';
+import { SHOES_KEY, PLAN_KEY } from '../../constants/keys.js';
 import { DEFAULT_SHOE_MAX_KM, SHOE_WARN_THRESHOLD } from '../../constants/limits.js';
+import { getPlanWeek, getPlanAdherence, getPlanWeekNumber } from '../../utils/trainingPlan.js';
 
 function fmtPaceMin(secPerKm){
   if(!secPerKm||secPerKm<=0)return'';
@@ -21,7 +22,7 @@ const ScatterDot=({cx,cy,payload})=>(
   <circle cx={cx} cy={cy} r={4.5} fill="#f97316" fillOpacity={payload?.opacity??0.6} stroke="none"/>
 );
 
-export function StatsTab({acts,analytics,hrProfile,onViewAll,onViewMonthly,onOpenPR,onViewYearReview,onManageShoes}){
+export function StatsTab({acts,analytics,hrProfile,onViewAll,onViewMonthly,onOpenPR,onViewYearReview,onManageShoes,onOpenPlan}){
   const[range,setRange]=useState(8);
   const[atlRange,setAtlRange]=useState(90);
   const[prCatIdx,setPrCatIdx]=useState(0);
@@ -45,6 +46,17 @@ export function StatsTab({acts,analytics,hrProfile,onViewAll,onViewMonthly,onOpe
     fastest:runs.filter(r=>r.avgPaceSecKm>0).reduce((b,r)=>r.avgPaceSecKm<b.avgPaceSecKm?r:b,runs.find(r=>r.avgPaceSecKm>0)||runs[0])
   }:null;
 
+  const plan=useMemo(()=>{try{return JSON.parse(localStorage.getItem(PLAN_KEY)||'null');}catch{return null;}},[]);
+  const todayWeek=weekOf(Date.now());
+  const planWeekNum=plan?getPlanWeekNumber(plan,todayWeek):null;
+  const planAdherence=useMemo(()=>plan?getPlanAdherence(plan,analytics.weeklyKm||[]):null,[plan,analytics.weeklyKm]);
+  const planChartData=useMemo(()=>{
+    if(!plan)return[];
+    return plan.weeks.map((w,i)=>{
+      const actual=(analytics.weeklyKm||[]).find(wk=>wk.week===w.week);
+      return{week:`W${i+1}`,target:w.target??w.targetKm,actual:actual?parseFloat(actual.km.toFixed(1)):null,phase:w.phase};
+    });
+  },[plan,analytics.weeklyKm]);
   const weeklyTyped=useMemo(()=>{
     const wm={};
     runs.forEach(a=>{
@@ -137,6 +149,96 @@ export function StatsTab({acts,analytics,hrProfile,onViewAll,onViewMonthly,onOpe
           <div style={{marginTop:10}}>
             <CalendarHeatmap acts={acts}/>
           </div>
+        </div>
+      )}
+
+      {(plan||acts.length>0)&&(
+        <div className="card a1" style={{padding:16,marginBottom:14}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:plan?14:0}}>
+            <SH title="Training Plan"/>
+            <button className="btn b-gh" style={{fontSize:'.72rem',padding:'5px 12px'}} onClick={onOpenPlan}>
+              {plan?'Edit':'Set Goal Race'}
+            </button>
+          </div>
+          {!plan&&(
+            <div style={{paddingTop:12,textAlign:'center'}}>
+              <div style={{fontSize:'2rem',marginBottom:10}}>🎯</div>
+              <div style={{fontSize:'.84rem',fontWeight:600,marginBottom:6}}>No training plan yet</div>
+              <div style={{fontSize:'.76rem',color:'var(--tx2)',lineHeight:1.6,marginBottom:16}}>Set a goal race and get a week-by-week plan built around your current fitness.</div>
+              <button className="btn b-or" style={{width:'100%',padding:'13px'}} onClick={onOpenPlan}>Set a Goal Race →</button>
+            </div>
+          )}
+          {plan&&(()=>{
+            const PHASE_COLS={base:'#3b82f6',build:'#f97316',taper:'#8b5cf6',race:'#22c55e'};
+            const raceName=plan.raceType==='HM'?'Half Marathon':plan.raceType;
+            const raceDisplay=new Date(plan.raceDate+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+            const weeksLeft=plan.weeks.filter(w=>w.week>=todayWeek).length;
+            return(
+              <>
+                <div style={{display:'flex',gap:10,marginBottom:16}}>
+                  {[
+                    {l:'Race',v:raceName,c:'var(--or)'},
+                    {l:'Date',v:raceDisplay,c:'var(--tx)'},
+                    {l:'Week',v:planWeekNum?`${planWeekNum}/${plan.weeks.length}`:'—',c:'var(--or)'},
+                    {l:'Left',v:`${weeksLeft}w`,c:'var(--tx2)'},
+                  ].map(s=>(
+                    <div key={s.l} className="card2" style={{flex:1,padding:'10px 6px',textAlign:'center'}}>
+                      <div style={{fontSize:'.82rem',fontWeight:700,color:s.c,lineHeight:1,marginBottom:3}}>{s.v}</div>
+                      <div style={{fontSize:'.55rem',color:'var(--tx3)',letterSpacing:'.04em'}}>{s.l}</div>
+                    </div>
+                  ))}
+                </div>
+                {planAdherence?.weeksCompleted>0&&(
+                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14,padding:'10px 12px',borderRadius:10,
+                    background:planAdherence.adherencePct>=80?'var(--gn2)':planAdherence.adherencePct>=60?'rgba(234,179,8,.1)':'var(--rd2)',
+                    border:`1px solid ${planAdherence.adherencePct>=80?'rgba(34,197,94,.25)':planAdherence.adherencePct>=60?'rgba(234,179,8,.25)':'rgba(239,68,68,.25)'}`}}>
+                    <div style={{flex:1,fontSize:'.76rem',color:'var(--tx2)'}}>
+                      Overall adherence · {planAdherence.weeksCompleted} week{planAdherence.weeksCompleted!==1?'s':''} tracked
+                    </div>
+                    <div style={{fontSize:'1.1rem',fontWeight:800,color:planAdherence.adherencePct>=80?'var(--gn)':planAdherence.adherencePct>=60?'var(--yw)':'var(--rd)'}}>
+                      {planAdherence.adherencePct}%
+                    </div>
+                  </div>
+                )}
+                <div style={{fontSize:'.7rem',fontWeight:700,color:'var(--tx3)',letterSpacing:'.06em',textTransform:'uppercase',marginBottom:8}}>Week-by-Week</div>
+                <div style={{overflowX:'auto',overflowY:'hidden',paddingBottom:4}}>
+                  <div style={{display:'flex',gap:3,minWidth:Math.max(300,plan.weeks.length*28)}}>
+                    {planChartData.map((w,i)=>{
+                      const isCurrent=plan.weeks[i]?.week===todayWeek;
+                      const isPast=plan.weeks[i]?.week<todayWeek;
+                      const maxKm=Math.max(...planChartData.map(d=>d.target||0),1);
+                      const phaseColor=PHASE_COLS[w.phase]||'var(--or)';
+                      const actualH=w.actual!=null?Math.round(w.actual/maxKm*80):0;
+                      const targetH=Math.round((w.target||0)/maxKm*80);
+                      return(
+                        <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+                          <div style={{position:'relative',width:'100%',height:88,display:'flex',flexDirection:'column',justifyContent:'flex-end'}}>
+                            <div style={{position:'absolute',bottom:0,left:0,right:0,height:targetH,borderRadius:'3px 3px 0 0',
+                              background:phaseColor+'33',border:`1px dashed ${phaseColor}66`}}/>
+                            {w.actual!=null&&(
+                              <div style={{position:'absolute',bottom:0,left:'15%',right:'15%',height:actualH,borderRadius:'3px 3px 0 0',
+                                background:phaseColor,opacity:isPast?0.7:1,
+                                boxShadow:isCurrent?`0 0 8px ${phaseColor}88`:undefined}}/>
+                            )}
+                            {isCurrent&&<div style={{position:'absolute',top:0,left:'50%',transform:'translateX(-50%)',width:4,height:4,borderRadius:2,background:'var(--or)'}}/>}
+                          </div>
+                          <div style={{fontSize:'.52rem',color:isCurrent?'var(--or)':'var(--tx3)',fontWeight:isCurrent?700:400}}>{w.week}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div style={{display:'flex',gap:14,marginTop:8,flexWrap:'wrap'}}>
+                  {[['#3b82f6','Base'],['#f97316','Build'],['#8b5cf6','Taper'],['#22c55e','Race']].map(([c,l])=>(
+                    <div key={l} style={{display:'flex',alignItems:'center',gap:4}}>
+                      <div style={{width:10,height:10,borderRadius:2,background:c+'33',border:`1px dashed ${c}88`}}/>
+                      <span style={{fontSize:'.62rem',color:'var(--tx3)'}}>{l} (target)</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
 
