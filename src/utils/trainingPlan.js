@@ -111,3 +111,81 @@ export function getPlanWeekNumber(plan, weekKey) {
   const idx = plan.weeks.findIndex(w => w.week === weekKey);
   return idx >= 0 ? idx + 1 : null;
 }
+
+const TYPE_META = {
+  easy:    { label: 'Easy Run',  icon: '🦶' },
+  long:    { label: 'Long Run',  icon: '📏' },
+  workout: { label: 'Tempo Run', icon: '⚡' },
+};
+
+const TIPS = [
+  { minForm:  8,        tip: "You're energetic — great day for a hard effort." },
+  { minForm:  3,        tip: "Feeling fresh — push the pace a little." },
+  { minForm: -3,        tip: "Well balanced — steady effort today." },
+  { minForm: -8,        tip: "Legs are a bit heavy — keep it easy." },
+  { minForm: -Infinity, tip: "Fatigue is high — light jog or rest." },
+];
+
+export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 0) {
+  if (!planWeek) return null;
+
+  const done = { easy: 0, long: 0, workout: 0 };
+  weekActs.forEach(a => { if (a.runClass in done) done[a.runClass]++; });
+  const remaining = {
+    easy:    Math.max(0, planWeek.easy    - done.easy),
+    long:    Math.max(0, planWeek.long    - done.long),
+    workout: Math.max(0, planWeek.workout - done.workout),
+  };
+  const totalRemaining = remaining.easy + remaining.long + remaining.workout;
+  if (!totalRemaining) return { done: true };
+
+  const type = (form < -8 || !remaining.workout && !remaining.long)
+    ? 'easy'
+    : remaining.workout > 0 ? 'workout'
+    : remaining.long > 0    ? 'long'
+    : 'easy';
+
+  const weekKm = weekActs.reduce((s, a) => s + a.distanceKm, 0);
+  const kmLeft = Math.max(0, planWeek.targetKm - weekKm);
+  let distanceKm;
+  if (type === 'long') {
+    distanceKm = parseFloat(Math.max(10, Math.min(35, planWeek.targetKm * 0.30)).toFixed(1));
+  } else if (type === 'workout') {
+    distanceKm = parseFloat(Math.max(6, Math.min(16, planWeek.targetKm * 0.18)).toFixed(1));
+  } else {
+    distanceKm = parseFloat(Math.max(5, Math.min(18, kmLeft / Math.max(1, totalRemaining))).toFixed(1));
+  }
+
+  let paceMin = null, paceMax = null, paceNote = null;
+  if (avgPaceSecKm) {
+    if (type === 'easy') {
+      const adj = form >= 3 ? 45 : form >= -3 ? 60 : 75;
+      paceMin = Math.round(avgPaceSecKm + adj);
+      paceMax = Math.round(avgPaceSecKm + adj + 20);
+    } else if (type === 'long') {
+      const adj = form >= 3 ? 20 : 30;
+      paceMin = Math.round(avgPaceSecKm + adj);
+      paceMax = Math.round(avgPaceSecKm + adj + 20);
+    } else {
+      const adj = form >= 3 ? -5 : 5;
+      paceMin = Math.max(180, Math.round(avgPaceSecKm + adj));
+      paceMax = Math.round(avgPaceSecKm + adj + 15);
+    }
+  } else {
+    paceNote = type === 'workout' ? 'Comfortably hard' : mafHR ? `≤${mafHR} bpm / Zone 2` : 'Zone 2 effort';
+  }
+
+  const tip = TIPS.find(t => form >= t.minForm)?.tip || TIPS[TIPS.length - 1].tip;
+
+  return {
+    done: false,
+    type,
+    ...TYPE_META[type],
+    distanceKm,
+    paceMin,
+    paceMax,
+    paceNote,
+    tip,
+    phase: planWeek.phase,
+  };
+}

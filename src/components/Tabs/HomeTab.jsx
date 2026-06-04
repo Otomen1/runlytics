@@ -6,7 +6,7 @@ import { fmtKm, fmtPace, fmtDate, todayKey, greet, weekOf } from '../../utils/fo
 import { getMafHR, computeAtlCtl, computeRacePRs, estimateVO2max, computeTierProgress } from '../../utils/analytics.js';
 import { getPhotos } from '../../db/indexedDB.js';
 import { PLAN_KEY } from '../../constants/keys.js';
-import { getPlanWeek, getPlanAdherence, getPlanWeekNumber } from '../../utils/trainingPlan.js';
+import { getPlanWeek, getPlanAdherence, getPlanWeekNumber, getTodayWorkout } from '../../utils/trainingPlan.js';
 
 const CONDITIONS = [
   { minForm:  8, label: "Energetic",  emoji: "⚡", color: "#f97316", desc: "Peak form — great day for a hard effort or race pace." },
@@ -65,6 +65,11 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
   const planWeekNum = plan ? getPlanWeekNumber(plan, todayWeek) : null;
   const planAdherence = useMemo(()=>plan?getPlanAdherence(plan, analytics.weeklyKm||[]):null,[plan, analytics.weeklyKm]);
   const planPct = planWeek ? Math.min(1, thisWeekKm / planWeek.targetKm) : null;
+  const todayWorkout = useMemo(() => {
+    if (!planWeek) return null;
+    const weekActs = acts.filter(a => weekOf(a.dateTs) === todayWeek);
+    return getTodayWorkout(planWeek, weekActs, thisPaceAvg, mafHR, condition?.form ?? 0);
+  }, [planWeek, acts, todayWeek, thisPaceAvg, mafHR, condition]);
   const [thumbMap, setThumbMap] = useState({});
   useEffect(() => {
     if (!memories.length) return;
@@ -170,6 +175,43 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
             </span>
           )}
         </div>
+      </div>
+    )}
+    {todayWorkout&&!todayWorkout.done&&(
+      <div className="card a1" style={{padding:16,marginBottom:14}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+          <div style={{display:'flex',alignItems:'center',gap:7}}>
+            <span style={{fontSize:'1.1rem'}}>{todayWorkout.icon}</span>
+            <span style={{fontSize:'.65rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.06em',textTransform:'uppercase'}}>Today's Workout</span>
+          </div>
+          <span style={{fontSize:'.6rem',fontWeight:700,color:'var(--or)',padding:'2px 9px',borderRadius:20,background:'rgba(249,115,22,.1)',textTransform:'capitalize'}}>
+            {todayWorkout.phase} · W{planWeekNum}/{plan.weeks.length}
+          </span>
+        </div>
+        <div style={{fontSize:'1.05rem',fontWeight:800,color:'var(--tx)',marginBottom:10}}>{todayWorkout.label}</div>
+        <div style={{display:'flex',gap:8,marginBottom:10}}>
+          <div style={{flex:1,textAlign:'center',padding:'10px 6px',background:'var(--s2)',borderRadius:10,border:'1px solid var(--bd)'}}>
+            <div style={{fontSize:'1.25rem',fontWeight:800,color:'var(--or)',lineHeight:1}}>{fmtKm(todayWorkout.distanceKm)}</div>
+            <div style={{fontSize:'.54rem',color:'var(--tx3)',letterSpacing:'.05em',marginTop:2}}>KM</div>
+          </div>
+          <div style={{flex:2,textAlign:'center',padding:'10px 6px',background:'var(--s2)',borderRadius:10,border:'1px solid var(--bd)'}}>
+            {todayWorkout.paceMin?(
+              <>
+                <div style={{fontSize:'1rem',fontWeight:800,color:'var(--tx)',lineHeight:1}}>{fmtPace(todayWorkout.paceMin)}–{fmtPace(todayWorkout.paceMax)}</div>
+                <div style={{fontSize:'.54rem',color:'var(--tx3)',letterSpacing:'.05em',marginTop:2}}>/KM TARGET</div>
+              </>
+            ):(
+              <div style={{fontSize:'.82rem',fontWeight:600,color:'var(--tx2)',lineHeight:1.35,paddingTop:2}}>{todayWorkout.paceNote}</div>
+            )}
+          </div>
+        </div>
+        <div style={{fontSize:'.74rem',color:'var(--tx2)',fontStyle:'italic',lineHeight:1.5}}>↳ {todayWorkout.tip}</div>
+      </div>
+    )}
+    {todayWorkout?.done&&(
+      <div className="card a1" style={{padding:'11px 16px',marginBottom:14,display:'flex',alignItems:'center',gap:10,background:'var(--gn2)',border:'1px solid rgba(34,197,94,.25)'}}>
+        <span style={{fontSize:'1.1rem'}}>✅</span>
+        <span style={{fontSize:'.82rem',fontWeight:600,color:'var(--gn)'}}>All runs logged this week · Rest up!</span>
       </div>
     )}
     {!plan&&acts.length>0&&(
