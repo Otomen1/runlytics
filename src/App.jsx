@@ -26,7 +26,7 @@ import { Styles } from './styles/GlobalStyles.jsx';
 // ── Tab Screens ───────────────────────────────────────────────────────────────
 import { HomeTab }         from './components/Tabs/HomeTab.jsx';
 const StatsTab = lazy(()=>import('./components/Tabs/StatsTab.jsx').then(m=>({default:m.StatsTab})));
-import { HRTab }           from './components/Tabs/HRTab.jsx';
+import { MoreTab }         from './components/Tabs/MoreTab.jsx';
 import { MemoriesTab }     from './components/Tabs/MemoriesTab.jsx';
 import { AchievementsTab } from './components/Tabs/AchievementsTab.jsx';
 
@@ -462,7 +462,7 @@ const App=()=>{
             onTransitionEnd={()=>{if(pullReleasing)setPullReleasing(false);}}>
             {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
             {tab==="stats"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><StatsTab acts={acts} analytics={analytics} hrProfile={hrProfile} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/></Suspense>}
-            {tab==="hr"&&<HRTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings} onViewMonthly={openMonthly} onViewYearReview={openYearReview} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
+            {tab==="hr"&&<MoreTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings} onViewMonthly={openMonthly} onViewYearReview={openYearReview} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
             {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail} onOpenWrapped={setWrappedMonth}/>}
             {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={newTiers}/>}
           </div>

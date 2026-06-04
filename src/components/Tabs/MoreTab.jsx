@@ -49,7 +49,7 @@ function StreakCalendar({ acts }) {
   );
 }
 
-export function HRTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview,onOpenPlan}){
+export function MoreTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview,onOpenPlan}){
   const mafHR=getMafHR(hrProfile);
   const plan=useMemo(()=>{try{return JSON.parse(localStorage.getItem(PLAN_KEY)||'null');}catch{return null;}},[]);
   const todayWeek=weekOf(Date.now());
