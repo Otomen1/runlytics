@@ -3,6 +3,7 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as RcToolti
 import { RouteMapSVG } from '../Map/RouteMapSVG.jsx';
 import { SH } from '../common/SH.jsx';
 import { ACT_ICN, ACT_CLR } from '../../constants/activityTypes.js';
+import { SHOES_KEY } from '../../constants/keys.js';
 import { fmtKm, fmtDur, fmtPace, fmtDate } from '../../utils/formatters.js';
 import { getMafHR, computeZones, computeSplits } from '../../utils/analytics.js';
 import { JournalTab } from './JournalTab.jsx';
@@ -44,6 +45,13 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
   const col=ACT_CLR[actState.type]||"#6b7280";
   const mafHR=getMafHR(hrProfile);
   const zones=actState.hrSamples&&actState.hrSamples.length?computeZones(actState.hrSamples,mafHR):null;
+  const shoes=useMemo(()=>{try{return JSON.parse(localStorage.getItem(SHOES_KEY)||'{}');}catch{return{};}
+  },[]);
+  const shoeLabel=useMemo(()=>{
+    if(!actState.shoeId||!shoes[actState.shoeId])return null;
+    const s=shoes[actState.shoeId];
+    return(`${s.brand||''} ${s.model||''}`.trim()||null);
+  },[actState.shoeId,shoes]);
 
   const [coverUrl, setCoverUrl] = useState(null);
   const coverUrlRef = useRef(null);
@@ -74,7 +82,13 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
       <div className="glass" style={{position:"sticky",top:0,zIndex:10,padding:"14px 18px 0",borderBottom:"1px solid var(--bd)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
           <div style={{flex:1,minWidth:0,paddingRight:10}}>
-            <div style={{fontSize:".62rem",fontWeight:700,color:col,marginBottom:4,textTransform:"uppercase"}}>{ACT_ICN[act.type]||"🏃"} {act.type} · {act.runClass}</div>
+            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+              <span style={{fontSize:".62rem",fontWeight:700,color:col,textTransform:"uppercase"}}>{ACT_ICN[act.type]||"🏃"} {act.type}</span>
+              {act.runClass&&<span style={{fontSize:'.58rem',fontWeight:700,textTransform:'capitalize',padding:'1px 7px',borderRadius:10,
+                background:{easy:'#3b82f622',long:'#8b5cf622',workout:'#f9731622'}[act.runClass]||'var(--bd)',
+                color:{easy:'#3b82f6',long:'#8b5cf6',workout:'#f97316'}[act.runClass]||'var(--tx3)',
+              }}>{act.runClass}</span>}
+            </div>
             <div style={{fontWeight:700,fontSize:".98rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{act.name}</div>
             <div style={{fontSize:".72rem",color:"var(--tx2)",marginTop:2}}>{fmtDate(act.date)}</div>
           </div>
@@ -118,6 +132,15 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
                 )}
               </div>
             )}
+            {actState.isRace&&(
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12,padding:'10px 14px',borderRadius:12,background:'rgba(234,179,8,.1)',border:'1px solid rgba(234,179,8,.3)'}}>
+                <span style={{fontSize:'1.2rem'}}>🏅</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:'.8rem',fontWeight:700,color:'var(--yw)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{actState.raceLocation||'Race'}</div>
+                  {actState.raceGoalSec>0&&<div style={{fontSize:'.7rem',color:'var(--tx2)',marginTop:1}}>Goal: {fmtDur(actState.raceGoalSec)}</div>}
+                </div>
+              </div>
+            )}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:14}}>
               {[{l:"Distance",v:fmtKm(act.distanceKm)+" km",c:col},{l:"Pace",v:fmtPace(act.avgPaceSecKm)+"/km",c:"var(--tx)"},{l:"Time",v:fmtDur(act.movingTimeSec),c:"var(--tx)"}].map(s=>(
                 <div key={s.l} className="card2" style={{padding:"12px 8px",textAlign:"center"}}>
@@ -127,8 +150,8 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
               ))}
             </div>
             <div className="card" style={{padding:16}}>
-              {[["Elev Gain","+"+Math.round(act.elevGainM||0)+"m"],["Max HR",act.maxHR?(act.maxHR+" bpm"):"—"],["Avg HR",act.avgHR?(act.avgHR+" bpm"):"—"],["Load",String(act.trainingLoad||0)]].map(([l,v],i)=>(
-                <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:i<3?"1px solid var(--bd)":"none"}}>
+              {([["Elev Gain","+"+Math.round(act.elevGainM||0)+"m"],["Max HR",act.maxHR?(act.maxHR+" bpm"):"—"],["Avg HR",act.avgHR?(act.avgHR+" bpm"):"—"],["Load",String(act.trainingLoad||0)],...(shoeLabel?[["Shoe",shoeLabel]]:[])]).map(([l,v],i,arr)=>(
+                <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"9px 0",borderBottom:i<arr.length-1?"1px solid var(--bd)":"none"}}>
                   <span style={{fontSize:".8rem",color:"var(--tx2)"}}>{l}</span>
                   <span style={{fontSize:".84rem",fontWeight:600}}>{v}</span>
                 </div>
@@ -147,6 +170,33 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
                   </div>
                 ))}
               </div>
+              {actState.hrSamples?.length>0&&(
+                <div className="card" style={{padding:16,marginBottom:14}}>
+                  <div style={{fontSize:'.6rem',fontWeight:700,color:'var(--tx3)',letterSpacing:'.06em',textTransform:'uppercase',marginBottom:10}}>
+                    Heart Rate · {Math.round(actState.movingTimeSec/60)} min
+                  </div>
+                  <ResponsiveContainer width="100%" height={120}>
+                    <AreaChart data={actState.hrSamples} margin={{top:4,right:4,bottom:0,left:-20}}>
+                      <defs>
+                        <linearGradient id="hrGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#ef4444" stopOpacity={0.5}/>
+                          <stop offset="100%" stopColor="#ef4444" stopOpacity={0.04}/>
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="sec" tick={{fill:'var(--tx3)',fontSize:8}} axisLine={false} tickLine={false}
+                        tickFormatter={v=>Math.floor(v/60)+'m'} interval="preserveStartEnd"/>
+                      <YAxis tick={{fill:'var(--tx3)',fontSize:8}} axisLine={false} tickLine={false} width={34}/>
+                      <RcTooltip content={({active,payload})=>{
+                        if(!active||!payload?.length)return null;
+                        const{sec,hr}=payload[0].payload;
+                        return<div className="chart-tip"><div className="chart-tip-val">{hr} bpm</div><div className="chart-tip-sub">{Math.floor(sec/60)}:{String(sec%60|0).padStart(2,'0')}</div></div>;
+                      }}/>
+                      <Area dataKey="hr" fill="url(#hrGrad)" stroke="#ef4444" strokeWidth={1.5} dot={false} isAnimationActive={false}/>
+                    </AreaChart>
+                  </ResponsiveContainer>
+                  {mafHR&&<div style={{fontSize:'.68rem',color:'var(--tx3)',marginTop:6}}>MAF target: {mafHR} bpm</div>}
+                </div>
+              )}
               {zones&&(
                 <div className="card" style={{padding:16}}>
                   <SH title="HR Zones" sub={"MAF "+mafHR+" bpm"}/>

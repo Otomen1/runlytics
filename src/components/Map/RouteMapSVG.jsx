@@ -36,7 +36,9 @@ export function RouteMapSVG({route,act}){
     const d=spts.map((p,i)=>(i===0?"M":"L")+p.sx.toFixed(1)+","+p.sy.toFixed(1)).join(" ");
     const pLen=spts.reduce((t,p,i)=>i===0?0:t+Math.hypot(p.sx-spts[i-1].sx,p.sy-spts[i-1].sy),0);
     const col=act&&act.avgPaceSecKm<270?"#22c55e":"#f97316";
-    return{tiles,spts,d,pLen,col,s0:spts[0],sE:spts[spts.length-1],W,H};
+    const secCount=clean.filter(p=>typeof p.sec==='number'&&p.sec>=0).length;
+    const hasSec=secCount>=Math.min(10,Math.ceil(clean.length*0.5));
+    return{tiles,spts,d,pLen,col,s0:spts[0],sE:spts[spts.length-1],W,H,hasSec,clean};
   },[route,act]);
   useEffect(()=>{
     if(!map||!canvasRef.current)return;const canvas=canvasRef.current;const ctx=canvas.getContext("2d");
@@ -46,7 +48,9 @@ export function RouteMapSVG({route,act}){
   },[map]);
   useEffect(()=>{const t=setTimeout(()=>setDrawn(true),150);return()=>clearTimeout(t);},[]);
   if(!map)return<div style={{height:180,borderRadius:12,background:"var(--s2)",border:"1px solid var(--bd)",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--tx3)",fontSize:".8rem"}}>No GPS route</div>;
-  const{tiles,spts,d,pLen,col,s0,sE,W,H}=map;
+  const{tiles,spts,d,pLen,col,s0,sE,W,H,hasSec,clean}=map;
+  const avgMps=act&&act.distanceKm>0&&act.movingTimeSec>0?(act.distanceKm*1000)/act.movingTimeSec:null;
+  const segColor=mps=>{if(!avgMps||!mps)return col;const r=mps/avgMps;return r>=1.08?'#22c55e':r>=0.92?'#f97316':'#ef4444';};
   const onMove=e=>{
     if(!svgRef.current)return;const rc=svgRef.current.getBoundingClientRect();
     const mx=(e.clientX-rc.left)*W/rc.width,my=(e.clientY-rc.top)*H/rc.height;
@@ -54,13 +58,31 @@ export function RouteMapSVG({route,act}){
     if(best&&minD<22){const km=((cumDist[best.ri]||0)/1000).toFixed(2);const ttx=Math.max(35,Math.min(W-35,best.sx));const tty=best.sy>46?best.sy-14:best.sy+26;setHov({x:best.sx,y:best.sy,ttx,tty,km});}else setHov(null);
   };
   return(
-    <div style={{position:"relative",borderRadius:12,overflow:"hidden",border:"1px solid #b8b0a4",boxShadow:"0 2px 14px rgba(0,0,0,.2)"}}>
+    <div>
+    <div style={{position:"relative",borderRadius:hasSec?'12px 12px 0 0':12,overflow:"hidden",border:"1px solid #b8b0a4",boxShadow:"0 2px 14px rgba(0,0,0,.2)"}}>
       <canvas ref={canvasRef} width={W} height={H} style={{display:"block",width:"100%"}}/>
       <svg ref={svgRef} viewBox={"0 0 "+W+" "+H} style={{position:"absolute",inset:0,width:"100%",height:"100%",cursor:"crosshair"}} onMouseMove={onMove} onMouseLeave={()=>setHov(null)}>
-        <path d={d} fill="none" stroke={col} strokeWidth={9} strokeOpacity={0.25} strokeLinecap="round" strokeLinejoin="round"/>
-        <path d={d} fill="none" stroke={col} strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round"
-          strokeDasharray={pLen.toFixed(0)} strokeDashoffset={drawn?"0":pLen.toFixed(0)}
-          style={{transition:"stroke-dashoffset 1.6s cubic-bezier(.4,0,.2,1)"}}/>
+        {hasSec?(
+          spts.map((p,i)=>{
+            if(i===0)return null;
+            const ri0=spts[i-1].ri,ri1=p.ri;
+            const distM=cumDist[ri1]-cumDist[ri0];
+            const timeSec=(clean[ri1].sec??-1)-(clean[ri0].sec??-1);
+            const mps=timeSec>0?distM/timeSec:avgMps;
+            const clr=segColor(mps);
+            return<g key={i}>
+              <line x1={spts[i-1].sx} y1={spts[i-1].sy} x2={p.sx} y2={p.sy} stroke={clr} strokeWidth={7} strokeOpacity={0.22} strokeLinecap="round"/>
+              <line x1={spts[i-1].sx} y1={spts[i-1].sy} x2={p.sx} y2={p.sy} stroke={clr} strokeWidth={3} strokeLinecap="round"/>
+            </g>;
+          })
+        ):(
+          <>
+            <path d={d} fill="none" stroke={col} strokeWidth={9} strokeOpacity={0.25} strokeLinecap="round" strokeLinejoin="round"/>
+            <path d={d} fill="none" stroke={col} strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round"
+              strokeDasharray={pLen.toFixed(0)} strokeDashoffset={drawn?"0":pLen.toFixed(0)}
+              style={{transition:"stroke-dashoffset 1.6s cubic-bezier(.4,0,.2,1)"}}/>
+          </>
+        )}
         <circle cx={s0.sx} cy={s0.sy} r={8} fill="#22c55e" stroke="#fff" strokeWidth={2.5}/>
         <text x={s0.sx} y={s0.sy+4} textAnchor="middle" fontSize={7} fill="#fff" fontWeight="800">S</text>
         <circle cx={sE.sx} cy={sE.sy} r={8} fill="#ef4444" stroke="#fff" strokeWidth={2.5}/>
@@ -76,6 +98,12 @@ export function RouteMapSVG({route,act}){
         </g>}
         <text x={W-5} y={H-3} textAnchor="end" fontSize={6} fill="rgba(0,0,0,.5)">© OpenStreetMap</text>
       </svg>
+    </div>
+    {hasSec&&<div style={{display:'flex',gap:14,justifyContent:'center',padding:'6px 0',fontSize:'.64rem',color:'var(--tx3)',borderRadius:'0 0 12px 12px',border:'1px solid #b8b0a4',borderTop:'none',background:'var(--s2)'}}>
+      {[['#22c55e','Faster'],['#f97316','Average'],['#ef4444','Slower']].map(([c,l])=>(
+        <span key={l} style={{display:'flex',alignItems:'center',gap:4}}><span style={{color:c,fontSize:'.8rem'}}>●</span>{l}</span>
+      ))}
+    </div>}
     </div>
   );
 }
