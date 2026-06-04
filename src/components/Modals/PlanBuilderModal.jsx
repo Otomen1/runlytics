@@ -163,104 +163,105 @@ export function PlanBuilderModal({ acts, analytics, onClose }) {
         )}
 
         {view === 'wizard' && (
-          <div style={{ padding: '20px 20px', paddingBottom:'calc(24px + env(safe-area-inset-bottom))', flex: 1, overflowY: 'auto' }}>
-            <div style={{ display: 'flex', gap: 5, marginBottom: 24, justifyContent: 'center' }}>
-              {[1, 2, 3].map(s => (
-                <div key={s} style={{ height: 5, borderRadius: 3, background: s <= step ? 'var(--or)' : 'var(--bd)', width: s === step ? 24 : 7, transition: 'all .3s' }} />
-              ))}
+          <>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px 8px' }}>
+              <div style={{ display: 'flex', gap: 5, marginBottom: 24, justifyContent: 'center' }}>
+                {[1, 2, 3].map(s => (
+                  <div key={s} style={{ height: 5, borderRadius: 3, background: s <= step ? 'var(--or)' : 'var(--bd)', width: s === step ? 24 : 7, transition: 'all .3s' }} />
+                ))}
+              </div>
+
+              {step === 1 && (
+                <div style={{ animation: 'fadeUp .22s ease both' }}>
+                  <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--tx2)', marginBottom: 14 }}>Choose your goal race</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    {RACES.map(r => (
+                      <div key={r.id} className="tap"
+                        onClick={() => setRaceType(r.id)}
+                        style={{
+                          padding: '18px 12px', borderRadius: 14, textAlign: 'center', cursor: 'pointer',
+                          border: `1.5px solid ${raceType === r.id ? 'rgba(249,115,22,.6)' : 'var(--bd)'}`,
+                          background: raceType === r.id ? 'rgba(249,115,22,.08)' : 'var(--s2)',
+                          transition: 'all .15s',
+                        }}>
+                        <div style={{ fontSize: '1.6rem', marginBottom: 6 }}>{r.icon}</div>
+                        <div style={{ fontWeight: 800, fontSize: '1rem', color: raceType === r.id ? 'var(--or)' : 'var(--tx)' }}>{r.label}</div>
+                        <div style={{ fontSize: '.65rem', color: 'var(--tx3)', marginTop: 2 }}>{r.sub}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {step === 2 && (
+                <div style={{ animation: 'fadeUp .22s ease both' }}>
+                  <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--tx2)', marginBottom: 6 }}>When is your race?</div>
+                  <div style={{ fontSize: '.72rem', color: 'var(--tx3)', marginBottom: 14 }}>Minimum 8 weeks to build a proper plan</div>
+                  <input
+                    type="date"
+                    className="inp"
+                    value={raceDate}
+                    min={minDate()}
+                    max={maxDate()}
+                    onChange={e => setRaceDate(e.target.value)}
+                    style={{ marginBottom: 12, width: '100%', boxSizing: 'border-box' }}
+                  />
+                  {raceDate && (
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px',
+                      borderRadius: 20,
+                      background: dateOk ? 'rgba(34,197,94,.1)' : 'rgba(239,68,68,.1)',
+                      border: `1px solid ${dateOk ? 'rgba(34,197,94,.3)' : 'rgba(239,68,68,.3)'}`,
+                      fontSize: '.72rem', fontWeight: 700,
+                      color: dateOk ? 'var(--gn)' : 'var(--rd)',
+                    }}>
+                      {dateOk
+                        ? `${wksUntil} weeks · ${fmtRaceDate(raceDate)}`
+                        : `Only ${wksUntil} weeks — need at least 8`}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {step === 3 && (
+                <div style={{ animation: 'fadeUp .22s ease both' }}>
+                  <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--tx2)', marginBottom: 4 }}>Confirm your current fitness</div>
+                  <div style={{ fontSize: '.72rem', color: 'var(--tx3)', marginBottom: 20 }}>Based on your last 4 weeks of training</div>
+                  <div style={{ padding: '16px', borderRadius: 14, background: 'var(--s2)', border: '1px solid var(--bd)' }}>
+                    <div style={{ fontSize: '.68rem', color: 'var(--tx3)', marginBottom: 8 }}>Weekly base (km)</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <button
+                        onClick={() => setBaseKm(k => Math.max(10, parseFloat((k - 2.5).toFixed(1))))}
+                        style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid var(--bd)', background: 'var(--s3)', color: 'var(--tx)', fontSize: '1.1rem', cursor: 'pointer', flexShrink: 0 }}>−</button>
+                      <div style={{ flex: 1, textAlign: 'center' }}>
+                        <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--or)', lineHeight: 1 }}>{baseKm}</div>
+                        <div style={{ fontSize: '.6rem', color: 'var(--tx3)', marginTop: 2 }}>km / week</div>
+                      </div>
+                      <button
+                        onClick={() => setBaseKm(k => Math.min(120, parseFloat((k + 2.5).toFixed(1))))}
+                        style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid var(--bd)', background: 'var(--s3)', color: 'var(--tx)', fontSize: '1.1rem', cursor: 'pointer', flexShrink: 0 }}>+</button>
+                    </div>
+                    <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ fontSize: '.7rem', color: 'var(--tx3)' }}>Peak target</span>
+                      <span style={{ fontSize: '.78rem', fontWeight: 700, color: 'var(--tx)' }}>
+                        ~{Math.min(Math.round(baseKm * 1.5), { '5K': 55, '10K': 70, 'HM': 85, 'Marathon': 110 }[raceType])} km/wk
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {step === 1 && (
-              <div style={{ animation: 'fadeUp .22s ease both' }}>
-                <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--tx2)', marginBottom: 14 }}>Choose your goal race</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 24 }}>
-                  {RACES.map(r => (
-                    <div key={r.id} className="tap"
-                      onClick={() => setRaceType(r.id)}
-                      style={{
-                        padding: '18px 12px', borderRadius: 14, textAlign: 'center', cursor: 'pointer',
-                        border: `1.5px solid ${raceType === r.id ? 'rgba(249,115,22,.6)' : 'var(--bd)'}`,
-                        background: raceType === r.id ? 'rgba(249,115,22,.08)' : 'var(--s2)',
-                        transition: 'all .15s',
-                      }}>
-                      <div style={{ fontSize: '1.6rem', marginBottom: 6 }}>{r.icon}</div>
-                      <div style={{ fontWeight: 800, fontSize: '1rem', color: raceType === r.id ? 'var(--or)' : 'var(--tx)' }}>{r.label}</div>
-                      <div style={{ fontSize: '.65rem', color: 'var(--tx3)', marginTop: 2 }}>{r.sub}</div>
-                    </div>
-                  ))}
-                </div>
-                <button className="btn b-or" style={{ width: '100%' }} onClick={() => setStep(2)}>Next →</button>
-              </div>
-            )}
-
-            {step === 2 && (
-              <div style={{ animation: 'fadeUp .22s ease both' }}>
-                <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--tx2)', marginBottom: 6 }}>When is your race?</div>
-                <div style={{ fontSize: '.72rem', color: 'var(--tx3)', marginBottom: 14 }}>Minimum 8 weeks to build a proper plan</div>
-                <input
-                  type="date"
-                  className="inp"
-                  value={raceDate}
-                  min={minDate()}
-                  max={maxDate()}
-                  onChange={e => setRaceDate(e.target.value)}
-                  style={{ marginBottom: 12, width: '100%', boxSizing: 'border-box' }}
-                />
-                {raceDate && (
-                  <div style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 12px',
-                    borderRadius: 20, marginBottom: 20,
-                    background: dateOk ? 'rgba(34,197,94,.1)' : 'rgba(239,68,68,.1)',
-                    border: `1px solid ${dateOk ? 'rgba(34,197,94,.3)' : 'rgba(239,68,68,.3)'}`,
-                    fontSize: '.72rem', fontWeight: 700,
-                    color: dateOk ? 'var(--gn)' : 'var(--rd)',
-                  }}>
-                    {dateOk
-                      ? `${wksUntil} weeks · ${fmtRaceDate(raceDate)}`
-                      : `Only ${wksUntil} weeks — need at least 8`}
-                  </div>
-                )}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn b-gh" style={{ flex: 1 }} onClick={() => setStep(1)}>← Back</button>
-                  <button className="btn b-or" style={{ flex: 2 }} disabled={!dateOk} onClick={() => setStep(3)}>Next →</button>
-                </div>
-              </div>
-            )}
-
-            {step === 3 && (
-              <div style={{ animation: 'fadeUp .22s ease both' }}>
-                <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--tx2)', marginBottom: 4 }}>Confirm your current fitness</div>
-                <div style={{ fontSize: '.72rem', color: 'var(--tx3)', marginBottom: 20 }}>
-                  Based on your last 4 weeks of training
-                </div>
-                <div style={{ padding: '16px', borderRadius: 14, background: 'var(--s2)', border: '1px solid var(--bd)', marginBottom: 20 }}>
-                  <div style={{ fontSize: '.68rem', color: 'var(--tx3)', marginBottom: 8 }}>Weekly base (km)</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <button
-                      onClick={() => setBaseKm(k => Math.max(10, parseFloat((k - 2.5).toFixed(1))))}
-                      style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid var(--bd)', background: 'var(--s3)', color: 'var(--tx)', fontSize: '1.1rem', cursor: 'pointer', flexShrink: 0 }}>−</button>
-                    <div style={{ flex: 1, textAlign: 'center' }}>
-                      <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--or)', lineHeight: 1 }}>{baseKm}</div>
-                      <div style={{ fontSize: '.6rem', color: 'var(--tx3)', marginTop: 2 }}>km / week</div>
-                    </div>
-                    <button
-                      onClick={() => setBaseKm(k => Math.min(120, parseFloat((k + 2.5).toFixed(1))))}
-                      style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid var(--bd)', background: 'var(--s3)', color: 'var(--tx)', fontSize: '1.1rem', cursor: 'pointer', flexShrink: 0 }}>+</button>
-                  </div>
-                  <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--bd)', display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '.7rem', color: 'var(--tx3)' }}>Peak target</span>
-                    <span style={{ fontSize: '.78rem', fontWeight: 700, color: 'var(--tx)' }}>
-                      ~{Math.min(Math.round(baseKm * 1.5), { '5K': 55, '10K': 70, 'HM': 85, 'Marathon': 110 }[raceType])} km/wk
-                    </span>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn b-gh" style={{ flex: 1 }} onClick={() => setStep(2)}>← Back</button>
-                  <button className="btn b-or" style={{ flex: 2 }} onClick={handleGenerate}>Generate Plan ✓</button>
-                </div>
-              </div>
-            )}
-          </div>
+            {/* Sticky footer buttons — same pattern as MonthlyWrapped */}
+            <div style={{ display: 'flex', gap: 10, padding: '16px 20px', paddingBottom: 'calc(16px + env(safe-area-inset-bottom))', borderTop: '1px solid var(--bd)', flexShrink: 0 }}>
+              {step > 1
+                ? <button className="btn b-gh" style={{ flex: 1, padding: '13px' }} onClick={() => setStep(s => s - 1)}>← Back</button>
+                : <div style={{ flex: 1 }} />}
+              {step === 1 && <button className="btn b-or" style={{ flex: 2, padding: '13px' }} onClick={() => setStep(2)}>Next →</button>}
+              {step === 2 && <button className="btn b-or" style={{ flex: 2, padding: '13px' }} disabled={!dateOk} onClick={() => setStep(3)}>Next →</button>}
+              {step === 3 && <button className="btn b-or" style={{ flex: 2, padding: '13px' }} onClick={handleGenerate}>Generate Plan ✓</button>}
+            </div>
+          </>
         )}
       </div>
     </div>
