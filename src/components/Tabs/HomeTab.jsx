@@ -2,9 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Ring } from '../common/Ring.jsx';
 import { SH } from '../common/SH.jsx';
 import { ACT_CLR } from '../../constants/activityTypes.js';
-import { fmtKm, fmtPace, fmtDate, todayKey, greet } from '../../utils/formatters.js';
+import { fmtKm, fmtPace, fmtDate, todayKey, greet, weekOf } from '../../utils/formatters.js';
 import { getMafHR, computeAtlCtl, computeRacePRs, estimateVO2max, computeTierProgress } from '../../utils/analytics.js';
 import { getPhotos } from '../../db/indexedDB.js';
+import { PLAN_KEY } from '../../constants/keys.js';
+import { getPlanWeek, getPlanAdherence, getPlanWeekNumber } from '../../utils/trainingPlan.js';
 
 const CONDITIONS = [
   { minForm:  8, label: "Energetic",  emoji: "⚡", color: "#f97316", desc: "Peak form — great day for a hard effort or race pace." },
@@ -23,7 +25,7 @@ const MOODS_MAP = {
 };
 
 
-export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUpload,onViewAll,onViewMonthly,onEditGoals}){
+export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUpload,onViewAll,onViewMonthly,onEditGoals,onOpenPlan}){
   const lastRun=acts.length?acts.reduce((b,a)=>a.dateTs>b.dateTs?a:b):null;
   const mafHR=getMafHR(hrProfile);
   const racePRs=useMemo(()=>computeRacePRs(acts),[acts]);
@@ -57,6 +59,12 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
     return w.length?w.sort((a,b)=>b.pct-a.pct)[0]:null;
   },[tierProgress]);
   const memories = useMemo(() => (acts||[]).filter(a => a.mood || a.notes || a.photoCount > 0).slice(0, 5), [acts]);
+  const plan = useMemo(()=>{try{return JSON.parse(localStorage.getItem(PLAN_KEY)||'null');}catch{return null;}},[]);
+  const todayWeek = weekOf(Date.now());
+  const planWeek = plan ? getPlanWeek(plan, todayWeek) : null;
+  const planWeekNum = plan ? getPlanWeekNumber(plan, todayWeek) : null;
+  const planAdherence = useMemo(()=>plan?getPlanAdherence(plan, analytics.weeklyKm||[]):null,[plan, analytics.weeklyKm]);
+  const planPct = planWeek ? Math.min(1, thisWeekKm / planWeek.targetKm) : null;
   const [thumbMap, setThumbMap] = useState({});
   useEffect(() => {
     if (!memories.length) return;
@@ -123,6 +131,51 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
         <span style={{fontSize:".6rem",color:"var(--tx3)"}}>ml/kg/min</span>
         <span style={{fontSize:".68rem",fontWeight:700,color:vo2maxEst.color,padding:"2px 9px",borderRadius:20,background:vo2maxEst.color+"22"}}>{vo2maxEst.label}</span>
       </div>
+    )}
+    {planWeek&&(
+      <div className="card a2" style={{padding:16,marginBottom:14,border:'1.5px solid rgba(249,115,22,.22)',background:'rgba(249,115,22,.04)',cursor:'pointer'}} onClick={onOpenPlan}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+          <div>
+            <div style={{fontSize:'.6rem',fontWeight:700,color:'var(--or)',letterSpacing:'.1em',textTransform:'uppercase',marginBottom:3}}>Training Plan</div>
+            <div style={{fontWeight:700,fontSize:'.88rem',color:'var(--tx)'}}>
+              {plan.raceType==='HM'?'Half Marathon':plan.raceType} · {new Date(plan.raceDate+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+            </div>
+          </div>
+          <div style={{textAlign:'center',padding:'6px 11px',borderRadius:10,background:'rgba(249,115,22,.12)',border:'1px solid rgba(249,115,22,.22)'}}>
+            <div style={{fontSize:'1.1rem',fontWeight:800,color:'var(--or)',lineHeight:1}}>W{planWeekNum}</div>
+            <div style={{fontSize:'.5rem',color:'var(--or)',letterSpacing:'.06em'}}>of {plan.weeks.length}</div>
+          </div>
+        </div>
+        <div style={{marginBottom:8}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+            <span style={{fontSize:'.72rem',color:'var(--tx2)'}}>This week</span>
+            <span style={{fontSize:'.72rem',fontWeight:600,color:planPct>=0.8?'var(--gn)':planPct>=0.5?'var(--or)':'var(--rd)'}}>
+              {fmtKm(thisWeekKm)} / {fmtKm(planWeek.targetKm)} km
+            </span>
+          </div>
+          <div style={{height:7,borderRadius:4,background:'var(--bd)',overflow:'hidden'}}>
+            <div style={{height:'100%',borderRadius:4,width:Math.min(100,planPct*100)+'%',
+              background:planPct>=0.8?'var(--gn)':planPct>=0.5?'var(--or)':'var(--rd)',transition:'width .4s ease'}}/>
+          </div>
+        </div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div style={{display:'flex',gap:8}}>
+            {planWeek.easy>0&&<span style={{fontSize:'.65rem',color:'#3b82f6',fontWeight:600}}>Easy ×{planWeek.easy}</span>}
+            {planWeek.long>0&&<span style={{fontSize:'.65rem',color:'#8b5cf6',fontWeight:600}}>Long ×{planWeek.long}</span>}
+            {planWeek.workout>0&&<span style={{fontSize:'.65rem',color:'#f97316',fontWeight:600}}>Workout ×{planWeek.workout}</span>}
+          </div>
+          {planAdherence?.weeksCompleted>0&&(
+            <span style={{fontSize:'.68rem',fontWeight:700,color:planAdherence.adherencePct>=80?'var(--gn)':'var(--or)'}}>
+              {planAdherence.adherencePct}% adherence
+            </span>
+          )}
+        </div>
+      </div>
+    )}
+    {!plan&&acts.length>0&&(
+      <button className="btn b-gh" style={{width:'100%',marginBottom:14,fontSize:'.8rem',padding:'11px'}} onClick={onOpenPlan}>
+        🎯 Set a goal race + training plan
+      </button>
     )}
     {lastRun&&(
       <div className="card a2" style={{marginBottom:14,overflow:"hidden",cursor:"pointer"}} onClick={()=>onSelectAct(lastRun)}>

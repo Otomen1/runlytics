@@ -44,6 +44,7 @@ import { ShoeTracker }   from './components/Modals/ShoeTracker.jsx';
 import { PRDetailModal } from './components/Modals/PRDetailModal.jsx';
 import { DebugPanel }    from './components/Modals/DebugPanel.jsx';
 import { Onboarding }   from './components/Modals/Onboarding.jsx';
+import { PlanBuilderModal } from './components/Modals/PlanBuilderModal.jsx';
 
 // ── localStorage helpers (lightweight prefs only) ────────────────────────────
 let _onStorageError=null; // set by App to surface quota errors to the UI
@@ -116,6 +117,7 @@ const App=()=>{
   const[stravaSync,setStravaSync]=useState({loading:false,msg:""});
   const[hasUnseen,setHasUnseen]=useState(false);
   const[showDebug,setShowDebug]=useState(false);
+  const[showPlanBuilder,setShowPlanBuilder]=useState(false);
   const[theme,setTheme]=useState(loadTheme);
   const[toast,setToast]=useState(null);
   const toastTimerRef=useRef(null);
@@ -458,7 +460,7 @@ const App=()=>{
           <div key={tab} className="tab-in"
             style={{transform:`translateY(${pullY}px)`,transition:pullReleasing?"transform .25s ease":"none"}}
             onTransitionEnd={()=>{if(pullReleasing)setPullReleasing(false);}}>
-            {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings}/>}
+            {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
             {tab==="stats"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><StatsTab acts={acts} analytics={analytics} hrProfile={hrProfile} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/></Suspense>}
             {tab==="hr"&&<HRTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings} onViewMonthly={openMonthly} onViewYearReview={openYearReview}/>}
             {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail} onOpenWrapped={setWrappedMonth}/>}
@@ -532,6 +534,7 @@ const App=()=>{
           </div>
         </div>
       )}
+      {showPlanBuilder&&<PlanBuilderModal acts={acts} analytics={analytics} onClose={()=>setShowPlanBuilder(false)}/>}
       {showDebug&&<DebugPanel acts={acts} onClose={()=>setShowDebug(false)}
         onRepairRoutes={()=>{
           if(isRepairingRef.current)return;
