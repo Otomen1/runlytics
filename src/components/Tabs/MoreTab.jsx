@@ -82,8 +82,8 @@ export function MoreTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview,
       <div className="card a0" style={{padding:16,marginBottom:14}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:plan?14:0}}>
           <SH title="Training Plan"/>
-          <button className="btn b-gh" style={{fontSize:'.72rem',padding:'5px 12px'}} onClick={onOpenPlan}>
-            {plan?'Edit':'Set Race'}
+          <button className="btn b-or" style={{fontSize:'.72rem',padding:'5px 14px'}} onClick={onOpenPlan}>
+            {plan?'View Plan':'Set Race'}
           </button>
         </div>
         {!plan&&(
