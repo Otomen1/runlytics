@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { PLAN_KEY } from '../../constants/keys.js';
-import { generatePlan, detectBaseKm, getPlanWeekNumber } from '../../utils/trainingPlan.js';
+import { generatePlan, detectBaseKm, getPlanWeekNumber, getWeekDays } from '../../utils/trainingPlan.js';
 import { weekOf, fmtKm } from '../../utils/formatters.js';
 
 const RACES = [
@@ -48,6 +48,7 @@ export function PlanBuilderModal({ acts, analytics, onClose }) {
   const [baseKm, setBaseKm] = useState(() => detectBaseKm(analytics?.weeklyKm || []));
   const [plan, setPlan] = useState(existingPlan);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [expandedWeek, setExpandedWeek] = useState(() => weekOf(Date.now()));
 
   const wksUntil = weeksUntil(raceDate);
   const dateOk = raceDate && wksUntil >= 8;
@@ -114,30 +115,67 @@ export function PlanBuilderModal({ acts, analytics, onClose }) {
               const isCurrent = w.week === today;
               const isPast = w.week < today;
               const phaseColor = PHASE_COLORS[w.phase] || 'var(--or)';
+              const isExpanded = expandedWeek === w.week;
+              const days = isExpanded ? getWeekDays(w) : [];
               return (
-                <div key={w.week} style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '9px 12px', marginBottom: 4,
-                  borderRadius: 10,
-                  background: isCurrent ? 'rgba(249,115,22,.08)' : 'var(--s2)',
-                  border: isCurrent ? '1.5px solid rgba(249,115,22,.3)' : '1px solid var(--bd)',
-                  opacity: isPast && !isCurrent ? 0.55 : 1,
-                }}>
-                  <div style={{ width: 3, height: 32, borderRadius: 2, background: phaseColor, flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '.75rem', fontWeight: isCurrent ? 700 : 500, color: isCurrent ? 'var(--tx)' : 'var(--tx2)' }}>
-                        W{i + 1} · {w.week.slice(5)}
-                      </span>
-                      <span style={{ fontSize: '.82rem', fontWeight: 700, color: phaseColor }}>{fmtKm(w.targetKm)} km</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-                      {w.easy > 0 && <span style={{ fontSize: '.6rem', color: '#3b82f6' }}>Easy ×{w.easy}</span>}
-                      {w.long > 0 && <span style={{ fontSize: '.6rem', color: '#8b5cf6' }}>Long ×{w.long}</span>}
-                      {w.workout > 0 && <span style={{ fontSize: '.6rem', color: '#f97316' }}>Workout ×{w.workout}</span>}
-                      <span style={{ fontSize: '.6rem', color: 'var(--tx3)', marginLeft: 'auto', textTransform: 'capitalize' }}>{w.phase}</span>
+                <div key={w.week} style={{ marginBottom: 4 }}>
+                  {/* Week header row */}
+                  <div
+                    onClick={() => setExpandedWeek(isExpanded ? null : w.week)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '9px 12px',
+                      borderRadius: isExpanded ? '10px 10px 0 0' : 10,
+                      background: isCurrent ? 'rgba(249,115,22,.08)' : 'var(--s2)',
+                      border: isCurrent ? '1.5px solid rgba(249,115,22,.3)' : '1px solid var(--bd)',
+                      borderBottom: isExpanded ? 'none' : undefined,
+                      opacity: isPast && !isCurrent ? 0.6 : 1,
+                      cursor: 'pointer',
+                    }}>
+                    <div style={{ width: 3, height: 32, borderRadius: 2, background: phaseColor, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '.75rem', fontWeight: isCurrent ? 700 : 500, color: isCurrent ? 'var(--tx)' : 'var(--tx2)' }}>
+                          W{i + 1} · {w.week.slice(5)}
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: '.82rem', fontWeight: 700, color: phaseColor }}>{fmtKm(w.targetKm)} km</span>
+                          <span style={{ fontSize: '.65rem', color: 'var(--tx3)' }}>{isExpanded ? '▲' : '▼'}</span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                        {w.easy > 0 && <span style={{ fontSize: '.6rem', color: '#3b82f6' }}>Easy ×{w.easy}</span>}
+                        {w.long > 0 && <span style={{ fontSize: '.6rem', color: '#8b5cf6' }}>Long ×{w.long}</span>}
+                        {w.workout > 0 && <span style={{ fontSize: '.6rem', color: '#f97316' }}>Workout ×{w.workout}</span>}
+                        <span style={{ fontSize: '.6rem', color: 'var(--tx3)', marginLeft: 'auto', textTransform: 'capitalize' }}>{w.phase}</span>
+                      </div>
                     </div>
                   </div>
+                  {/* Expanded day schedule */}
+                  {isExpanded && (
+                    <div style={{
+                      padding: '6px 12px 10px',
+                      background: isCurrent ? 'rgba(249,115,22,.04)' : 'var(--s2)',
+                      border: isCurrent ? '1.5px solid rgba(249,115,22,.3)' : '1px solid var(--bd)',
+                      borderTop: 'none',
+                      borderRadius: '0 0 10px 10px',
+                    }}>
+                      {days.map(day => (
+                        <div key={day.date} style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          padding: '5px 0',
+                          borderBottom: day.dayOfWeek < 6 ? '1px solid var(--bd)' : 'none',
+                        }}>
+                          <span style={{ fontSize: '.68rem', fontWeight: 600, color: 'var(--tx3)', width: 26, flexShrink: 0 }}>{day.day}</span>
+                          <span style={{ fontSize: '.82rem', width: 18, textAlign: 'center', flexShrink: 0 }}>{day.icon}</span>
+                          <span style={{ fontSize: '.72rem', color: day.type === 'rest' ? 'var(--tx3)' : 'var(--tx)', flex: 1 }}>{day.label}</span>
+                          {day.targetKm > 0 && (
+                            <span style={{ fontSize: '.76rem', fontWeight: 700, color: day.color }}>{fmtKm(day.targetKm)} km</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}

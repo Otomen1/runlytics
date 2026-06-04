@@ -3,7 +3,7 @@ import { SH } from '../common/SH.jsx';
 import { Ring } from '../common/Ring.jsx';
 import { getMafHR, getMafZones, computeZones } from '../../utils/analytics.js';
 import { PLAN_KEY } from '../../constants/keys.js';
-import { getPlanAdherence, getPlanWeekNumber } from '../../utils/trainingPlan.js';
+import { getPlanAdherence, getPlanWeekNumber, getPlanWeek, getWeekDays } from '../../utils/trainingPlan.js';
 import { weekOf, fmtKm } from '../../utils/formatters.js';
 
 function StreakCalendar({ acts }) {
@@ -64,6 +64,9 @@ export function MoreTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview,
     const weekMap={};acts.forEach(a=>{const w=weekOf(a.dateTs);weekMap[w]=(weekMap[w]||0)+a.distanceKm;});
     return plan.weeks.map((w,i)=>({week:`W${i+1}`,target:w.targetKm,actual:weekMap[w.week]?parseFloat(weekMap[w.week].toFixed(1)):null,phase:w.phase,weekKey:w.week}));
   },[plan,acts]);
+  const currentPlanWeek=useMemo(()=>plan?getPlanWeek(plan,todayWeek):null,[plan,todayWeek]);
+  const currentWeekDays=useMemo(()=>getWeekDays(currentPlanWeek),[currentPlanWeek]);
+  const todayDate=new Date().toISOString().slice(0,10);
   const runsWithHR=acts.filter(a=>a.avgHR&&a.distanceKm>0);
   const last5=runsWithHR.slice(0,5);
   const aggZones=useMemo(()=>{
@@ -145,6 +148,33 @@ export function MoreTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview,
                   </div>
                 ))}
               </div>
+              {currentWeekDays.length>0&&(
+                <div style={{marginTop:14,borderTop:'1px solid var(--bd)',paddingTop:12}}>
+                  <div style={{fontSize:'.65rem',fontWeight:700,color:'var(--tx3)',letterSpacing:'.06em',textTransform:'uppercase',marginBottom:8}}>
+                    This Week — W{planWeekNum} · <span style={{textTransform:'capitalize'}}>{currentPlanWeek.phase}</span>
+                  </div>
+                  {currentWeekDays.map(day=>{
+                    const isToday=day.date===todayDate;
+                    const isDone=day.type!=='rest'&&acts.some(a=>a.date===day.date&&a.runClass===day.type);
+                    return(
+                      <div key={day.date} style={{
+                        display:'flex',alignItems:'center',gap:10,
+                        padding:'6px 8px',marginBottom:2,borderRadius:8,
+                        background:isToday?'rgba(249,115,22,.07)':'transparent',
+                        borderLeft:isToday?'3px solid var(--or)':'3px solid transparent',
+                      }}>
+                        <span style={{fontSize:'.68rem',fontWeight:isToday?700:500,color:isToday?'var(--or)':'var(--tx3)',width:26,flexShrink:0}}>{day.day}</span>
+                        <span style={{fontSize:'.8rem',width:18,textAlign:'center',flexShrink:0}}>{day.icon}</span>
+                        <span style={{fontSize:'.72rem',flex:1,color:day.type==='rest'?'var(--tx3)':isDone?'var(--gn)':'var(--tx)',fontWeight:isDone?600:400}}>{day.label}</span>
+                        {day.targetKm>0&&(
+                          <span style={{fontSize:'.72rem',fontWeight:700,color:isDone?'var(--gn)':day.color}}>{fmtKm(day.targetKm)} km</span>
+                        )}
+                        {isDone&&<span style={{fontSize:'.72rem',color:'var(--gn)'}}>✓</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </>
           );
         })()}

@@ -112,6 +112,46 @@ export function getPlanWeekNumber(plan, weekKey) {
   return idx >= 0 ? idx + 1 : null;
 }
 
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+const DAY_TYPE_INFO = {
+  rest:    { label: 'Rest',      icon: '—',  color: 'var(--tx3)' },
+  easy:    { label: 'Easy Run',  icon: '🦶', color: '#3b82f6'    },
+  long:    { label: 'Long Run',  icon: '📏', color: '#8b5cf6'    },
+  workout: { label: 'Tempo Run', icon: '⚡', color: '#f97316'    },
+};
+
+export function getWeekDays(planWeek) {
+  if (!planWeek) return [];
+  const { week, targetKm, easy, long, workout } = planWeek;
+
+  // Slot template Mon–Sun (0=Mon, 6=Sun)
+  const slots = ['rest', 'rest', 'rest', 'rest', 'rest', 'rest', 'rest'];
+  if (long > 0)    slots[5] = 'long';
+  if (workout >= 1) slots[1] = 'workout';
+  if (workout >= 2) slots[3] = 'workout';
+
+  // Fill easy slots: Wed→Fri→Sun→Mon priority
+  let easyLeft = easy;
+  for (const idx of [2, 4, 6, 0]) {
+    if (!easyLeft) break;
+    if (slots[idx] === 'rest') { slots[idx] = 'easy'; easyLeft--; }
+  }
+
+  const longKm    = long    > 0 ? parseFloat(Math.max(10, Math.min(35, targetKm * 0.30)).toFixed(1)) : 0;
+  const workoutKm = workout > 0 ? parseFloat(Math.max(6,  Math.min(16, targetKm * 0.18)).toFixed(1)) : 0;
+  const usedKm    = longKm * long + workoutKm * workout;
+  const easyKm    = easy   > 0 ? parseFloat(Math.max(5,  Math.min(18, (targetKm - usedKm) / easy)).toFixed(1)) : 0;
+
+  const [y, m, d] = week.split('-').map(Number);
+  return slots.map((type, i) => {
+    const dd = new Date(y, m - 1, d + i);
+    const date = `${dd.getFullYear()}-${String(dd.getMonth()+1).padStart(2,'0')}-${String(dd.getDate()).padStart(2,'0')}`;
+    const km = type === 'long' ? longKm : type === 'workout' ? workoutKm : type === 'easy' ? easyKm : 0;
+    return { date, dayOfWeek: i, day: DAY_NAMES[i], type, ...DAY_TYPE_INFO[type], targetKm: km };
+  });
+}
+
 const TYPE_META = {
   easy:    { label: 'Easy Run',  icon: '🦶' },
   long:    { label: 'Long Run',  icon: '📏' },

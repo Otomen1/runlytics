@@ -6,6 +6,7 @@ import {
   getPlanAdherence,
   getPlanWeekNumber,
   getTodayWorkout,
+  getWeekDays,
 } from './trainingPlan.js';
 
 function makePlan(overrides = {}) {
@@ -115,6 +116,73 @@ describe('getPlanAdherence', () => {
     const result = getPlanAdherence(plan, []);
     expect(result.adherencePct).toBe(100);
     expect(result.weeksCompleted).toBe(0);
+  });
+});
+
+// ── getWeekDays ───────────────────────────────────────────────────────────────
+
+describe('getWeekDays', () => {
+  it('returns empty array for null input', () => {
+    expect(getWeekDays(null)).toEqual([]);
+  });
+
+  it('returns 7 days', () => {
+    const pw = planWeekStub({ week: '2026-06-01' });
+    expect(getWeekDays(pw)).toHaveLength(7);
+  });
+
+  it('Saturday is always long', () => {
+    const pw = planWeekStub({ week: '2026-06-01', easy: 2, long: 1, workout: 1 });
+    const days = getWeekDays(pw);
+    expect(days[5].type).toBe('long'); // index 5 = Sat
+    expect(days[5].day).toBe('Sat');
+  });
+
+  it('workout=1 anchors to Tuesday', () => {
+    const pw = planWeekStub({ week: '2026-06-01', easy: 2, long: 1, workout: 1 });
+    const days = getWeekDays(pw);
+    expect(days[1].type).toBe('workout'); // Tue
+  });
+
+  it('workout=2 anchors to Tuesday and Thursday', () => {
+    const pw = planWeekStub({ week: '2026-06-01', easy: 3, long: 1, workout: 2 });
+    const days = getWeekDays(pw);
+    expect(days[1].type).toBe('workout'); // Tue
+    expect(days[3].type).toBe('workout'); // Thu
+  });
+
+  it('correct number of each type', () => {
+    const pw = planWeekStub({ week: '2026-06-01', easy: 3, long: 1, workout: 1 });
+    const days = getWeekDays(pw);
+    expect(days.filter(d => d.type === 'easy').length).toBe(3);
+    expect(days.filter(d => d.type === 'long').length).toBe(1);
+    expect(days.filter(d => d.type === 'workout').length).toBe(1);
+    expect(days.filter(d => d.type === 'rest').length).toBe(2);
+  });
+
+  it('dates are sequential from Monday', () => {
+    const pw = planWeekStub({ week: '2026-06-01', easy: 2, long: 1, workout: 1 });
+    const days = getWeekDays(pw);
+    expect(days[0].date).toBe('2026-06-01'); // Mon
+    expect(days[6].date).toBe('2026-06-07'); // Sun
+  });
+
+  it('targetKm > 0 for run days, 0 for rest', () => {
+    const pw = planWeekStub({ week: '2026-06-01', easy: 2, long: 1, workout: 1 });
+    const days = getWeekDays(pw);
+    days.forEach(d => {
+      if (d.type === 'rest') expect(d.targetKm).toBe(0);
+      else expect(d.targetKm).toBeGreaterThan(0);
+    });
+  });
+
+  it('total km across run days is close to targetKm', () => {
+    const pw = planWeekStub({ week: '2026-06-01', targetKm: 50, easy: 2, long: 1, workout: 1 });
+    const days = getWeekDays(pw);
+    const total = days.reduce((s, d) => s + d.targetKm, 0);
+    // Allow small rounding delta
+    expect(total).toBeGreaterThan(45);
+    expect(total).toBeLessThan(55);
   });
 });
 
