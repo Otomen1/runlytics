@@ -102,8 +102,27 @@ function MonthCard({ acts, ym, onOpen }) {
 }
 
 export function MemoriesTab({ acts, onSelectAct, onOpenWrapped }) {
+  const [search, setSearch] = useState('');
+  const [moodFilter, setMoodFilter] = useState(null);
 
-  const memories = useMemo(() => getMemories(acts), [acts]);
+  const allMemories = useMemo(
+    () => acts.filter(a => a.mood || a.notes || a.photoCount > 0),
+    [acts]
+  );
+
+  const memories = useMemo(() => {
+    let m = allMemories;
+    if (moodFilter) m = m.filter(a => a.mood === moodFilter);
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      m = m.filter(a =>
+        a.name?.toLowerCase().includes(q) ||
+        a.notes?.toLowerCase().includes(q)
+      );
+    }
+    return m;
+  }, [allMemories, moodFilter, search]);
+
   const highlights = useMemo(() => getHighlights(acts), [acts]);
   const months = useMemo(() => getMonthsWithActivity(acts).slice(0, 12), [acts]);
 
@@ -115,14 +134,59 @@ export function MemoriesTab({ acts, onSelectAct, onOpenWrapped }) {
     </div>
   );
 
+  const MOOD_EMOJI = {great:'😀',strong:'🔥',good:'🙂',normal:'😐',tough:'😫'};
+
   return (
     <div style={{padding:'18px 16px 100px'}}>
 
-      {/* Recent Memories */}
-      {memories.length > 0 && (
+      {/* Search + Mood filters */}
+      {allMemories.length > 0 && (
+        <div style={{marginBottom:16}}>
+          <div style={{position:'relative',marginBottom:10}}>
+            <input
+              className="inp"
+              placeholder="Search runs or notes…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{width:'100%',boxSizing:'border-box',paddingLeft:32}}
+            />
+            <span style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',fontSize:'.9rem',pointerEvents:'none'}}>🔍</span>
+            {search && (
+              <button onClick={() => setSearch('')}
+                style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:'var(--tx3)',cursor:'pointer',fontSize:'.9rem'}}>✕</button>
+            )}
+          </div>
+          <div style={{display:'flex',gap:6,overflowX:'auto',paddingBottom:2}}>
+            {[null,'great','strong','good','normal','tough'].map(m => {
+              const active = moodFilter === m;
+              return (
+                <button key={m ?? 'all'} onClick={() => setMoodFilter(m)}
+                  style={{flexShrink:0,padding:'5px 12px',borderRadius:20,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:'.75rem',fontWeight:active?700:400,background:active?'var(--or)':'var(--s2)',color:active?'#fff':'var(--tx2)'}}>
+                  {m ? `${MOOD_EMOJI[m]} ${m}` : `All · ${allMemories.length}`}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Memories */}
+      {allMemories.length > 0 && (
         <section style={{marginBottom:28}}>
-          <div style={{fontSize:'.62rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.08em',textTransform:'uppercase',marginBottom:10}}>📸 Recent Memories</div>
+          <div style={{fontSize:'.62rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.08em',textTransform:'uppercase',marginBottom:10}}>
+            {`📸 Memories${moodFilter || search ? ` · ${memories.length} found` : ` · ${allMemories.length}`}`}
+          </div>
           {memories.map(a => <MemoryCard key={a.id} act={a} onSelect={onSelectAct}/>)}
+          {memories.length === 0 && (
+            <div style={{textAlign:'center',padding:'32px 0',color:'var(--tx3)'}}>
+              <div style={{fontSize:'1.8rem',marginBottom:8}}>🔍</div>
+              <div style={{fontSize:'.84rem'}}>No runs match this filter</div>
+              <button onClick={() => { setSearch(''); setMoodFilter(null); }}
+                style={{marginTop:10,background:'none',border:'none',color:'var(--or)',fontSize:'.8rem',cursor:'pointer'}}>
+                Clear filters
+              </button>
+            </div>
+          )}
         </section>
       )}
 
