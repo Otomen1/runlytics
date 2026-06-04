@@ -54,9 +54,11 @@ export function HRTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview,on
   const plan=useMemo(()=>{try{return JSON.parse(localStorage.getItem(PLAN_KEY)||'null');}catch{return null;}},[]);
   const todayWeek=weekOf(Date.now());
   const planWeekNum=plan?getPlanWeekNumber(plan,todayWeek):null;
-  const planAdherence=useMemo(()=>plan?getPlanAdherence(plan,acts.reduce((m,a)=>{
-    const w=weekOf(a.dateTs);m[w]=(m[w]||0)+a.distanceKm;return m;
-  },{})):null,[plan,acts]);
+  const planAdherence=useMemo(()=>{
+    if(!plan)return null;
+    const weekMap={};acts.forEach(a=>{const w=weekOf(a.dateTs);weekMap[w]=(weekMap[w]||0)+a.distanceKm;});
+    return getPlanAdherence(plan,Object.entries(weekMap).map(([week,km])=>({week,km})));
+  },[plan,acts]);
   const planChartData=useMemo(()=>{
     if(!plan)return[];
     const weekMap={};acts.forEach(a=>{const w=weekOf(a.dateTs);weekMap[w]=(weekMap[w]||0)+a.distanceKm;});
