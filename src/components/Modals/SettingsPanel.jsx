@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 import { getMafZones } from '../../utils/analytics.js';
 import { fmtDur, fmtPace } from '../../utils/formatters.js';
+import { notifSupported, notifPermission, notifEnabled, setNotifEnabled, requestNotifPermission } from '../../utils/notifications.js';
 
 export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onImport,onClose,stravaAuth,stravaSync,isOnline,onStravaConnect,onStravaSync,onStravaDisconnect}){
   const[view,setView]=useState("main");
+  const[notifPerm,setNotifPerm]=useState(()=>notifPermission());
+  const[notifOn,setNotifOn]=useState(()=>notifEnabled());
   const[importMsg,setImportMsg]=useState("");
   const[age,setAge]=useState(hrProfile.age||"");
   const[ov,setOv]=useState(hrProfile.overrideMAF||"");
@@ -22,7 +25,7 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
               <div style={{fontWeight:700,fontSize:"1.05rem"}}>Settings</div>
               <button className="btn b-gh" style={{padding:"6px 13px",fontSize:".8rem"}} onClick={onClose}>Done</button>
             </div>
-            {[{icon:"👤",label:"Profile",v:"profile"},{icon:"❤️",label:"MAF HR",v:"hr"},{icon:"🎯",label:"Goals",v:"goals"},{icon:"🟠",label:"Strava Sync",v:"strava"},{icon:"💾",label:"Export & Backup",v:"export"}].map(item=>(
+            {[{icon:"👤",label:"Profile",v:"profile"},{icon:"❤️",label:"MAF HR",v:"hr"},{icon:"🎯",label:"Goals",v:"goals"},{icon:"🔔",label:"Notifications",v:"notifications"},{icon:"🟠",label:"Strava Sync",v:"strava"},{icon:"💾",label:"Export & Backup",v:"export"}].map(item=>(
               <div key={item.v} className="tap card2" style={{padding:"14px 15px",marginBottom:10,display:"flex",alignItems:"center",gap:14,borderRadius:12,cursor:"pointer"}} onClick={()=>setView(item.v)}>
                 <div style={{width:36,height:36,borderRadius:10,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.1rem"}}>{item.icon}</div>
                 <div style={{flex:1,fontWeight:500,fontSize:".88rem"}}>{item.label}</div>
@@ -152,6 +155,48 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
               </label>
               {importMsg&&<div style={{marginTop:10,fontSize:".74rem",color:importMsg.startsWith("✓")?"var(--gn)":"var(--rd)",padding:"8px 12px",borderRadius:9,background:"var(--s3)"}}>{importMsg}</div>}
             </div>
+          </div>
+        )}
+        {view==="notifications"&&(
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}<div className="screen-title">Notifications</div></div>
+            {!notifSupported()?(
+              <div style={{padding:"14px",borderRadius:12,background:"var(--s2)",fontSize:".8rem",color:"var(--tx2)",lineHeight:1.6}}>
+                Notifications are not supported on this browser or device.
+              </div>
+            ):(
+              <div>
+                <div className="card2" style={{padding:"14px 16px",borderRadius:12,marginBottom:14}}>
+                  <div style={{fontSize:".76rem",color:"var(--tx2)",lineHeight:1.7,marginBottom:12}}>
+                    Get reminders when your streak is at risk or your weekly goal needs a push.
+                  </div>
+                  {notifPerm==='denied'?(
+                    <div style={{padding:"10px 12px",borderRadius:10,background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.2)",fontSize:".76rem",color:"var(--rd)",lineHeight:1.6}}>
+                      Notifications are blocked. Enable them in your browser/device settings, then return here.
+                    </div>
+                  ):notifPerm==='granted'?(
+                    <div style={{display:"flex",alignItems:"center",gap:12}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:".82rem",fontWeight:600,color:"var(--tx)",marginBottom:2}}>Notifications enabled</div>
+                        <div style={{fontSize:".72rem",color:"var(--tx3)"}}>Checked once per day on app open</div>
+                      </div>
+                      <div style={{width:44,height:24,borderRadius:12,background:notifOn?"var(--or)":"var(--bd2)",position:"relative",cursor:"pointer",transition:"background .2s",flexShrink:0}} onClick={()=>{setNotifEnabled(!notifOn);setNotifOn(v=>!v);}}>
+                        <div style={{position:"absolute",top:2,left:notifOn?22:2,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
+                      </div>
+                    </div>
+                  ):(
+                    <button className="btn b-or" style={{width:"100%",padding:"12px"}} onClick={async()=>{
+                      const p=await requestNotifPermission();
+                      setNotifPerm(p);
+                      setNotifOn(p==='granted');
+                    }}>Enable Notifications</button>
+                  )}
+                </div>
+                <div style={{fontSize:".72rem",color:"var(--tx3)",lineHeight:1.7,padding:"0 4px"}}>
+                  You'll be notified about: streak at risk (2+ days missed) · weekly goal nudge on weekends
+                </div>
+              </div>
+            )}
           </div>
         )}
         {view==="strava"&&(

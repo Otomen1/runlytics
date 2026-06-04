@@ -11,6 +11,7 @@ import { loadStravaAuth, saveStravaAuth, clearStravaAuth, getStravaToken, mapStr
 // ── Utils ────────────────────────────────────────────────────────────────────
 import { migrateActivity } from './utils/activity.js';
 import { buildAnalytics, computeTierProgress, computeEarnedBadges } from './utils/analytics.js';
+import { checkAndNotify } from './utils/notifications.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 import {
@@ -370,6 +371,11 @@ const App=()=>{
       return fresh;
     }catch{return[];}
   },[tierProgress,dbReady]);
+
+  useEffect(()=>{
+    if(!dbReady)return;
+    checkAndNotify(acts,goals);
+  },[dbReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(()=>{
     if(!dbReady||!acts.length)return;

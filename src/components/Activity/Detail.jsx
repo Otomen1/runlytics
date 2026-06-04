@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as RcTooltip } from 'recharts';
 import { RouteMapSVG } from '../Map/RouteMapSVG.jsx';
 import { SH } from '../common/SH.jsx';
 import { ACT_ICN, ACT_CLR } from '../../constants/activityTypes.js';
@@ -19,6 +20,27 @@ const MOODS_MAP = {
 export function Detail({act,hrProfile,onClose,onDelete,onShare}){
   const[tab,setTab]=useState("overview");
   const[actState,setActState]=useState(act);
+  const elevData=useMemo(()=>{
+    if(!act.route||!act.route.some(p=>p.ele!=null))return null;
+    let km=0;const pts=[];
+    for(let i=0;i<act.route.length;i++){
+      const p=act.route[i];if(p.ele==null)continue;
+      if(i>0){
+        const v=act.route[i-1];
+        const dLa=(p.lat-v.lat)*Math.PI/180,dLo=(p.lon-v.lon)*Math.PI/180;
+        const a=Math.min(1,Math.sin(dLa/2)**2+Math.cos(v.lat*Math.PI/180)*Math.cos(p.lat*Math.PI/180)*Math.sin(dLo/2)**2);
+        km+=6.371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+      }
+      pts.push({km:parseFloat(km.toFixed(2)),ele:Math.round(p.ele)});
+    }
+    if(pts.length<2)return null;
+    // Downsample to ≤200 points for chart performance
+    if(pts.length>200){
+      const s=Math.ceil(pts.length/200);
+      return pts.filter((_,i)=>i%s===0||i===pts.length-1);
+    }
+    return pts;
+  },[act.route]);
   const col=ACT_CLR[actState.type]||"#6b7280";
   const mafHR=getMafHR(hrProfile);
   const zones=actState.hrSamples&&actState.hrSamples.length?computeZones(actState.hrSamples,mafHR):null;
@@ -151,7 +173,8 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
           )
         )}
         {tab==="map"&&(
-          <div className="card" style={{padding:16}}>
+          <div>
+            <div className="card" style={{padding:16,marginBottom:elevData?12:0}}>
             {act.route&&act.route.length>=2
               ?<RouteMapSVG route={act.route} act={act}/>
               :<div style={{minHeight:160,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,textAlign:"center",padding:"8px 0"}}>
@@ -164,6 +187,32 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
                 </div>
               </div>
             }
+            </div>
+            {elevData&&(
+              <div className="card" style={{padding:16}}>
+                <div style={{fontSize:'.6rem',fontWeight:700,color:'var(--tx3)',letterSpacing:'.06em',textTransform:'uppercase',marginBottom:10}}>Elevation Profile</div>
+                <ResponsiveContainer width="100%" height={100}>
+                  <AreaChart data={elevData} margin={{top:4,right:4,bottom:0,left:-20}}>
+                    <defs>
+                      <linearGradient id="eleGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#22c55e" stopOpacity={0.55}/>
+                        <stop offset="100%" stopColor="#22c55e" stopOpacity={0.04}/>
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="km" tick={{fill:'var(--tx3)',fontSize:8}} axisLine={false} tickLine={false}
+                      tickFormatter={v=>v+'k'} interval="preserveStartEnd"/>
+                    <YAxis tick={{fill:'var(--tx3)',fontSize:8}} axisLine={false} tickLine={false} width={34}
+                      tickFormatter={v=>v+'m'}/>
+                    <RcTooltip content={({active,payload})=>{
+                      if(!active||!payload?.length)return null;
+                      return(<div className="chart-tip"><div className="chart-tip-val">{payload[0].payload.ele}m</div><div className="chart-tip-sub">{payload[0].payload.km} km</div></div>);
+                    }}/>
+                    <Area dataKey="ele" fill="url(#eleGrad)" stroke="#22c55e" strokeWidth={1.5} dot={false} isAnimationActive={false}/>
+                  </AreaChart>
+                </ResponsiveContainer>
+                <div style={{fontSize:'.68rem',color:'var(--tx3)',marginTop:4}}>+{Math.round(act.elevGainM||0)}m gain</div>
+              </div>
+            )}
           </div>
         )}
         {tab==="splits"&&<SplitsTab act={actState} mafHR={mafHR} onPatch={onPatch}/>}

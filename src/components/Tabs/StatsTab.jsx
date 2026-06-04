@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { SH } from '../common/SH.jsx';
+import { CalendarHeatmap } from '../CalendarHeatmap.jsx';
 import { fmtKm, fmtDur, fmtPace, fmtDateS } from '../../utils/formatters.js';
 import { computeRacePRs, computeAtlCtl, predictRaceTimes, estimateVO2max } from '../../utils/analytics.js';
 import { SHOES_KEY } from '../../constants/keys.js';
@@ -46,6 +47,14 @@ export function StatsTab({acts,analytics,onViewAll,onViewMonthly,onOpenPR,onView
           </div>
         ))}
       </div>
+      {acts.length>0&&(
+        <div className="card a1" style={{padding:16,marginBottom:14}}>
+          <SH title="Activity History"/>
+          <div style={{marginTop:10}}>
+            <CalendarHeatmap acts={acts}/>
+          </div>
+        </div>
+      )}
       {weeklyData.length>1&&(
         <div className="card a1" style={{padding:16,marginBottom:14}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
