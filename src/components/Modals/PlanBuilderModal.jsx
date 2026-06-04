@@ -72,17 +72,18 @@ export function PlanBuilderModal({ acts, analytics, onClose }) {
   const currentWeekNum = plan ? getPlanWeekNumber(plan, today) : null;
 
   return (
-    <div className="fade-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="glass" style={{ borderRadius: '22px 22px 0 0', padding: '0 0 env(safe-area-inset-bottom)', maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 20px 0' }}>
-          <span style={{ fontWeight: 800, fontSize: '1rem' }}>
+    <div style={{position:'fixed',inset:0,zIndex:260,background:'rgba(0,0,0,.55)',display:'flex',flexDirection:'column',justifyContent:'flex-end'}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{background:'var(--bg)',borderRadius:'20px 20px 0 0',maxHeight:'88vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 20px',borderBottom:'1px solid var(--bd)',flexShrink:0}}>
+          <button className="btn b-gh" style={{padding:'6px 12px',fontSize:'.8rem'}} onClick={onClose}>✕ Close</button>
+          <span style={{fontSize:'.82rem',fontWeight:700,color:'var(--or)'}}>
             {view === 'existing' ? '🗓 Training Plan' : '🎯 Set Goal Race'}
           </span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.3rem', color: 'var(--tx3)', padding: '4px 6px', cursor: 'pointer' }}>×</button>
+          <div style={{width:70}}/>
         </div>
 
         {view === 'existing' && plan && (
-          <div style={{ overflowY: 'auto', padding: '16px 20px 24px', flex: 1 }}>
+          <div style={{ overflowY: 'auto', padding: '16px 20px', paddingBottom:'calc(24px + env(safe-area-inset-bottom))', flex: 1 }}>
             <div style={{ padding: '14px 16px', borderRadius: 14, background: 'var(--s2)', border: '1.5px solid var(--bd)', marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
@@ -162,7 +163,7 @@ export function PlanBuilderModal({ acts, analytics, onClose }) {
         )}
 
         {view === 'wizard' && (
-          <div style={{ padding: '12px 20px 24px', flex: 1, overflowY: 'auto' }}>
+          <div style={{ padding: '20px 20px', paddingBottom:'calc(24px + env(safe-area-inset-bottom))', flex: 1, overflowY: 'auto' }}>
             <div style={{ display: 'flex', gap: 5, marginBottom: 24, justifyContent: 'center' }}>
               {[1, 2, 3].map(s => (
                 <div key={s} style={{ height: 5, borderRadius: 3, background: s <= step ? 'var(--or)' : 'var(--bd)', width: s === step ? 24 : 7, transition: 'all .3s' }} />
