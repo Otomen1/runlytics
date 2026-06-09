@@ -37,7 +37,7 @@ export function generatePlan(raceType, raceDate, baseWeeklyKm) {
 
   for (let i = 0; i < totalWeeks; i++) {
     const weekDate = addWeeks(start, i);
-    const key = weekDate.toISOString().slice(0, 10);
+    const key = weekOf(weekDate.getTime());
     let targetKm, phase;
 
     if (i >= totalWeeks - 1) {
@@ -67,7 +67,7 @@ export function generatePlan(raceType, raceDate, baseWeeklyKm) {
   return {
     raceType,
     raceDate,
-    startDate: start.toISOString().slice(0, 10),
+    startDate: weekOf(start.getTime()),
     baseWeeklyKm: parseFloat(baseWeeklyKm.toFixed(1)),
     weeks,
   };
