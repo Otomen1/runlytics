@@ -30,7 +30,7 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
         const v=act.route[i-1];
         const dLa=(p.lat-v.lat)*Math.PI/180,dLo=(p.lon-v.lon)*Math.PI/180;
         const a=Math.min(1,Math.sin(dLa/2)**2+Math.cos(v.lat*Math.PI/180)*Math.cos(p.lat*Math.PI/180)*Math.sin(dLo/2)**2);
-        km+=6.371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+        km+=6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))/1000;
       }
       pts.push({km:parseFloat(km.toFixed(2)),ele:Math.round(p.ele)});
     }
@@ -98,10 +98,10 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
             <button className="btn b-gh" style={{padding:"7px 12px"}} onClick={onClose}>✕</button>
           </div>
         </div>
-        <div style={{display:"flex"}}>
-          {[{id:"overview",label:"overview"},{id:"splits",label:"⚡ splits"},{id:"heartrate",label:"heartrate"},{id:"map",label:"map"},{id:"journal",label:"📓 journal"}].map(t=>(
-            <button key={t.id} onClick={()=>setTab(t.id)}
-              style={{padding:"8px 14px",border:"none",background:"transparent",color:tab===t.id?"var(--or)":"var(--tx2)",fontFamily:"inherit",fontSize:".78rem",fontWeight:tab===t.id?600:400,cursor:"pointer",textTransform:"capitalize",borderBottom:tab===t.id?"2px solid var(--or)":"2px solid transparent",transition:"color .15s"}}>
+        <div role="tablist" style={{display:"flex"}}>
+          {[{id:"overview",label:"Overview"},{id:"splits",label:"⚡ Splits"},{id:"heartrate",label:"Heart Rate"},{id:"map",label:"Map"},{id:"journal",label:"📓 Journal"}].map(t=>(
+            <button key={t.id} role="tab" aria-selected={tab===t.id} onClick={()=>setTab(t.id)}
+              style={{padding:"8px 14px",border:"none",background:"transparent",color:tab===t.id?"var(--or)":"var(--tx2)",fontFamily:"inherit",fontSize:".78rem",fontWeight:tab===t.id?600:400,cursor:"pointer",borderBottom:tab===t.id?"2px solid var(--or)":"2px solid transparent",transition:"color .15s"}}>
               {t.label}
             </button>
           ))}
@@ -275,12 +275,14 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
 function SplitsTab({ act, mafHR, onPatch }) {
   const [stravaSplits, setStravaSplits] = React.useState(act.stravaSplits || null);
   const [loading, setLoading] = React.useState(false);
+  const [fetchError, setFetchError] = React.useState(false);
 
   React.useEffect(() => {
     if (act.source !== "strava" || stravaSplits) return;
     const stravaId = act.id?.toString().replace(/^s/, '');
     if (!stravaId) return;
     setLoading(true);
+    setFetchError(false);
     const auth = loadStravaAuth();
     getStravaToken(auth).then(token => {
       if (!token) { setLoading(false); return; }
@@ -290,7 +292,7 @@ function SplitsTab({ act, mafHR, onPatch }) {
       if (!splits) return;
       setStravaSplits(splits);
       onPatch({ stravaSplits: splits });
-    }).catch(() => setLoading(false));
+    }).catch(() => { setLoading(false); setFetchError(true); });
   }, [act.id, act.source]);
 
   const gpsSplits = React.useMemo(() => computeSplits(act), [act]);
@@ -298,8 +300,15 @@ function SplitsTab({ act, mafHR, onPatch }) {
 
   if (loading) return (
     <div style={{textAlign:"center",padding:"44px 0",color:"var(--tx2)"}}>
-      <div style={{fontSize:"1.5rem",marginBottom:8}}>⏳</div>
+      <div className="spinner" style={{margin:"0 auto 12px"}}/>
       <div style={{fontSize:".8rem"}}>Loading splits from Strava…</div>
+    </div>
+  );
+  if (fetchError && !splits) return (
+    <div style={{textAlign:"center",padding:"44px 0",color:"var(--tx2)"}}>
+      <div style={{fontSize:"2rem",marginBottom:8}}>⚡</div>
+      <div style={{fontWeight:600,marginBottom:4}}>Could not load splits</div>
+      <div style={{fontSize:".78rem",color:"var(--tx3)"}}>Check your connection and try opening this run again.</div>
     </div>
   );
   if (!splits) return (

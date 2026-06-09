@@ -33,8 +33,8 @@ export function computeWrapped(acts, yearMonth) {
   for (let i = 0; i < days.length; i++) {
     if (i === 0) { cur = 1; }
     else {
-      const prev = new Date(days[i - 1]), curr = new Date(days[i]);
-      cur = (curr - prev) / 86400000 === 1 ? cur + 1 : 1;
+      const prev = new Date(days[i - 1] + 'T00:00:00'), curr = new Date(days[i] + 'T00:00:00');
+      cur = Math.round((curr - prev) / 86400000) === 1 ? cur + 1 : 1;
     }
     maxStreak = Math.max(maxStreak, cur);
   }

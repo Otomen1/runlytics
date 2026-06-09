@@ -8,7 +8,7 @@ export const MAX_GPX_POINTS  = 8000;             // downsample huge tracks to th
 export const GPX_FALLBACK_SEC = 3600;            // assume 1h when a track has no timestamps
 
 // Strava auth
-export const REFRESH_TOKEN_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000; // clear refresh tokens after 90 days
+export const REFRESH_TOKEN_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000; // clear refresh tokens after 14 days
 
 // Shoes
 export const DEFAULT_SHOE_MAX_KM   = 600;  // default replacement distance

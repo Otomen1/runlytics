@@ -188,8 +188,10 @@ const App=()=>{
   const startStravaConnect=useCallback(()=>{
     const cid=window.__STRAVA_CLIENT_ID;
     if(!cid){alert("Strava client ID not configured.");return;}
+    const state=crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2);
+    try{sessionStorage.setItem('_rl_oauth_state',state);}catch{}
     const redirect=encodeURIComponent(window.location.origin+window.location.pathname);
-    window.location.href="https://www.strava.com/oauth/authorize?client_id="+cid+"&redirect_uri="+redirect+"&response_type=code&scope=activity:read_all";
+    window.location.href="https://www.strava.com/oauth/authorize?client_id="+cid+"&redirect_uri="+redirect+"&response_type=code&scope=activity:read_all&state="+encodeURIComponent(state);
   },[]);
 
   // ── Async DB initialisation ─────────────────────────────────────────────────
@@ -298,7 +300,7 @@ const App=()=>{
         if(newActs.length)console.log(`[IDB] Strava sync: +${newActs.length} new`);
         if(routesFixed)console.log(`[IDB] routes restored: ${routesFixed}`);
         if(!newActs.length&&!routesFixed)return prev;
-        if(toSave.length)saveActivitiesBatch(toSave).catch(err=>setStorageError(`Strava sync save failed: ${err.message}`));
+        if(toSave.length)saveActivitiesBatch(toSave).catch(err=>{console.error('[IDB] Strava sync save failed:',err);setStorageError('Strava sync save failed. Please refresh and try again.');});
         const syncMsg=newActs.length?`✓ ${newActs.length} new run${newActs.length!==1?"s":""} synced`:routesFixed?`✓ ${routesFixed} route${routesFixed!==1?"s":""} restored`:"";
         if(syncMsg)setTimeout(()=>setStravaSync({loading:false,msg:syncMsg}),0);
         return newActs.length?[...newActs,...patched]:patched;
@@ -334,10 +336,13 @@ const App=()=>{
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);const code=params.get("code");
     if(!code)return;
+    const returnedState=params.get("state");
+    let savedState=null;try{savedState=sessionStorage.getItem('_rl_oauth_state');sessionStorage.removeItem('_rl_oauth_state');}catch{}
+    if(savedState&&returnedState!==savedState){console.warn('[OAuth] state mismatch — ignoring callback');return;}
     window.history.replaceState({},"",window.location.pathname);
     (async()=>{
       try{
-        const r=await fetch("/api/strava-token?code="+code);if(!r.ok)return;
+        const r=await fetch("/api/strava-token?code="+encodeURIComponent(code));if(!r.ok)return;
         const data=await r.json();saveStravaAuth(data);setStravaAuth(data);
         setTimeout(()=>doStravaSync(false),500);
       }catch(e){}
@@ -494,7 +499,7 @@ const App=()=>{
         onImport={imported=>{
           setActsRaw(prev=>{
             const existing=new Set(prev.map(a=>a.id));
-            const newActs=imported.filter(a=>a&&a.id&&!existing.has(a.id)).map(migrateActivity);
+            const newActs=imported.filter(a=>a&&a.id&&!existing.has(a.id)).map(migrateActivity).filter(Boolean);
             if(!newActs.length)return prev;
             newActs.forEach(a=>saveActivity(a).catch(console.error));
             return[...newActs,...prev];

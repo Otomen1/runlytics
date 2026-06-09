@@ -152,11 +152,12 @@ export function MemoriesTab({ acts, onSelectAct, onOpenWrapped }) {
             />
             <span style={{position:'absolute',left:10,top:'50%',transform:'translateY(-50%)',fontSize:'.9rem',pointerEvents:'none'}}>🔍</span>
             {search && (
-              <button onClick={() => setSearch('')}
-                style={{position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:'var(--tx3)',cursor:'pointer',fontSize:'.9rem'}}>✕</button>
+              <button onClick={() => setSearch('')} aria-label="Clear search"
+                style={{position:'absolute',right:4,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',color:'var(--tx3)',cursor:'pointer',fontSize:'.9rem',padding:'8px 10px'}}>✕</button>
             )}
           </div>
-          <div style={{display:'flex',gap:6,overflowX:'auto',paddingBottom:2}}>
+          <div style={{position:'relative'}}>
+          <div style={{display:'flex',gap:6,overflowX:'auto',paddingBottom:2,scrollbarWidth:'none'}}>
             {[null,'great','strong','good','normal','tough'].map(m => {
               const active = moodFilter === m;
               return (
@@ -166,6 +167,8 @@ export function MemoriesTab({ acts, onSelectAct, onOpenWrapped }) {
                 </button>
               );
             })}
+          </div>
+          <div style={{position:'absolute',right:0,top:0,bottom:0,width:32,background:'linear-gradient(to left,var(--bg),transparent)',pointerEvents:'none'}}/>
           </div>
         </div>
       )}

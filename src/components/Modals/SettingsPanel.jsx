@@ -58,7 +58,7 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
             <input className="inp" type="number" min="10" max="100" placeholder="e.g. 32" value={age} onChange={e=>setAge(e.target.value)} style={{marginBottom:ageNum&&!useOv?6:14}}/>
             {ageNum&&!useOv&&<div style={{fontSize:".72rem",color:"var(--gn)",marginBottom:14}}>✓ MAF HR: {180-ageNum} bpm</div>}
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:useOv?10:16}}>
-              <div style={{width:36,height:20,borderRadius:10,background:useOv?"var(--or)":"var(--bd2)",position:"relative",cursor:"pointer",transition:"background .2s"}} onClick={()=>setUseOv(v=>!v)}>
+              <div role="switch" aria-checked={useOv} style={{width:36,height:20,borderRadius:10,background:useOv?"var(--or)":"var(--bd2)",position:"relative",cursor:"pointer",transition:"background .2s"}} onClick={()=>setUseOv(v=>!v)}>
                 <div style={{position:"absolute",top:2,left:useOv?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
               </div>
               <span style={{fontSize:".78rem",cursor:"pointer"}} onClick={()=>setUseOv(v=>!v)}>Custom MAF override</span>
@@ -112,7 +112,7 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
               const a=document.createElement("a");
               a.href=url;a.download="runlytics-backup-"+new Date().toISOString().slice(0,10)+".json";
               document.body.appendChild(a);a.click();document.body.removeChild(a);
-              URL.revokeObjectURL(url);
+              setTimeout(()=>URL.revokeObjectURL(url),100);
             }}>⬇️ Export JSON backup</button>
             <button className="btn b-gh" style={{width:"100%",padding:"12px",marginBottom:10}} onClick={()=>{
               const headers=['Date','Name','Type','Distance (km)','Time','Pace (min/km)','HR (bpm)','Elevation (m)','Mood','Notes'];
@@ -134,7 +134,7 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
               const a=document.createElement("a");
               a.href=url;a.download="runlytics-export-"+new Date().toISOString().slice(0,10)+".csv";
               document.body.appendChild(a);a.click();document.body.removeChild(a);
-              URL.revokeObjectURL(url);
+              setTimeout(()=>URL.revokeObjectURL(url),100);
             }}>📊 Export CSV</button>
             <div style={{borderTop:"1px solid var(--bd)",paddingTop:16,marginTop:4}}>
               <div style={{fontSize:".76rem",fontWeight:600,marginBottom:8}}>Restore from backup</div>
@@ -143,13 +143,14 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
                 <div className="btn b-gh" style={{padding:"12px",textAlign:"center",cursor:"pointer"}}>📂 Choose JSON file</div>
                 <input type="file" accept=".json,application/json" style={{display:"none"}} onChange={async e=>{
                   const file=e.target.files[0];if(!file)return;
+                  if(file.size>10*1024*1024){setImportMsg("✗ File too large (max 10 MB). Make sure you're importing a Runlytics backup file.");e.target.value="";return;}
                   try{
                     const text=await file.text();
                     const parsed=JSON.parse(text);
                     if(!Array.isArray(parsed))throw new Error("Not an array");
                     onImport(parsed);
                     setImportMsg("✓ Import started — "+parsed.length+" activities processed");
-                  }catch(err){void err;setImportMsg("✗ Invalid file: must be a JSON array of activities.");}
+                  }catch(err){void err;setImportMsg("✗ Invalid file. Make sure you're importing a Runlytics JSON backup.");}
                   e.target.value="";
                 }}/>
               </label>
@@ -180,7 +181,7 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
                         <div style={{fontSize:".82rem",fontWeight:600,color:"var(--tx)",marginBottom:2}}>Notifications enabled</div>
                         <div style={{fontSize:".72rem",color:"var(--tx3)"}}>Checked once per day on app open</div>
                       </div>
-                      <div style={{width:44,height:24,borderRadius:12,background:notifOn?"var(--or)":"var(--bd2)",position:"relative",cursor:"pointer",transition:"background .2s",flexShrink:0}} onClick={()=>{setNotifEnabled(!notifOn);setNotifOn(v=>!v);}}>
+                      <div role="switch" aria-checked={notifOn} style={{width:44,height:24,borderRadius:12,background:notifOn?"var(--or)":"var(--bd2)",position:"relative",cursor:"pointer",transition:"background .2s",flexShrink:0}} onClick={()=>{setNotifEnabled(!notifOn);setNotifOn(v=>!v);}}>
                         <div style={{position:"absolute",top:2,left:notifOn?22:2,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
                       </div>
                     </div>

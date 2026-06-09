@@ -50,8 +50,8 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
   const lastMonthDate=new Date();lastMonthDate.setMonth(lastMonthDate.getMonth()-1);
   const lastMonthKey=lastMonthDate.toISOString().slice(0,7);
   const avgPaceArr=arr=>arr.length?arr.reduce((s,a)=>s+a.avgPaceSecKm,0)/arr.length:null;
-  const thisPaceAvg=avgPaceArr(acts.filter(a=>a.date?.startsWith(thisMonthKey)&&a.avgPaceSecKm>0));
-  const lastPaceAvg=avgPaceArr(acts.filter(a=>a.date?.startsWith(lastMonthKey)&&a.avgPaceSecKm>0));
+  const thisPaceAvg=useMemo(()=>avgPaceArr(acts.filter(a=>a.date?.startsWith(thisMonthKey)&&a.avgPaceSecKm>0)),[acts,thisMonthKey]);
+  const lastPaceAvg=useMemo(()=>avgPaceArr(acts.filter(a=>a.date?.startsWith(lastMonthKey)&&a.avgPaceSecKm>0)),[acts,lastMonthKey]);
   const paceTrendPct=thisPaceAvg&&lastPaceAvg?Math.round((lastPaceAvg-thisPaceAvg)/lastPaceAvg*100):null;
   const tierProgress=useMemo(()=>computeTierProgress(acts),[acts]);
   const nextMilestone=useMemo(()=>{
@@ -97,7 +97,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div style={{fontSize:"1.4rem",fontWeight:700,lineHeight:1.2,letterSpacing:"-.01em"}}>{greetPfx}</div>
         {analytics.streak>=2&&(
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"8px 11px",borderRadius:12,background:"rgba(249,115,22,.1)",border:"1.5px solid rgba(249,115,22,.22)",flexShrink:0,marginLeft:12}}>
+          <div aria-label={analytics.streak+" day streak"} style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"8px 11px",borderRadius:12,background:"rgba(249,115,22,.1)",border:"1.5px solid rgba(249,115,22,.22)",flexShrink:0,marginLeft:12}}>
             <span style={{fontSize:"1.15rem"}}>🔥</span>
             <span style={{fontSize:"1rem",fontWeight:800,color:"var(--or)",lineHeight:1}}>{analytics.streak}</span>
             <span style={{fontSize:".55rem",color:"var(--or)",fontWeight:700,letterSpacing:".04em"}}>DAYS</span>

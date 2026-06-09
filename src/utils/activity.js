@@ -47,7 +47,7 @@ export function decodePolyline(encoded){
       lng+=(result&1)?~(result>>1):(result>>1);
       pts.push({lat:lat/1e5,lon:lng/1e5});
     }
-  }catch(e){}
+  }catch(e){ console.warn('[runlytics] Polyline decode failed:', e.message); }
   return pts;
 }
 
@@ -55,7 +55,7 @@ export function migrateActivity(a){
   if(!a||typeof a!=="object")return null;
   return{
     id:a.id||String(Date.now()+Math.random()),
-    name:a.name||"Activity",
+    name:String(a.name||"Activity").slice(0,128),
     type:a.type||"Run",
     date:a.date||todayKey(),
     dateTs:a.dateTs||0,
@@ -71,12 +71,12 @@ export function migrateActivity(a){
     route:normalizeRoute(a.route).slice(0,500),
     source:a.source||"gpx",
     trainingLoad:isFinite(a.trainingLoad)&&a.trainingLoad>=0?Math.round(+a.trainingLoad):0,
-    notes:a.notes||"",
+    notes:String(a.notes||"").slice(0,500),
     mood:a.mood||null,
     photoCount:typeof a.photoCount==='number'?a.photoCount:0,
     shoeId:a.shoeId||null,
     isRace:a.isRace||false,
     raceGoalSec:isFinite(a.raceGoalSec)&&a.raceGoalSec>0?+a.raceGoalSec:null,
-    raceLocation:a.raceLocation||'',
+    raceLocation:String(a.raceLocation||'').slice(0,64),
   };
 }
