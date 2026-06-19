@@ -92,11 +92,40 @@ function MonthCard({ acts, ym, onOpen }) {
     const d = new Date(+y, +m - 1, 1);
     return [d.toLocaleString('default',{month:'short'}), y];
   })();
+  const maxWeekKm = data.weeklyBreakdown?.length
+    ? Math.max(...data.weeklyBreakdown.map(w => w.km))
+    : 0;
   return (
-    <div onClick={onOpen}
-      style={{cursor:'pointer',padding:'18px 12px',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',textAlign:'center',aspectRatio:'1',borderRadius:'var(--r-lg)',background:'var(--s2)',border:'1px solid var(--bd)'}}>
-      <div style={{fontSize:'2.4rem',fontWeight:900,lineHeight:1,letterSpacing:'-.03em',textTransform:'uppercase',color:'var(--tx)'}}>{mon}</div>
-      <div style={{fontSize:'.75rem',fontWeight:600,color:'var(--tx2)',opacity:.7,marginTop:4,letterSpacing:'.02em'}}>{year}</div>
+    <div onClick={onOpen} style={{cursor:'pointer',width:130,height:175,flexShrink:0,padding:'14px 12px',display:'flex',flexDirection:'column',justifyContent:'space-between',borderRadius:'var(--r-lg)',background:'var(--s2)',border:'1px solid var(--bd)'}}>
+
+      {/* Top: month + mood */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+        <div>
+          <div style={{fontSize:'1.3rem',fontWeight:800,lineHeight:1,textTransform:'uppercase',color:'var(--tx)'}}>{mon}</div>
+          <div style={{fontSize:'.6rem',color:'var(--tx3)',marginTop:2}}>{year}</div>
+        </div>
+        {mood && <span style={{fontSize:'.9rem',lineHeight:1}}>{mood.emoji}</span>}
+      </div>
+
+      {/* Middle: km + runs */}
+      <div>
+        <div style={{display:'flex',alignItems:'baseline',gap:3}}>
+          <span style={{fontSize:'1.7rem',fontWeight:900,color:'var(--or)',lineHeight:1}}>{fmtKm(data.totalDistance)}</span>
+          <span style={{fontSize:'.58rem',color:'var(--or)',fontWeight:600}}>km</span>
+        </div>
+        <div style={{fontSize:'.64rem',color:'var(--tx2)',marginTop:3}}>{data.totalRuns} run{data.totalRuns!==1?'s':''}</div>
+      </div>
+
+      {/* Bottom: mini week bars */}
+      {data.weeklyBreakdown?.length > 0 && (
+        <div style={{display:'flex',gap:3,alignItems:'flex-end',height:22}}>
+          {data.weeklyBreakdown.map(w => {
+            const isBest = w.km === maxWeekKm;
+            const h = maxWeekKm > 0 ? Math.max(3, Math.round((w.km/maxWeekKm)*18)) : 3;
+            return <div key={w.week} style={{flex:1,height:h,background:isBest?'var(--or)':'var(--bd2)',borderRadius:2}}/>;
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -207,7 +236,7 @@ export function MemoriesTab({ acts, onSelectAct, onOpenWrapped }) {
       {months.length > 0 && (
         <section>
           <div style={{fontSize:'.62rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.08em',textTransform:'uppercase',marginBottom:10}}>🗓 Monthly Wrapped</div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <div style={{display:'flex',gap:10,overflowX:'auto',paddingBottom:4,scrollbarWidth:'none'}}>
             {months.map(ym => (
               <MonthCard key={ym} acts={acts} ym={ym} onOpen={() => onOpenWrapped(ym)}/>
             ))}
