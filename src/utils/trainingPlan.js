@@ -1,4 +1,5 @@
 import { weekOf } from './formatters.js';
+import { classifyRun } from './activity.js';
 
 const RACE_PEAK = { '5K': 55, '10K': 70, 'HM': 85, 'Marathon': 110 };
 
@@ -170,7 +171,10 @@ export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 
   if (!planWeek) return null;
 
   const done = { easy: 0, long: 0, workout: 0 };
-  weekActs.forEach(a => { if (a.runClass in done) done[a.runClass]++; });
+  weekActs.forEach(a => {
+    const rc=(a.runClass in done)?a.runClass:classifyRun(a.distanceKm||0,a.avgPaceSecKm||0);
+    if(rc in done)done[rc]++;
+  });
   const remaining = {
     easy:    Math.max(0, planWeek.easy    - done.easy),
     long:    Math.max(0, planWeek.long    - done.long),

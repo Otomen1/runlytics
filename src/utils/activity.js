@@ -17,7 +17,7 @@ export function normalizeRoute(pts){
 }
 
 export function classifyRun(distKm,paceSecKm){
-  if(distKm>=15)return"long";
+  if(distKm>=13)return"long";
   if(paceSecKm>0&&paceSecKm<320)return"workout";
   return"easy";
 }

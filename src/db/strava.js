@@ -114,13 +114,17 @@ export function mapStravaActivity(a){
     :Math.round(distKm*8);
   const encoded=a.map?.summary_polyline||a.map?.polyline||'';
   const route=encoded?decodePolyline(encoded):[];
+  // Strava workout_type: 0=default, 1=race, 2=long run, 3=workout/tempo
+  // Use it to override auto-classification so plan completion counts correctly
+  const wt=a.workout_type;
+  const runClass=wt===2?'long':wt===3?'workout':undefined;
   return migrateActivity({
     id:"s"+a.id, name:String(a.name||"Run").slice(0,128), type:a.sport_type||a.type||"Run",
     date:d.split('T')[0], dateTs,
     distanceKm:parseFloat(distKm.toFixed(3)), movingTimeSec:movingTime,
     avgPaceSecKm:parseFloat(paceSecKm.toFixed(1)),
     avgHR, maxHR, elevGainM:elevGain, elevLossM:0,
-    runClass:classifyRun(distKm,paceSecKm),
+    ...(runClass?{runClass}:{}),
     hrSamples:[], route, source:"strava", trainingLoad
   });
 }
