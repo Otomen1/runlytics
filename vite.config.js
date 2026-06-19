@@ -21,5 +21,10 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    environmentMatchGlobs: [
+      ['src/**/*.component.test.*', 'jsdom'],
+      ['src/db/**/*.test.*', 'jsdom'],
+    ],
+    setupFiles: ['./src/test-setup.js'],
   },
 })

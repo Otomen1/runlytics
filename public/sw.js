@@ -48,9 +48,10 @@ self.addEventListener('fetch', e => {
         if (cached) {
           const cachedAt = cached.headers.get('sw-cached-at');
           if (cachedAt && Date.now() - Number(cachedAt) < ttl) {
-            fetch(e.request).then(res => {
+            const bg = fetch(e.request).then(res => {
               if (res.ok) putWithTimestamp(cache, e.request, res);
             }).catch(() => {});
+            e.waitUntil(bg); // keep SW alive until background update completes
             return cached;
           }
         }

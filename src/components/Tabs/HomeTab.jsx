@@ -141,7 +141,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
       </div>
     )}
     {planWeek&&(
-      <div className="card a2" style={{padding:16,marginBottom:14,border:'1.5px solid rgba(249,115,22,.22)',background:'rgba(249,115,22,.04)',cursor:'pointer'}} onClick={onOpenPlan}>
+      <div className="card a2" role="button" tabIndex={0} style={{padding:16,marginBottom:14,border:'1.5px solid rgba(249,115,22,.22)',background:'rgba(249,115,22,.04)',cursor:'pointer'}} onClick={onOpenPlan} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onOpenPlan();}}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
           <div>
             <div style={{fontSize:'.6rem',fontWeight:700,color:'var(--or)',letterSpacing:'.1em',textTransform:'uppercase',marginBottom:3}}>Training Plan</div>

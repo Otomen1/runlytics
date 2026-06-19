@@ -41,11 +41,17 @@ export function buildAnalytics(acts){
   const today=new Date();today.setHours(0,0,0,0);
   let streak=0;
   for(let i=0;i<365;i++){const d=new Date(today);d.setDate(d.getDate()-i);if(runDays.has(d.toDateString()))streak++;else if(i>0)break;}
-  const weekMap={};
-  acts.forEach(r=>{const w=weekOf(r.dateTs);if(!weekMap[w])weekMap[w]={km:0,load:0,runs:[]};weekMap[w].km+=r.distanceKm;weekMap[w].load+=r.trainingLoad||0;weekMap[w].runs.push(r);});
+  // Single pass builds both weekMap and monthMap simultaneously
+  const weekMap={},monthMap={};
+  acts.forEach(r=>{
+    const w=weekOf(r.dateTs);
+    if(!weekMap[w])weekMap[w]={km:0,load:0,runs:[]};
+    weekMap[w].km+=r.distanceKm;weekMap[w].load+=r.trainingLoad||0;weekMap[w].runs.push(r);
+    const m=monthOf(r.dateTs);
+    if(!monthMap[m])monthMap[m]={km:0,runs:[],time:0};
+    monthMap[m].km+=r.distanceKm;monthMap[m].runs.push(r);monthMap[m].time+=r.movingTimeSec;
+  });
   const weeklyKm=Object.entries(weekMap).sort(([a],[b])=>a>b?1:-1).map(([w,v])=>({week:w,km:parseFloat(v.km.toFixed(1)),load:Math.round(v.load),runs:v.runs.length}));
-  const monthMap={};
-  acts.forEach(r=>{const m=monthOf(r.dateTs);if(!monthMap[m])monthMap[m]={km:0,runs:[],time:0};monthMap[m].km+=r.distanceKm;monthMap[m].runs.push(r);monthMap[m].time+=r.movingTimeSec;});
   const monthlyKm=Object.entries(monthMap).sort(([a],[b])=>a>b?1:-1).map(([m,v])=>({month:m,km:parseFloat(v.km.toFixed(1)),runs:v.runs.length,timeSec:v.time,acts:v.runs}));
   return{streak,totalKm:acts.reduce((s,a)=>s+a.distanceKm,0),weeklyKm,monthlyKm};
 }

@@ -86,6 +86,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .spinner{width:16px;height:16px;border-radius:50%;border:2px solid var(--bd2);border-top-color:var(--or);animation:spin .75s linear infinite;flex-shrink:0;display:inline-block}
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:0.01ms!important;animation-iteration-count:1!important;transition-duration:0.01ms!important;}
+  .spinner{animation-duration:.75s!important;animation-iteration-count:infinite!important;}
   .pf{transition:none!important;}
 }
 .icon-wrap{display:flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:var(--r-md);}

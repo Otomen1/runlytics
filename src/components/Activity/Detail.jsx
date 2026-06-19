@@ -20,6 +20,7 @@ const MOODS_MAP = {
 
 export function Detail({act,hrProfile,onClose,onDelete,onShare}){
   const[tab,setTab]=useState("overview");
+  const[confirmDelete,setConfirmDelete]=useState(false);
   const[actState,setActState]=useState(act);
   const elevData=useMemo(()=>{
     if(!act.route||!act.route.some(p=>p.ele!=null))return null;
@@ -92,10 +93,16 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
             <div style={{fontWeight:700,fontSize:".98rem",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{act.name}</div>
             <div style={{fontSize:".72rem",color:"var(--tx2)",marginTop:2}}>{fmtDate(act.date)}</div>
           </div>
-          <div style={{display:"flex",gap:8}}>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
             {onShare&&<button className="btn b-or" style={{padding:"7px 16px",fontSize:".82rem",fontWeight:700}} onClick={onShare}>📤 Share</button>}
-            <button className="btn b-rd" style={{padding:"7px 10px"}} onClick={()=>{if(window.confirm("Delete this run?"))onDelete(act.id);}}>🗑</button>
-            <button className="btn b-gh" style={{padding:"7px 12px"}} onClick={onClose}>✕</button>
+            {!confirmDelete
+              ?<button className="btn b-rd" style={{padding:"7px 10px"}} aria-label="Delete run" onClick={()=>setConfirmDelete(true)}>🗑</button>
+              :<>
+                <button className="btn b-gh" style={{padding:"6px 10px",fontSize:".74rem"}} onClick={()=>setConfirmDelete(false)}>Cancel</button>
+                <button className="btn b-rd" style={{padding:"6px 10px",fontSize:".74rem",fontWeight:700}} onClick={()=>{setConfirmDelete(false);onDelete(act.id);}}>Delete?</button>
+              </>
+            }
+            <button className="btn b-gh" style={{padding:"7px 12px"}} aria-label="Close" onClick={onClose}>✕</button>
           </div>
         </div>
         <div role="tablist" style={{display:"flex"}}>

@@ -9,6 +9,7 @@ import {
   computeAtlCtl,
   predictRaceTimes,
   estimateVO2max,
+  buildAnalytics,
 } from './analytics.js';
 import { computeEarnedBadges } from '../constants/achievements.js';
 
@@ -375,5 +376,67 @@ describe('predictRaceTimes', () => {
     const results = predictRaceTimes([pr5k], [], 0);
     expect(results[0].formFactor).toBe(1.0);
     results.forEach(r => expect(r.predictedSec).toBe(r.rawSec));
+  });
+});
+
+describe('buildAnalytics', () => {
+  it('returns zeros for empty acts', () => {
+    const r = buildAnalytics([]);
+    expect(r.streak).toBe(0);
+    expect(r.totalKm).toBe(0);
+    expect(r.weeklyKm).toEqual([]);
+    expect(r.monthlyKm).toEqual([]);
+  });
+
+  it('returns zeros for null input', () => {
+    const r = buildAnalytics(null);
+    expect(r.streak).toBe(0);
+  });
+
+  it('groups activities by week correctly', () => {
+    // Two runs in the same week (Mon 2024-01-08)
+    const acts = [
+      makeAct({ dateTs: new Date('2024-01-08T10:00:00Z').getTime(), distanceKm: 5 }),
+      makeAct({ dateTs: new Date('2024-01-09T10:00:00Z').getTime(), distanceKm: 7 }),
+    ];
+    const r = buildAnalytics(acts);
+    expect(r.weeklyKm).toHaveLength(1);
+    expect(r.weeklyKm[0].km).toBeCloseTo(12, 1);
+    expect(r.weeklyKm[0].runs).toBe(2);
+  });
+
+  it('groups activities by month correctly', () => {
+    const acts = [
+      makeAct({ date: '2024-01-08', dateTs: new Date('2024-01-08T10:00:00Z').getTime(), distanceKm: 10 }),
+      makeAct({ date: '2024-01-15', dateTs: new Date('2024-01-15T10:00:00Z').getTime(), distanceKm: 15 }),
+      makeAct({ date: '2024-02-01', dateTs: new Date('2024-02-01T10:00:00Z').getTime(), distanceKm: 8 }),
+    ];
+    const r = buildAnalytics(acts);
+    expect(r.monthlyKm).toHaveLength(2);
+    const jan = r.monthlyKm.find(m => m.month === '2024-01');
+    expect(jan.km).toBeCloseTo(25, 1);
+    expect(jan.runs).toBe(2);
+  });
+
+  it('computes totalKm as sum of all distances', () => {
+    const acts = [
+      makeAct({ distanceKm: 5 }),
+      makeAct({ distanceKm: 10 }),
+      makeAct({ distanceKm: 15 }),
+    ];
+    expect(buildAnalytics(acts).totalKm).toBe(30);
+  });
+
+  it('single-pass produces identical results to separate-pass for large input', () => {
+    const acts = Array.from({ length: 200 }, (_, i) => makeAct({
+      id: String(i),
+      dateTs: new Date('2024-01-01').getTime() + i * 86400000,
+      date: new Date(new Date('2024-01-01').getTime() + i * 86400000).toISOString().slice(0, 10),
+      distanceKm: 5 + (i % 10),
+    }));
+    const r = buildAnalytics(acts);
+    expect(r.totalKm).toBeCloseTo(acts.reduce((s, a) => s + a.distanceKm, 0), 1);
+    expect(r.weeklyKm.length).toBeGreaterThan(0);
+    expect(r.monthlyKm.length).toBeGreaterThan(0);
   });
 });

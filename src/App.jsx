@@ -455,7 +455,7 @@ const App=()=>{
   return(
     <div style={{maxWidth:480,margin:"0 auto",minHeight:"100vh",display:"flex",flexDirection:"column",background:"var(--bg)"}}>
       <Styles/>
-      <div style={{padding:"max(14px,calc(env(safe-area-inset-top)+8px)) 16px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,borderBottom:"1px solid var(--bd)"}}>
+      <div style={{padding:"max(14px,calc(env(safe-area-inset-top)+8px)) 16px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,borderBottom:"1px solid var(--bd)",position:"sticky",top:0,zIndex:10,background:"var(--bg)"}}>
         <div style={{fontWeight:800,fontSize:"1.05rem",letterSpacing:".06em",color:"var(--or)",cursor:"pointer",userSelect:"none"}}
           onClick={()=>{if(!import.meta.env.DEV)return;debugTapRef.current++;if(debugTapRef.current>=5){setShowDebug(true);debugTapRef.current=0;}setTimeout(()=>{debugTapRef.current=0;},1500);}}>RUNLYTICS</div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -549,13 +549,15 @@ const App=()=>{
         onSaveGoals={g=>{setGoals(g);saveGoals(g);}} onSaveHR={p=>{setHRProfile(p);saveHRProfile(p);}}
         onSaveProfile={p=>{setProfile(p);saveProfile(p);}}
         onImport={imported=>{
-          setActsRaw(prev=>{
-            const existing=new Set(prev.map(a=>a.id));
+          try{
+            const existing=new Set(actsRef.current.map(a=>a.id));
             const newActs=imported.filter(a=>a&&a.id&&!existing.has(a.id)).map(migrateActivity).filter(Boolean);
-            if(!newActs.length)return prev;
-            newActs.forEach(a=>saveActivity(a).catch(console.error));
-            return[...newActs,...prev];
-          });
+            if(!newActs.length)return;
+            saveActivitiesBatch(newActs).catch(err=>setStorageError(`Import save failed: ${err.message}`));
+            setActsRaw(prev=>[...newActs,...prev]);
+          }catch(err){
+            setStorageError(`Import failed: ${err.message}`);
+          }
         }}
         onClearAll={()=>{
           setActsRaw([]);

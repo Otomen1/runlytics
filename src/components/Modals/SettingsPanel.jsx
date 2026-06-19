@@ -66,7 +66,7 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
             <input className="inp" type="number" min="10" max="100" placeholder="e.g. 32" value={age} onChange={e=>setAge(e.target.value)} style={{marginBottom:ageNum&&!useOv?6:14}}/>
             {ageNum&&!useOv&&<div style={{fontSize:".72rem",color:"var(--gn)",marginBottom:14}}>✓ MAF HR: {180-ageNum} bpm</div>}
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:useOv?10:16}}>
-              <div role="switch" aria-checked={useOv} style={{width:36,height:20,borderRadius:10,background:useOv?"var(--or)":"var(--bd2)",position:"relative",cursor:"pointer",transition:"background .2s"}} onClick={()=>setUseOv(v=>!v)}>
+              <div role="switch" aria-checked={useOv} tabIndex={0} style={{width:36,height:20,borderRadius:10,background:useOv?"var(--or)":"var(--bd2)",position:"relative",cursor:"pointer",transition:"background .2s"}} onClick={()=>setUseOv(v=>!v)} onKeyDown={e=>{if(e.key===' '||e.key==='Enter'){e.preventDefault();setUseOv(v=>!v);}}}>
                 <div style={{position:"absolute",top:2,left:useOv?18:2,width:16,height:16,borderRadius:"50%",background:"#fff",transition:"left .2s"}}/>
               </div>
               <span style={{fontSize:".78rem",cursor:"pointer"}} onClick={()=>setUseOv(v=>!v)}>Custom MAF override</span>
