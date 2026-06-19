@@ -107,6 +107,12 @@ export function PlanBuilderModal({ acts, analytics, onClose }) {
               </div>
             </div>
 
+            {plan.baseWarning && (
+              <div style={{ background: 'rgba(234,179,8,.1)', border: '1px solid rgba(234,179,8,.3)', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: '.78rem', color: 'var(--yw)', lineHeight: 1.55 }}>
+                ⚠️ {plan.baseWarning}
+              </div>
+            )}
+
             <div style={{ fontSize: '.72rem', fontWeight: 700, color: 'var(--tx3)', letterSpacing: '.08em', textTransform: 'uppercase', marginBottom: 8 }}>
               Week-by-Week Plan
             </div>

@@ -3,6 +3,22 @@ import { classifyRun } from './activity.js';
 
 const RACE_PEAK = { '5K': 55, '10K': 70, 'HM': 85, 'Marathon': 110 };
 
+// Minimum recommended base (km/week) per race type
+const BASE_MIN = { '5K': 15, '10K': 20, 'HM': 30, 'Marathon': 40 };
+
+// Race-type-specific taper: science-backed durations
+// 5K=1wk, 10K/HM=2wks, Marathon=3wks
+const TAPER_WEEKS = { '5K': 1, '10K': 2, 'HM': 2, 'Marathon': 3 };
+const TAPER_FACTORS = {
+  '5K':      [0.6],
+  '10K':     [0.75, 0.5],
+  'HM':      [0.75, 0.5],
+  'Marathon':[0.8, 0.6, 0.4],
+};
+
+// Minimum long run per race type (km) — prevents arithmetic mismatch at low volume
+const LONG_RUN_MIN = { '5K': 6, '10K': 8, 'HM': 10, 'Marathon': 14 };
+
 function nextMonday(from = new Date()) {
   const d = new Date(from);
   d.setHours(0, 0, 0, 0);
@@ -31,7 +47,11 @@ export function generatePlan(raceType, raceDate, baseWeeklyKm) {
   const totalWeeks = Math.max(8, Math.min(52, Math.round(totalMs / (7 * 86400000))));
 
   const peak = Math.min(baseWeeklyKm * 1.5, RACE_PEAK[raceType] || 85);
-  const taperStart = totalWeeks - 3;
+
+  // taperStart formula: totalWeeks - taperWeeks - 1 (reserve last index for race week)
+  // This fixes the off-by-one that previously produced one fewer taper week than intended
+  const taperWeeks = TAPER_WEEKS[raceType] || 3;
+  const taperStart = totalWeeks - taperWeeks - 1;
 
   const weeks = [];
   let prev = baseWeeklyKm;
@@ -45,14 +65,15 @@ export function generatePlan(raceType, raceDate, baseWeeklyKm) {
       targetKm = parseFloat((peak * 0.25).toFixed(1));
       phase = 'race';
     } else if (i >= taperStart) {
+      const taperFactors = TAPER_FACTORS[raceType] || [0.8, 0.6, 0.4];
       const taperIdx = i - taperStart;
-      const taperFactors = [0.8, 0.6, 0.4];
       targetKm = parseFloat((peak * taperFactors[taperIdx]).toFixed(1));
       phase = 'taper';
     } else {
       const isRecovery = (i + 1) % 4 === 0;
       if (isRecovery) {
-        targetKm = parseFloat((prev * 0.85).toFixed(1));
+        // 72% depth (was 85%) — proper recovery requires ≥25% volume reduction
+        targetKm = parseFloat((prev * 0.72).toFixed(1));
         phase = i < 3 ? 'base' : 'build';
       } else {
         const next = Math.min(prev * 1.08, peak);
@@ -62,8 +83,21 @@ export function generatePlan(raceType, raceDate, baseWeeklyKm) {
       prev = targetKm;
     }
 
-    weeks.push({ week: key, targetKm, phase, ...runTypesForKm(targetKm) });
+    // Phase-gate workouts: no quality sessions in base phase
+    // Redistribute freed workout slot as an extra easy run
+    const runTypes = runTypesForKm(targetKm);
+    if (phase === 'base') {
+      runTypes.easy = Math.min(4, runTypes.easy + runTypes.workout);
+      runTypes.workout = 0;
+    }
+
+    // raceType stored on week so getWeekDays can derive long run floor and workout label
+    weeks.push({ week: key, targetKm, phase, raceType, ...runTypes });
   }
+
+  const baseWarning = baseWeeklyKm < (BASE_MIN[raceType] || 30)
+    ? `Your current base (${Math.round(baseWeeklyKm)} km/week) is below the recommended minimum for a ${raceType} plan (${BASE_MIN[raceType]} km/week). Consider building your base further before starting this plan.`
+    : null;
 
   return {
     raceType,
@@ -71,6 +105,7 @@ export function generatePlan(raceType, raceDate, baseWeeklyKm) {
     startDate: weekOf(start.getTime()),
     baseWeeklyKm: parseFloat(baseWeeklyKm.toFixed(1)),
     weeks,
+    baseWarning,
   };
 }
 
@@ -116,21 +151,25 @@ export function getPlanWeekNumber(plan, weekKey) {
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const DAY_TYPE_INFO = {
-  rest:    { label: 'Rest',      icon: '—',  color: 'var(--tx3)' },
-  easy:    { label: 'Easy Run',  icon: '🦶', color: '#3b82f6'    },
-  long:    { label: 'Long Run',  icon: '📏', color: '#8b5cf6'    },
-  workout: { label: 'Tempo Run', icon: '⚡', color: '#f97316'    },
+  rest:    { label: 'Rest',           icon: '—',  color: 'var(--tx3)' },
+  easy:    { label: 'Easy Run',       icon: '🦶', color: '#3b82f6'    },
+  long:    { label: 'Long Run',       icon: '📏', color: '#8b5cf6'    },
+  workout: { label: 'Tempo Run',      icon: '⚡', color: '#f97316'    },
+  mp:      { label: 'Marathon Pace',  icon: '🎯', color: '#22c55e'    },
 };
 
 export function getWeekDays(planWeek) {
   if (!planWeek) return [];
-  const { week, targetKm, easy, long, workout } = planWeek;
+  const { week, targetKm, easy, long, workout, raceType, phase } = planWeek;
+
+  // Marathon build weeks use MP runs instead of generic tempo
+  const wType = (raceType === 'Marathon' && phase === 'build') ? 'mp' : 'workout';
 
   // Slot template Mon–Sun (0=Mon, 6=Sun)
   const slots = ['rest', 'rest', 'rest', 'rest', 'rest', 'rest', 'rest'];
-  if (long > 0)    slots[5] = 'long';
-  if (workout >= 1) slots[1] = 'workout';
-  if (workout >= 2) slots[3] = 'workout';
+  if (long > 0)     slots[5] = 'long';
+  if (workout >= 1) slots[1] = wType;
+  if (workout >= 2) slots[3] = wType;
 
   // Fill easy slots: Wed→Fri→Sun→Mon priority
   let easyLeft = easy;
@@ -139,24 +178,27 @@ export function getWeekDays(planWeek) {
     if (slots[idx] === 'rest') { slots[idx] = 'easy'; easyLeft--; }
   }
 
-  const longKm    = long    > 0 ? parseFloat(Math.max(10, Math.min(35, targetKm * 0.30)).toFixed(1)) : 0;
-  const workoutKm = workout > 0 ? parseFloat(Math.max(6,  Math.min(16, targetKm * 0.18)).toFixed(1)) : 0;
+  // Race-type-specific long run floor prevents under-30km arithmetic mismatch
+  const longMin   = LONG_RUN_MIN[raceType] || 10;
+  const longKm    = long    > 0 ? parseFloat(Math.max(longMin, Math.min(35, targetKm * 0.30)).toFixed(1)) : 0;
+  const workoutKm = workout > 0 ? parseFloat(Math.max(6, Math.min(16, targetKm * 0.18)).toFixed(1)) : 0;
   const usedKm    = longKm * long + workoutKm * workout;
-  const easyKm    = easy   > 0 ? parseFloat(Math.max(5,  Math.min(18, (targetKm - usedKm) / easy)).toFixed(1)) : 0;
+  const easyKm    = easy   > 0 ? parseFloat(Math.max(5, Math.min(18, (targetKm - usedKm) / easy)).toFixed(1)) : 0;
 
   const [y, m, d] = week.split('-').map(Number);
   return slots.map((type, i) => {
     const dd = new Date(y, m - 1, d + i);
     const date = `${dd.getFullYear()}-${String(dd.getMonth()+1).padStart(2,'0')}-${String(dd.getDate()).padStart(2,'0')}`;
-    const km = type === 'long' ? longKm : type === 'workout' ? workoutKm : type === 'easy' ? easyKm : 0;
+    const km = type === 'long' ? longKm : (type === 'workout' || type === 'mp') ? workoutKm : type === 'easy' ? easyKm : 0;
     return { date, dayOfWeek: i, day: DAY_NAMES[i], type, ...DAY_TYPE_INFO[type], targetKm: km };
   });
 }
 
 const TYPE_META = {
-  easy:    { label: 'Easy Run',  icon: '🦶' },
-  long:    { label: 'Long Run',  icon: '📏' },
-  workout: { label: 'Tempo Run', icon: '⚡' },
+  easy:    { label: 'Easy Run',      icon: '🦶' },
+  long:    { label: 'Long Run',      icon: '📏' },
+  workout: { label: 'Tempo Run',     icon: '⚡' },
+  mp:      { label: 'Marathon Pace', icon: '🎯' },
 };
 
 const TIPS = [
@@ -172,8 +214,8 @@ export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 
 
   const done = { easy: 0, long: 0, workout: 0 };
   weekActs.forEach(a => {
-    const rc=(a.runClass in done)?a.runClass:classifyRun(a.distanceKm||0,a.avgPaceSecKm||0);
-    if(rc in done)done[rc]++;
+    const rc = (a.runClass in done) ? a.runClass : classifyRun(a.distanceKm || 0, a.avgPaceSecKm || 0);
+    if (rc in done) done[rc]++;
   });
   const remaining = {
     easy:    Math.max(0, planWeek.easy    - done.easy),
@@ -183,18 +225,22 @@ export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 
   const totalRemaining = remaining.easy + remaining.long + remaining.workout;
   if (!totalRemaining) return { done: true };
 
-  const type = (form < -8 || !remaining.workout && !remaining.long)
+  // Resolve to 'mp' for marathon build quality sessions
+  const isMarathonBuild = planWeek.raceType === 'Marathon' && planWeek.phase === 'build';
+  const type = (form < -8 || (!remaining.workout && !remaining.long))
     ? 'easy'
-    : remaining.workout > 0 ? 'workout'
-    : remaining.long > 0    ? 'long'
+    : remaining.workout > 0
+      ? (isMarathonBuild ? 'mp' : 'workout')
+    : remaining.long > 0 ? 'long'
     : 'easy';
 
+  const longMin = LONG_RUN_MIN[planWeek.raceType] || 10;
   const weekKm = weekActs.reduce((s, a) => s + a.distanceKm, 0);
   const kmLeft = Math.max(0, planWeek.targetKm - weekKm);
   let distanceKm;
   if (type === 'long') {
-    distanceKm = parseFloat(Math.max(10, Math.min(35, planWeek.targetKm * 0.30)).toFixed(1));
-  } else if (type === 'workout') {
+    distanceKm = parseFloat(Math.max(longMin, Math.min(35, planWeek.targetKm * 0.30)).toFixed(1));
+  } else if (type === 'workout' || type === 'mp') {
     distanceKm = parseFloat(Math.max(6, Math.min(16, planWeek.targetKm * 0.18)).toFixed(1));
   } else {
     distanceKm = parseFloat(Math.max(5, Math.min(18, kmLeft / Math.max(1, totalRemaining))).toFixed(1));
@@ -207,16 +253,27 @@ export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 
       paceMin = Math.round(avgPaceSecKm + adj);
       paceMax = Math.round(avgPaceSecKm + adj + 20);
     } else if (type === 'long') {
-      const adj = form >= 3 ? 20 : 30;
+      // Long runs: 60–90s/km slower than average (was incorrectly 20–30s)
+      const adj = form >= 3 ? 60 : form >= -3 ? 75 : 90;
       paceMin = Math.round(avgPaceSecKm + adj);
       paceMax = Math.round(avgPaceSecKm + adj + 20);
-    } else {
-      const adj = form >= 3 ? -5 : 5;
+    } else if (type === 'workout') {
+      // Tempo at true threshold: ~30–40s/km faster than average training pace
+      const adj = form >= 3 ? -40 : form >= -3 ? -30 : -20;
       paceMin = Math.max(180, Math.round(avgPaceSecKm + adj));
+      paceMax = Math.round(avgPaceSecKm + adj + 15);
+    } else if (type === 'mp') {
+      // Marathon Pace: ~15–25s/km faster than average training pace
+      const adj = form >= 3 ? -25 : form >= -3 ? -15 : -5;
+      paceMin = Math.max(210, Math.round(avgPaceSecKm + adj));
       paceMax = Math.round(avgPaceSecKm + adj + 15);
     }
   } else {
-    paceNote = type === 'workout' ? 'Comfortably hard' : mafHR ? `≤${mafHR} bpm / Zone 2` : 'Zone 2 effort';
+    paceNote = type === 'mp'
+      ? 'Comfortably controlled — goal race effort'
+      : type === 'workout'
+        ? 'Comfortably hard — threshold effort'
+        : mafHR ? `≤${mafHR} bpm / Zone 2` : 'Zone 2 effort';
   }
 
   const tip = TIPS.find(t => form >= t.minForm)?.tip || TIPS[TIPS.length - 1].tip;
