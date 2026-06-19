@@ -1,4 +1,4 @@
-import { STRAVA_KEY, STRAVA_ACCESS_KEY, STRAVA_REFRESH_KEY } from '../constants/keys.js';
+import { STRAVA_KEY, STRAVA_ACCESS_KEY, STRAVA_REFRESH_KEY, STRAVA_REFRESH_LS_KEY } from '../constants/keys.js';
 import { REFRESH_TOKEN_MAX_AGE_MS } from '../constants/limits.js';
 import { migrateActivity, decodePolyline, classifyRun } from '../utils/activity.js';
 
@@ -16,9 +16,10 @@ export function loadStravaAuth(){
       return null;
     }
     const sessionToken=sessionStorage.getItem(SESSION_TOKEN_KEY);
-    const refreshToken=sessionStorage.getItem(STRAVA_REFRESH_KEY);
-    if(!sessionToken&&!refreshToken)return null;
-    return{...base,access_token:sessionToken||undefined,refresh_token:refreshToken||undefined};
+    // Fall back to localStorage so auth survives browser restarts
+    const refreshToken=sessionStorage.getItem(STRAVA_REFRESH_KEY)||localStorage.getItem(STRAVA_REFRESH_LS_KEY)||undefined;
+    if(!refreshToken)return null;
+    return{...base,access_token:sessionToken||undefined,refresh_token:refreshToken};
   }catch(e){return null;}
 }
 
@@ -29,13 +30,17 @@ export function saveStravaAuth(a){
     // Strip tokens from localStorage — only keep non-sensitive metadata
     localStorage.setItem(STRAVA_KEY,JSON.stringify({...rest,savedAt:Date.now()}));
     if(access_token)sessionStorage.setItem(SESSION_TOKEN_KEY,access_token);
-    if(refresh_token)sessionStorage.setItem(STRAVA_REFRESH_KEY,refresh_token);
+    if(refresh_token){
+      sessionStorage.setItem(STRAVA_REFRESH_KEY,refresh_token);
+      localStorage.setItem(STRAVA_REFRESH_LS_KEY,refresh_token);
+    }
   }catch(e){}
 }
 
 export function clearStravaAuth(){
   try{
     localStorage.removeItem(STRAVA_KEY);
+    localStorage.removeItem(STRAVA_REFRESH_LS_KEY);
     sessionStorage.removeItem(SESSION_TOKEN_KEY);
     sessionStorage.removeItem(STRAVA_REFRESH_KEY);
   }catch(e){}
@@ -92,7 +97,8 @@ export async function fetchStravaSplits(stravaNumericId, token){
 }
 
 export function mapStravaActivity(a){
-  if(!a||a.type&&!["Run","Walk","Hike","TrailRun","VirtualRun"].includes(a.type))return null;
+  const actType=a?.sport_type||a?.type;
+  if(!a||!actType||!["Run","Walk","Hike","TrailRun","VirtualRun"].includes(actType))return null;
   const distM=isFinite(+a.distance)?+a.distance:0;
   const distKm=distM/1000;
   const movingTime=isFinite(+a.moving_time)&&+a.moving_time>0?+a.moving_time:0;

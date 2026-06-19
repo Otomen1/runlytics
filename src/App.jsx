@@ -21,7 +21,7 @@ import {
 } from './constants/keys.js';
 import { TABS } from './constants/activityTypes.js';
 import {
-  SYNC_COOLDOWN_MS, PULL_THRESHOLD_PX, PULL_MAX_PX, UNDO_WINDOW_MS,
+  SYNC_COOLDOWN_MS, SYNC_INTERVAL_MS, PULL_THRESHOLD_PX, PULL_MAX_PX, UNDO_WINDOW_MS,
 } from './constants/config.js';
 
 // ── Styles ───────────────────────────────────────────────────────────────────
@@ -315,7 +315,9 @@ const App=()=>{
     try{
       const token=await getStravaToken(auth);
       if(!token){setStravaSync({loading:false,msg:"Token refresh failed."});isSyncingRef.current=false;return;}
-      const r=await fetch("https://www.strava.com/api/v3/athlete/activities?per_page=30&page=1",{headers:{Authorization:"Bearer "+token}});
+      const afterTs=lastSyncRef.current?`&after=${Math.floor(lastSyncRef.current/1000)}`:'';
+      const perPage=lastSyncRef.current?30:100;
+      const r=await fetch(`https://www.strava.com/api/v3/athlete/activities?per_page=${perPage}&page=1${afterTs}`,{headers:{Authorization:"Bearer "+token}});
       if(!r.ok){setStravaSync({loading:false,msg:"Sync failed ("+r.status+")."});isSyncingRef.current=false;return;}
       const data=await r.json();
       const mapped=data.map(mapStravaActivity).filter(Boolean);
@@ -413,7 +415,7 @@ const App=()=>{
     if(stravaAuth&&isOnline)doStravaSync(true);
     const onFocus=()=>{if(stravaAuth&&isOnline&&Date.now()-lastSyncRef.current>300000)doStravaSync(true);};
     window.addEventListener("focus",onFocus);
-    const t=setInterval(()=>{if(stravaAuth&&isOnline)doStravaSync(true);},300000);
+    const t=setInterval(()=>{if(stravaAuth&&isOnline)doStravaSync(true);},SYNC_INTERVAL_MS);
     return()=>{window.removeEventListener("focus",onFocus);clearInterval(t);};
   },[stravaAuth,doStravaSync,isOnline]);
 
