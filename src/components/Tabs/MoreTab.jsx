@@ -3,7 +3,7 @@ import { SH } from '../common/SH.jsx';
 import { Ring } from '../common/Ring.jsx';
 import { getMafHR, getMafZones, computeZones } from '../../utils/analytics.js';
 import { PLAN_KEY } from '../../constants/keys.js';
-import { getPlanAdherence, getPlanWeekNumber, getPlanWeek, getWeekDays } from '../../utils/trainingPlan.js';
+import { getPlanAdherence, getPlanWeekNumber, getPlanWeek, getWeekDays, checkSessionCompliance } from '../../utils/trainingPlan.js';
 import { weekOf, fmtKm, todayKey } from '../../utils/formatters.js';
 
 function StreakCalendar({ acts }) {
@@ -66,6 +66,10 @@ export function MoreTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview,
   },[plan,acts]);
   const currentPlanWeek=useMemo(()=>plan?getPlanWeek(plan,todayWeek):null,[plan,todayWeek]);
   const currentWeekDays=useMemo(()=>getWeekDays(currentPlanWeek),[currentPlanWeek]);
+  const refPaceSec=useMemo(()=>{
+    const recent=acts.filter(a=>a.avgPaceSecKm>0&&a.distanceKm>=3&&a.dateTs>Date.now()-90*86400000).sort((a,b)=>a.avgPaceSecKm-b.avgPaceSecKm);
+    return recent.length?recent[0].avgPaceSecKm:null;
+  },[acts]);
   const todayDate=todayKey();
   const runsWithHR=acts.filter(a=>a.avgHR&&a.distanceKm>0);
   const last5=runsWithHR.slice(0,5);
@@ -155,7 +159,10 @@ export function MoreTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview,
                   </div>
                   {currentWeekDays.map(day=>{
                     const isToday=day.date===todayDate;
-                    const isDone=day.type!=='rest'&&acts.some(a=>a.date===day.date);
+                    const act=acts.find(a=>a.date===day.date);
+                    const isDone=day.type!=='rest'&&!!act;
+                    const comp=isDone?checkSessionCompliance(day,act,refPaceSec,mafHR):null;
+                    const isWarn=comp&&(comp.status==='too_hard'||comp.status==='short'||comp.status==='too_easy');
                     return(
                       <div key={day.date} style={{
                         display:'flex',alignItems:'center',gap:10,
@@ -165,11 +172,12 @@ export function MoreTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview,
                       }}>
                         <span style={{fontSize:'.68rem',fontWeight:isToday?700:500,color:isToday?'var(--or)':'var(--tx3)',width:26,flexShrink:0}}>{day.day}</span>
                         <span style={{fontSize:'.8rem',width:18,textAlign:'center',flexShrink:0}}>{day.icon}</span>
-                        <span style={{fontSize:'.72rem',flex:1,color:day.type==='rest'?'var(--tx3)':isDone?'var(--gn)':'var(--tx)',fontWeight:isDone?600:400}}>{day.label}</span>
+                        <span style={{fontSize:'.72rem',flex:1,color:day.type==='rest'?'var(--tx3)':isDone?(isWarn?'var(--or)':'var(--gn)'):'var(--tx)',fontWeight:isDone?600:400}}>{day.label}</span>
                         {day.targetKm>0&&(
-                          <span style={{fontSize:'.72rem',fontWeight:700,color:isDone?'var(--gn)':day.color}}>{fmtKm(day.targetKm)} km</span>
+                          <span style={{fontSize:'.72rem',fontWeight:700,color:isDone?(isWarn?'var(--or)':'var(--gn)'):day.color}}>{fmtKm(day.targetKm)} km</span>
                         )}
-                        {isDone&&<span style={{fontSize:'.72rem',color:'var(--gn)'}}>✓</span>}
+                        {isDone&&!isWarn&&<span style={{fontSize:'.72rem',color:'var(--gn)'}}>✓</span>}
+                        {isDone&&isWarn&&<span style={{fontSize:'.68rem',color:'var(--or)',fontWeight:700,flexShrink:0}} title={comp.label}>⚠</span>}
                       </div>
                     );
                   })}

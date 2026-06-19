@@ -306,3 +306,37 @@ export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 
     phase: planWeek.phase,
   };
 }
+
+export function classifyEffort(act, refPaceSec, mafHR) {
+  if (act.avgHR && mafHR) {
+    if (act.avgHR <= mafHR)       return 'easy';
+    if (act.avgHR <= mafHR + 15)  return 'moderate';
+    return 'hard';
+  }
+  if (!refPaceSec || !act.avgPaceSecKm) return 'unknown';
+  const delta = act.avgPaceSecKm - refPaceSec; // positive = slower = easier
+  if (delta >= 45)  return 'easy';
+  if (delta >= -10) return 'moderate';
+  return 'hard';
+}
+
+export function checkSessionCompliance(day, act, refPaceSec, mafHR) {
+  if (day.type === 'rest' || !act) return null;
+  const effort = classifyEffort(act, refPaceSec, mafHR);
+
+  if (day.type === 'easy') {
+    if (effort === 'hard') return { status: 'too_hard', label: 'Too hard for an easy day' };
+    return { status: effort === 'unknown' ? 'done' : 'compliant', label: null };
+  }
+  if (day.type === 'long') {
+    if (effort === 'hard') return { status: 'too_hard', label: 'Too hard — long runs should be easy' };
+    if (day.targetKm > 0 && act.distanceKm < day.targetKm * 0.80)
+      return { status: 'short', label: `Short — ${act.distanceKm.toFixed(1)} of ${day.targetKm} km` };
+    return { status: effort === 'unknown' ? 'done' : 'compliant', label: null };
+  }
+  if (day.type === 'workout' || day.type === 'mp') {
+    if (effort === 'easy') return { status: 'too_easy', label: 'Too easy — missed quality stimulus' };
+    return { status: effort === 'unknown' ? 'done' : 'compliant', label: null };
+  }
+  return { status: 'done', label: null };
+}
