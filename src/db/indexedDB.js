@@ -202,6 +202,17 @@ export async function deletePhoto(id){
   }));
 }
 
+export async function deletePhotosForActivity(activityId){
+  return openIDB().then(db=>new Promise((resolve,reject)=>{
+    const tx=db.transaction(IDB_PHOTOS,"readwrite");
+    const store=tx.objectStore(IDB_PHOTOS);
+    const req=store.index("by_activity").getAllKeys(activityId);
+    req.onsuccess=()=>{req.result.forEach(k=>store.delete(k));};
+    tx.oncomplete=()=>resolve();
+    tx.onerror=e=>reject(e.target.error);
+  }));
+}
+
 export function loadActsLegacy(){
   try{
     const raw=localStorage.getItem(DATA_KEY)||"[]";

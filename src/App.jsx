@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspens
 // ── Persistence ──────────────────────────────────────────────────────────────
 import {
   loadActivities, saveActivity, saveActivitiesBatch,
-  deleteActivity, clearAllActivities, verifyActivityPersistence,
+  deleteActivity, deletePhotosForActivity, clearAllActivities, verifyActivityPersistence,
   migrateFromLocalStorage, loadActsLegacy,
 } from './db/indexedDB.js';
 import { loadStravaAuth, saveStravaAuth, clearStravaAuth, getStravaToken, mapStravaActivity } from './db/strava.js';
@@ -20,6 +20,9 @@ import {
   TAB_KEY, ONBOARDING_KEY, MILESTONES_KEY, THEME_KEY, TIERS_KEY,
 } from './constants/keys.js';
 import { TABS } from './constants/activityTypes.js';
+import {
+  SYNC_COOLDOWN_MS, PULL_THRESHOLD_PX, PULL_MAX_PX, UNDO_WINDOW_MS,
+} from './constants/config.js';
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 import { Styles } from './styles/GlobalStyles.jsx';
@@ -95,6 +98,8 @@ const App=()=>{
   // Activities start empty — populated async from IndexedDB in useEffect below.
   // We cannot use useState(loadActs) synchronously because IDB is async.
   const[acts,setActsRaw]=useState([]);
+  const actsRef=useRef([]);
+  actsRef.current=acts;
   const[dbReady,setDbReady]=useState(false);    // true once IDB load completes
   const[storageError,setStorageError]=useState(null); // visible error banner
   _onStorageError=setStorageError; // route quota errors to the UI banner
@@ -130,7 +135,6 @@ const App=()=>{
   const[pullReleasing,setPullReleasing]=useState(false);
   const pullStartRef=useRef(null);
   const scrollRef=useRef(null);
-  const PULL_THRESHOLD=60;
 
   const isSyncingRef=useRef(false),lastSyncRef=useRef(0),isRepairingRef=useRef(false);
   // Undo-delete: hold a pending delete in memory for 3 s before committing to IDB
@@ -189,7 +193,7 @@ const App=()=>{
   const startStravaConnect=useCallback(()=>{
     const cid=window.__STRAVA_CLIENT_ID;
     if(!cid){alert("Strava client ID not configured.");return;}
-    const state=crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2);
+    const arr=new Uint8Array(16);crypto.getRandomValues(arr);const state=Array.from(arr,b=>b.toString(16).padStart(2,'0')).join('');
     try{sessionStorage.setItem('_rl_oauth_state',state);}catch{}
     const redirect=encodeURIComponent(window.location.origin+window.location.pathname);
     window.location.href="https://www.strava.com/oauth/authorize?client_id="+cid+"&redirect_uri="+redirect+"&response_type=code&scope=activity:read_all&state="+encodeURIComponent(state);
@@ -258,14 +262,26 @@ const App=()=>{
     setActsRaw(p=>p.filter(a=>a.id!==id));
     history.back();
     // Cancel any in-flight pending delete first
-    if(deleteTimerRef.current){clearTimeout(deleteTimerRef.current);if(pendingDeleteRef.current)deleteActivity(pendingDeleteRef.current.id).catch(()=>{});}
+    if(deleteTimerRef.current){
+      clearTimeout(deleteTimerRef.current);
+      if(pendingDeleteRef.current){
+        const prevId=pendingDeleteRef.current.id;
+        deleteActivity(prevId).catch(()=>{});
+        deletePhotosForActivity(prevId).catch(()=>{});
+      }
+    }
     pendingDeleteRef.current=found||null;
     clearTimeout(toastTimerRef.current);
     setToast({emoji:'🗑',msg:'Run deleted',undo:true});
     deleteTimerRef.current=setTimeout(()=>{
-      if(pendingDeleteRef.current){deleteActivity(pendingDeleteRef.current.id).catch(err=>console.error("[IDB] deleteActivity failed:",err));pendingDeleteRef.current=null;}
+      if(pendingDeleteRef.current){
+        const id=pendingDeleteRef.current.id;
+        pendingDeleteRef.current=null;
+        deleteActivity(id).catch(err=>console.error("[IDB] deleteActivity failed:",err));
+        deletePhotosForActivity(id).catch(()=>{});
+      }
       setToast(null);
-    },3500);
+    },UNDO_WINDOW_MS);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[acts]);
 
@@ -292,9 +308,9 @@ const App=()=>{
 
   const doStravaSync=useCallback(async(silent=true)=>{
     if(isSyncingRef.current)return;
-    if(Date.now()-lastSyncRef.current<60000)return;
+    if(Date.now()-lastSyncRef.current<SYNC_COOLDOWN_MS)return;
     const auth=loadStravaAuth();if(!auth)return;
-    isSyncingRef.current=true;lastSyncRef.current=Date.now();
+    isSyncingRef.current=true;
     if(!silent)setStravaSync({loading:true,msg:""});else setStravaSync(p=>({...p,loading:true}));
     try{
       const token=await getStravaToken(auth);
@@ -303,31 +319,42 @@ const App=()=>{
       if(!r.ok){setStravaSync({loading:false,msg:"Sync failed ("+r.status+")."});isSyncingRef.current=false;return;}
       const data=await r.json();
       const mapped=data.map(mapStravaActivity).filter(Boolean);
-      setActsRaw(prev=>{
-        const existingIds=new Set(prev.map(a=>a.id));
-        const newActs=mapped.filter(a=>!existingIds.has(a.id));
-        const toSave=[];
-        const patched=prev.map(a=>{
-          const fresh=mapped.find(m=>m.id===a.id);
-          if(fresh&&(!a.route||a.route.length<2)&&fresh.route?.length>=2){
-            const updated={...a,route:fresh.route};
-            toSave.push(updated);
-            return updated;
-          }
-          return a;
-        });
-        newActs.forEach(a=>toSave.push(a));
-        const routesFixed=toSave.length-newActs.length;
-        if(newActs.length)console.log(`[IDB] Strava sync: +${newActs.length} new`);
-        if(routesFixed)console.log(`[IDB] routes restored: ${routesFixed}`);
-        if(!newActs.length&&!routesFixed)return prev;
-        if(toSave.length)saveActivitiesBatch(toSave).catch(err=>{console.error('[IDB] Strava sync save failed:',err);setStorageError('Strava sync save failed. Please refresh and try again.');});
-        const syncMsg=newActs.length?`✓ ${newActs.length} new run${newActs.length!==1?"s":""} synced`:routesFixed?`✓ ${routesFixed} route${routesFixed!==1?"s":""} restored`:"";
-        if(syncMsg)setTimeout(()=>setStravaSync({loading:false,msg:syncMsg}),0);
-        return newActs.length?[...newActs,...patched]:patched;
+      // Compute diffs against current acts — outside the setActsRaw updater to avoid
+      // double side-effects in React strict mode (updaters may be called twice in dev).
+      const current=actsRef.current;
+      const existingIds=new Set(current.map(a=>a.id));
+      const newActs=mapped.filter(a=>!existingIds.has(a.id));
+      const toSave=[];
+      const patched=current.map(a=>{
+        const fresh=mapped.find(m=>m.id===a.id);
+        if(fresh&&(!a.route||a.route.length<2)&&fresh.route?.length>=2){
+          const updated={...a,route:fresh.route};
+          toSave.push(updated);
+          return updated;
+        }
+        return a;
       });
+      newActs.forEach(a=>toSave.push(a));
+      const routesFixed=toSave.length-newActs.length;
+      if(newActs.length)console.log(`[IDB] Strava sync: +${newActs.length} new`);
+      if(routesFixed)console.log(`[IDB] routes restored: ${routesFixed}`);
+      if(toSave.length){
+        await saveActivitiesBatch(toSave).catch(err=>{
+          console.error('[IDB] Strava sync save failed:',err);
+          setStorageError('Strava sync save failed. Please refresh and try again.');
+        });
+      }
+      lastSyncRef.current=Date.now();
+      if(newActs.length||routesFixed){
+        setActsRaw(newActs.length?[...newActs,...patched]:patched);
+        const syncMsg=newActs.length?`✓ ${newActs.length} new run${newActs.length!==1?"s":""} synced`:routesFixed?`✓ ${routesFixed} route${routesFixed!==1?"s":""} restored`:"";
+        if(syncMsg)setStravaSync({loading:false,msg:syncMsg});else setStravaSync({loading:false,msg:""});
+      }else{
+        setStravaSync({loading:false,msg:""});
+      }
     }catch(e){setStravaSync({loading:false,msg:"Sync failed."});}
     isSyncingRef.current=false;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
   const onPullStart=useCallback((e)=>{
@@ -343,23 +370,27 @@ const App=()=>{
     if(el&&el.scrollTop>0){pullStartRef.current=null;setPullY(0);return;}
     const dy=e.touches[0].clientY-pullStartRef.current;
     if(dy<=0){setPullY(0);return;}
-    setPullY(Math.min(110,dy*0.5));
+    setPullY(Math.min(PULL_MAX_PX,dy*0.5));
   },[]);
   const onPullEnd=useCallback(()=>{
     if(pullStartRef.current==null)return;
     pullStartRef.current=null;
-    const triggered=pullY>=PULL_THRESHOLD;
+    const triggered=pullY>=PULL_THRESHOLD_PX;
     setPullReleasing(true);
     setPullY(0);
-    if(triggered&&stravaAuth)doStravaSync(false);
+    if(triggered&&stravaAuth){
+      if(isSyncingRef.current)setStravaSync(p=>({...p,msg:"Sync in progress…"}));
+      else doStravaSync(false);
+    }
   },[pullY,stravaAuth,doStravaSync]);
 
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);const code=params.get("code");
     if(!code)return;
     const returnedState=params.get("state");
-    let savedState=null;try{savedState=sessionStorage.getItem('_rl_oauth_state');sessionStorage.removeItem('_rl_oauth_state');}catch{}
+    let savedState=null;try{savedState=sessionStorage.getItem('_rl_oauth_state');}catch{}
     if(!savedState||returnedState!==savedState){console.warn('[OAuth] state mismatch or missing — ignoring callback');return;}
+    try{sessionStorage.removeItem('_rl_oauth_state');}catch{}
     window.history.replaceState({},"",window.location.pathname);
     (async()=>{
       try{
