@@ -170,8 +170,6 @@ export function computeSplits(act){
   return splits;
 }
 
-export function computeEarnedBadges(acts){return BADGE_DEFS.filter(b=>{try{return b.check(acts);}catch(e){return false;}}).map(b=>b.id);}
-
 export function computeAtlCtl(acts,displayDays=90){
   if(!acts||!acts.length)return[];
   const loadByDate={};
@@ -179,12 +177,12 @@ export function computeAtlCtl(acts,displayDays=90){
   const dates=Object.keys(loadByDate).sort();
   if(!dates.length)return[];
   const start=new Date(dates[0]+'T12:00:00Z');
-  const end=new Date();end.setUTCHours(12,0,0,0);
+  const end=new Date();end.setHours(23,59,59,999);
   let atl=0,ctl=0;
   const ATL_K=1/7,CTL_K=1/42;
   const all=[];
-  for(let d=new Date(start);d<=end;d.setUTCDate(d.getUTCDate()+1)){
-    const key=d.toISOString().slice(0,10);
+  for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
+    const key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
     const load=loadByDate[key]||0;
     atl=atl*(1-ATL_K)+load*ATL_K;
     ctl=ctl*(1-CTL_K)+load*CTL_K;

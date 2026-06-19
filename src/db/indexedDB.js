@@ -165,7 +165,15 @@ export async function migrateFromLocalStorage(){
   }
 }
 
+const ALLOWED_PHOTO_MIME = new Set(['image/jpeg','image/png','image/webp','image/heic','image/heif']);
+
 export async function addPhoto(activityId, blob, thumbBlob, mimeType){
+  if(!ALLOWED_PHOTO_MIME.has(mimeType)){
+    throw new Error(`Unsupported photo type: ${mimeType}. Use JPEG, PNG, or WebP.`);
+  }
+  if(blob.size>10*1024*1024){
+    throw new Error('Photo exceeds 10 MB limit.');
+  }
   return openIDB().then(db=>new Promise((resolve,reject)=>{
     const tx=db.transaction(IDB_PHOTOS,"readwrite");
     const req=tx.objectStore(IDB_PHOTOS).add({activityId,blob,thumbBlob,mimeType,addedAt:Date.now()});
@@ -189,6 +197,17 @@ export async function deletePhoto(id){
   return openIDB().then(db=>new Promise((resolve,reject)=>{
     const tx=db.transaction(IDB_PHOTOS,"readwrite");
     tx.objectStore(IDB_PHOTOS).delete(id);
+    tx.oncomplete=()=>resolve();
+    tx.onerror=e=>reject(e.target.error);
+  }));
+}
+
+export async function deletePhotosForActivity(activityId){
+  return openIDB().then(db=>new Promise((resolve,reject)=>{
+    const tx=db.transaction(IDB_PHOTOS,"readwrite");
+    const store=tx.objectStore(IDB_PHOTOS);
+    const req=store.index("by_activity").getAllKeys(activityId);
+    req.onsuccess=()=>{req.result.forEach(k=>store.delete(k));};
     tx.oncomplete=()=>resolve();
     tx.onerror=e=>reject(e.target.error);
   }));

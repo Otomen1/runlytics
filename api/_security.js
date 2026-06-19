@@ -24,9 +24,17 @@ export function rateLimit(req, res) {
   rateLimitMap.set(ip, entry);
 
   if (entry.count > MAX_REQUESTS) {
+    const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+    res.setHeader('Retry-After', String(retryAfter));
+    res.setHeader('X-RateLimit-Limit', String(MAX_REQUESTS));
+    res.setHeader('X-RateLimit-Remaining', '0');
+    res.setHeader('X-RateLimit-Reset', String(Math.ceil(entry.resetAt / 1000)));
     res.status(429).json({ error: "Too many requests, please try again later." });
     return false;
   }
+  // Note: this limiter is per-instance (in-memory). On Vercel, multiple instances may run
+  // concurrently — each has its own counter. This provides rate-limiting best-effort;
+  // for strict distributed limiting, a Redis-backed solution would be needed.
   return true;
 }
 

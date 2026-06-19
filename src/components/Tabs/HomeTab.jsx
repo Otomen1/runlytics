@@ -25,7 +25,7 @@ const MOODS_MAP = {
 };
 
 
-export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUpload,onViewAll,onViewMonthly,onEditGoals,onOpenPlan}){
+export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUpload,onViewAll,onViewMonthly,onEditGoals,onOpenPlan,onOpenSettings}){
   const lastRun=acts.length?acts.reduce((b,a)=>a.dateTs>b.dateTs?a:b):null;
   const mafHR=getMafHR(hrProfile);
   const racePRs=useMemo(()=>computeRacePRs(acts),[acts]);
@@ -42,13 +42,15 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
   const weekPct=Math.min(1,thisWeekKm/(goals.weekly||1));
   const greetPfx=profile.name==="Runner"?"Welcome back":"Welcome back, "+profile.name;
   const weekLeft=parseFloat((goals.weekly-thisWeekKm).toFixed(1));
-  const thisMonthKey=new Date().toISOString().slice(0,7);
+  // Use local month key so users in UTC+ timezones see the correct month
+  const _now=new Date();
+  const thisMonthKey=_now.getFullYear()+'-'+String(_now.getMonth()+1).padStart(2,'0');
   const thisMonthKm=acts.filter(a=>a.date&&a.date.startsWith(thisMonthKey)).reduce((s,a)=>s+a.distanceKm,0);
   const monthPct=Math.min(1,thisMonthKm/(goals.monthly||1));
   const monthLeft=parseFloat(Math.max(0,goals.monthly-thisMonthKm).toFixed(1));
   const thisWeekRuns=acts.filter(a=>new Date(a.dateTs)>=today).length;
-  const lastMonthDate=new Date();lastMonthDate.setMonth(lastMonthDate.getMonth()-1);
-  const lastMonthKey=lastMonthDate.toISOString().slice(0,7);
+  const _lastMonth=new Date(_now.getFullYear(),_now.getMonth()-1,1);
+  const lastMonthKey=_lastMonth.getFullYear()+'-'+String(_lastMonth.getMonth()+1).padStart(2,'0');
   const avgPaceArr=arr=>arr.length?arr.reduce((s,a)=>s+a.avgPaceSecKm,0)/arr.length:null;
   const thisPaceAvg=useMemo(()=>avgPaceArr(acts.filter(a=>a.date?.startsWith(thisMonthKey)&&a.avgPaceSecKm>0)),[acts,thisMonthKey]);
   const lastPaceAvg=useMemo(()=>avgPaceArr(acts.filter(a=>a.date?.startsWith(lastMonthKey)&&a.avgPaceSecKm>0)),[acts,lastMonthKey]);
@@ -59,6 +61,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
     return w.length?w.sort((a,b)=>b.pct-a.pct)[0]:null;
   },[tierProgress]);
   const memories = useMemo(() => (acts||[]).filter(a => a.mood || a.notes || a.photoCount > 0).slice(0, 5), [acts]);
+
   const plan = useMemo(()=>{try{return JSON.parse(localStorage.getItem(PLAN_KEY)||'null');}catch{return null;}},[]);
   const todayWeek = weekOf(Date.now());
   const planWeek = plan ? getPlanWeek(plan, todayWeek) : null;
@@ -75,16 +78,16 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
     if (!memories.length) return;
     let active = true;
     const urls = {};
+    // Cap concurrent photo loads to 5 to avoid saturating memory on large libraries
+    const withPhotos = memories.filter(a => a.photoCount > 0).slice(0, 5);
     Promise.all(
-      memories
-        .filter(a => a.photoCount > 0)
-        .map(a =>
-          getPhotos(a.id).then(photos => {
-            if (active && photos[0]) {
-              urls[a.id] = URL.createObjectURL(photos[0].thumbBlob);
-            }
-          }).catch(() => {})
-        )
+      withPhotos.map(a =>
+        getPhotos(a.id).then(photos => {
+          if (active && photos[0]) {
+            urls[a.id] = URL.createObjectURL(photos[0].thumbBlob);
+          }
+        }).catch(() => {})
+      )
     ).then(() => { if (active) setThumbMap({...urls}); });
     return () => {
       active = false;
@@ -251,8 +254,11 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
       <div className="card a2" style={{padding:28,textAlign:"center",marginBottom:14,borderStyle:"dashed"}}>
         <div style={{fontSize:"2.8rem",marginBottom:12}}>🏃</div>
         <div style={{fontWeight:700,fontSize:"var(--fs-base)",marginBottom:6}}>No runs yet</div>
-        <div style={{fontSize:".8rem",color:"var(--tx2)",marginBottom:18,lineHeight:1.6}}>Upload a GPX file to get started</div>
-        <button className="btn b-or" style={{padding:"11px 24px"}} onClick={onUpload}>Upload GPX</button>
+        <div style={{fontSize:".8rem",color:"var(--tx2)",marginBottom:18,lineHeight:1.6}}>Upload a GPX file from your watch, or sync directly from Strava.</div>
+        <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <button className="btn b-or" style={{padding:"11px 24px"}} onClick={onUpload}>📁 Upload GPX</button>
+          <button className="btn b-gh" style={{padding:"11px 24px"}} onClick={onOpenSettings}>🟠 Connect Strava</button>
+        </div>
       </div>
     )}
     <div className="card a3" style={{padding:16,marginBottom:14}}>

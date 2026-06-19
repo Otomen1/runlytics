@@ -6,11 +6,11 @@ import {
   computeRacePRs,
   computeYearWrapped,
   computeTierProgress,
-  computeEarnedBadges,
   computeAtlCtl,
   predictRaceTimes,
   estimateVO2max,
 } from './analytics.js';
+import { computeEarnedBadges } from '../constants/achievements.js';
 
 // Minimal activity factory
 function makeAct(overrides = {}) {

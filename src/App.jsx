@@ -3,14 +3,15 @@ import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspens
 // ── Persistence ──────────────────────────────────────────────────────────────
 import {
   loadActivities, saveActivity, saveActivitiesBatch,
-  deleteActivity, clearAllActivities, verifyActivityPersistence,
+  deleteActivity, deletePhotosForActivity, clearAllActivities, verifyActivityPersistence,
   migrateFromLocalStorage, loadActsLegacy,
 } from './db/indexedDB.js';
 import { loadStravaAuth, saveStravaAuth, clearStravaAuth, getStravaToken, mapStravaActivity } from './db/strava.js';
 
 // ── Utils ────────────────────────────────────────────────────────────────────
 import { migrateActivity } from './utils/activity.js';
-import { buildAnalytics, computeTierProgress, computeEarnedBadges } from './utils/analytics.js';
+import { buildAnalytics, computeTierProgress } from './utils/analytics.js';
+import { computeEarnedBadges } from './constants/achievements.js';
 import { checkAndNotify } from './utils/notifications.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -19,6 +20,9 @@ import {
   TAB_KEY, ONBOARDING_KEY, MILESTONES_KEY, THEME_KEY, TIERS_KEY,
 } from './constants/keys.js';
 import { TABS } from './constants/activityTypes.js';
+import {
+  SYNC_COOLDOWN_MS, PULL_THRESHOLD_PX, PULL_MAX_PX, UNDO_WINDOW_MS,
+} from './constants/config.js';
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 import { Styles } from './styles/GlobalStyles.jsx';
@@ -34,17 +38,18 @@ import { AchievementsTab } from './components/Tabs/AchievementsTab.jsx';
 import { Detail }        from './components/Activity/Detail.jsx';
 import { Upload }        from './components/Activity/Upload.jsx';
 import { AllRunsView }   from './components/Activity/AllRunsView.jsx';
-import { ShareModal }    from './components/Share/ShareModal.jsx';
-import { ShareEditor }   from './components/Share/ShareEditor.jsx';
 import { SettingsPanel } from './components/Modals/SettingsPanel.jsx';
-import { MonthlyReport } from './components/Modals/MonthlyReport.jsx';
-import { MonthlyWrapped } from './components/Modals/MonthlyWrapped.jsx';
-import { YearInReview }  from './components/Modals/YearInReview.jsx';
-import { ShoeTracker }   from './components/Modals/ShoeTracker.jsx';
 import { PRDetailModal } from './components/Modals/PRDetailModal.jsx';
 import { DebugPanel }    from './components/Modals/DebugPanel.jsx';
 import { Onboarding }   from './components/Modals/Onboarding.jsx';
-import { PlanBuilderModal } from './components/Modals/PlanBuilderModal.jsx';
+// Heavy modals — lazy-loaded on first use to keep initial bundle smaller
+const ShareModal     = lazy(()=>import('./components/Share/ShareModal.jsx').then(m=>({default:m.ShareModal})));
+const ShareEditor    = lazy(()=>import('./components/Share/ShareEditor.jsx').then(m=>({default:m.ShareEditor})));
+const MonthlyReport  = lazy(()=>import('./components/Modals/MonthlyReport.jsx').then(m=>({default:m.MonthlyReport})));
+const MonthlyWrapped = lazy(()=>import('./components/Modals/MonthlyWrapped.jsx').then(m=>({default:m.MonthlyWrapped})));
+const YearInReview   = lazy(()=>import('./components/Modals/YearInReview.jsx').then(m=>({default:m.YearInReview})));
+const ShoeTracker    = lazy(()=>import('./components/Modals/ShoeTracker.jsx').then(m=>({default:m.ShoeTracker})));
+const PlanBuilderModal = lazy(()=>import('./components/Modals/PlanBuilderModal.jsx').then(m=>({default:m.PlanBuilderModal})));
 
 // ── localStorage helpers (lightweight prefs only) ────────────────────────────
 let _onStorageError=null; // set by App to surface quota errors to the UI
@@ -93,6 +98,8 @@ const App=()=>{
   // Activities start empty — populated async from IndexedDB in useEffect below.
   // We cannot use useState(loadActs) synchronously because IDB is async.
   const[acts,setActsRaw]=useState([]);
+  const actsRef=useRef([]);
+  actsRef.current=acts;
   const[dbReady,setDbReady]=useState(false);    // true once IDB load completes
   const[storageError,setStorageError]=useState(null); // visible error banner
   _onStorageError=setStorageError; // route quota errors to the UI banner
@@ -128,17 +135,35 @@ const App=()=>{
   const[pullReleasing,setPullReleasing]=useState(false);
   const pullStartRef=useRef(null);
   const scrollRef=useRef(null);
-  const PULL_THRESHOLD=60;
 
-  const detRef=useRef(null),setRef=useRef(null),arRef=useRef(null),monRef=useRef(null),upRef=useRef(null),shaRef=useRef(null),prRef=useRef(null),yrRef=useRef(null),shRef=useRef(null);
   const isSyncingRef=useRef(false),lastSyncRef=useRef(0),isRepairingRef=useRef(false);
+  // Undo-delete: hold a pending delete in memory for 3 s before committing to IDB
+  const pendingDeleteRef=useRef(null);
+  const deleteTimerRef=useRef(null);
 
-  const edRef=useRef(null);
-  useEffect(()=>{
-    detRef.current=detail;setRef.current=showSettings;
-    arRef.current=showAllRuns;monRef.current=showMonthly;upRef.current=showUpload;
-    shaRef.current=shareAct;prRef.current=prDetail;edRef.current=showEditor;yrRef.current=showYearReview;shRef.current=showShoes;
-  },[detail,showSettings,showAllRuns,showMonthly,showUpload,shareAct,prDetail,showEditor,showYearReview,showShoes]);
+  // Keep ref in sync with current state on every render so popstate/keydown always see fresh values
+  const modalCloseOrder=useRef(null);
+  modalCloseOrder.current=[
+    {get:()=>showEditor,     set:()=>setShowEditor(false)},
+    {get:()=>shareAct,       set:()=>setShareAct(null)},
+    {get:()=>prDetail,       set:()=>setPrDetail(null)},
+    {get:()=>detail,         set:()=>setDetail(null)},
+    {get:()=>showSettings,   set:()=>setShowSettings(false)},
+    {get:()=>showAllRuns,    set:()=>setShowAllRuns(false)},
+    {get:()=>showMonthly,    set:()=>setShowMonthly(false)},
+    {get:()=>showYearReview, set:()=>setShowYearReview(false)},
+    {get:()=>showShoes,      set:()=>setShowShoes(false)},
+    {get:()=>showUpload,     set:()=>setShowUpload(false)},
+  ];
+
+  const closeTopModal=useCallback(()=>{
+    for(const entry of modalCloseOrder.current){
+      if(entry.get()){entry.set();history.replaceState({_rl:"s"},"");return true;}
+    }
+    return false;
+  // modalCloseOrder.current is always current — no deps needed
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   useEffect(()=>{
     try{history.replaceState({_rl:"root"},"");history.pushState({_rl:"s"},"");}catch(e){}
@@ -146,41 +171,21 @@ const App=()=>{
 
   useEffect(()=>{
     const h=(e)=>{
-      if(edRef.current){setShowEditor(false);history.replaceState({_rl:"s"},"");return;}
-      if(shaRef.current){setShareAct(null);history.replaceState({_rl:"s"},"");return;}
-      if(prRef.current){setPrDetail(null);history.replaceState({_rl:"s"},"");return;}
-      if(detRef.current){setDetail(null);history.replaceState({_rl:"s"},"");return;}
-      if(setRef.current){setShowSettings(false);history.replaceState({_rl:"s"},"");return;}
-      if(arRef.current){setShowAllRuns(false);history.replaceState({_rl:"s"},"");return;}
-      if(monRef.current){setShowMonthly(false);history.replaceState({_rl:"s"},"");return;}
-      if(yrRef.current){setShowYearReview(false);history.replaceState({_rl:"s"},"");return;}
-      if(shRef.current){setShowShoes(false);history.replaceState({_rl:"s"},"");return;}
-      if(upRef.current){setShowUpload(false);history.replaceState({_rl:"s"},"");return;}
-      if(!e.state||e.state._rl==="root"){history.replaceState({_rl:"s"},"");}
+      if(!closeTopModal()&&(!e.state||e.state._rl==="root")){history.replaceState({_rl:"s"},"");}
     };
     window.addEventListener("popstate",h);return()=>window.removeEventListener("popstate",h);
-  },[]);
+  },[closeTopModal]);
 
-  // Keyboard navigation: Escape closes any open overlay
   useEffect(()=>{
     const onKey=(e)=>{
       if(e.key!=='Escape')return;
       const tag=document.activeElement&&document.activeElement.tagName;
       if(tag==='INPUT'||tag==='TEXTAREA')return;
-      if(edRef.current){setShowEditor(false);history.replaceState({_rl:"s"},"");return;}
-      if(shaRef.current){setShareAct(null);history.replaceState({_rl:"s"},"");return;}
-      if(prRef.current){setPrDetail(null);history.replaceState({_rl:"s"},"");return;}
-      if(detRef.current){setDetail(null);history.replaceState({_rl:"s"},"");return;}
-      if(setRef.current){setShowSettings(false);history.replaceState({_rl:"s"},"");return;}
-      if(arRef.current){setShowAllRuns(false);history.replaceState({_rl:"s"},"");return;}
-      if(monRef.current){setShowMonthly(false);history.replaceState({_rl:"s"},"");return;}
-      if(yrRef.current){setShowYearReview(false);history.replaceState({_rl:"s"},"");return;}
-      if(shRef.current){setShowShoes(false);history.replaceState({_rl:"s"},"");return;}
-      if(upRef.current){setShowUpload(false);history.replaceState({_rl:"s"},"");return;}
+      closeTopModal();
     };
     window.addEventListener('keydown',onKey);
     return()=>window.removeEventListener('keydown',onKey);
-  },[]);
+  },[closeTopModal]);
 
   const back=useCallback(()=>history.back(),[]);
 
@@ -188,7 +193,7 @@ const App=()=>{
   const startStravaConnect=useCallback(()=>{
     const cid=window.__STRAVA_CLIENT_ID;
     if(!cid){alert("Strava client ID not configured.");return;}
-    const state=crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2);
+    const arr=new Uint8Array(16);crypto.getRandomValues(arr);const state=Array.from(arr,b=>b.toString(16).padStart(2,'0')).join('');
     try{sessionStorage.setItem('_rl_oauth_state',state);}catch{}
     const redirect=encodeURIComponent(window.location.origin+window.location.pathname);
     window.location.href="https://www.strava.com/oauth/authorize?client_id="+cid+"&redirect_uri="+redirect+"&response_type=code&scope=activity:read_all&state="+encodeURIComponent(state);
@@ -241,12 +246,44 @@ const App=()=>{
   const openShoes=useCallback(()=>{history.pushState({_rl:"sh"},"");setShowShoes(true);},[]);
   const openUpload=useCallback(()=>{history.pushState({_rl:"u"},"");setShowUpload(true);},[]);
 
-  // deleteAct: update React state immediately, then remove from IDB.
-  const deleteAct=useCallback(id=>{
-    setActsRaw(p=>p.filter(a=>a.id!==id));
-    if(detRef.current)history.back();
-    deleteActivity(id).catch(err=>console.error("[IDB] deleteActivity failed:",err));
+  const undoDelete=useCallback(()=>{
+    if(!pendingDeleteRef.current)return;
+    clearTimeout(deleteTimerRef.current);
+    const restored=pendingDeleteRef.current;
+    pendingDeleteRef.current=null;
+    setActsRaw(p=>[...p,restored].sort((a,b)=>b.dateTs-a.dateTs));
+    saveActivity(restored).catch(err=>setStorageError(`Undo failed: ${err.message}`));
+    setToast(null);
   },[]);
+
+  // deleteAct: optimistic UI remove + 3.5-second undo window before IDB delete
+  const deleteAct=useCallback(id=>{
+    const found=acts.find(a=>a.id===id);
+    setActsRaw(p=>p.filter(a=>a.id!==id));
+    history.back();
+    // Cancel any in-flight pending delete first
+    if(deleteTimerRef.current){
+      clearTimeout(deleteTimerRef.current);
+      if(pendingDeleteRef.current){
+        const prevId=pendingDeleteRef.current.id;
+        deleteActivity(prevId).catch(()=>{});
+        deletePhotosForActivity(prevId).catch(()=>{});
+      }
+    }
+    pendingDeleteRef.current=found||null;
+    clearTimeout(toastTimerRef.current);
+    setToast({emoji:'🗑',msg:'Run deleted',undo:true});
+    deleteTimerRef.current=setTimeout(()=>{
+      if(pendingDeleteRef.current){
+        const id=pendingDeleteRef.current.id;
+        pendingDeleteRef.current=null;
+        deleteActivity(id).catch(err=>console.error("[IDB] deleteActivity failed:",err));
+        deletePhotosForActivity(id).catch(()=>{});
+      }
+      setToast(null);
+    },UNDO_WINDOW_MS);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[acts]);
 
   // addAct: optimistic state update first (instant UI), then persist to IDB.
   // Verification checks that route data was actually written — surfaces error if not.
@@ -271,9 +308,9 @@ const App=()=>{
 
   const doStravaSync=useCallback(async(silent=true)=>{
     if(isSyncingRef.current)return;
-    if(Date.now()-lastSyncRef.current<60000)return;
+    if(Date.now()-lastSyncRef.current<SYNC_COOLDOWN_MS)return;
     const auth=loadStravaAuth();if(!auth)return;
-    isSyncingRef.current=true;lastSyncRef.current=Date.now();
+    isSyncingRef.current=true;
     if(!silent)setStravaSync({loading:true,msg:""});else setStravaSync(p=>({...p,loading:true}));
     try{
       const token=await getStravaToken(auth);
@@ -282,31 +319,42 @@ const App=()=>{
       if(!r.ok){setStravaSync({loading:false,msg:"Sync failed ("+r.status+")."});isSyncingRef.current=false;return;}
       const data=await r.json();
       const mapped=data.map(mapStravaActivity).filter(Boolean);
-      setActsRaw(prev=>{
-        const existingIds=new Set(prev.map(a=>a.id));
-        const newActs=mapped.filter(a=>!existingIds.has(a.id));
-        const toSave=[];
-        const patched=prev.map(a=>{
-          const fresh=mapped.find(m=>m.id===a.id);
-          if(fresh&&(!a.route||a.route.length<2)&&fresh.route?.length>=2){
-            const updated={...a,route:fresh.route};
-            toSave.push(updated);
-            return updated;
-          }
-          return a;
-        });
-        newActs.forEach(a=>toSave.push(a));
-        const routesFixed=toSave.length-newActs.length;
-        if(newActs.length)console.log(`[IDB] Strava sync: +${newActs.length} new`);
-        if(routesFixed)console.log(`[IDB] routes restored: ${routesFixed}`);
-        if(!newActs.length&&!routesFixed)return prev;
-        if(toSave.length)saveActivitiesBatch(toSave).catch(err=>{console.error('[IDB] Strava sync save failed:',err);setStorageError('Strava sync save failed. Please refresh and try again.');});
-        const syncMsg=newActs.length?`✓ ${newActs.length} new run${newActs.length!==1?"s":""} synced`:routesFixed?`✓ ${routesFixed} route${routesFixed!==1?"s":""} restored`:"";
-        if(syncMsg)setTimeout(()=>setStravaSync({loading:false,msg:syncMsg}),0);
-        return newActs.length?[...newActs,...patched]:patched;
+      // Compute diffs against current acts — outside the setActsRaw updater to avoid
+      // double side-effects in React strict mode (updaters may be called twice in dev).
+      const current=actsRef.current;
+      const existingIds=new Set(current.map(a=>a.id));
+      const newActs=mapped.filter(a=>!existingIds.has(a.id));
+      const toSave=[];
+      const patched=current.map(a=>{
+        const fresh=mapped.find(m=>m.id===a.id);
+        if(fresh&&(!a.route||a.route.length<2)&&fresh.route?.length>=2){
+          const updated={...a,route:fresh.route};
+          toSave.push(updated);
+          return updated;
+        }
+        return a;
       });
+      newActs.forEach(a=>toSave.push(a));
+      const routesFixed=toSave.length-newActs.length;
+      if(newActs.length)console.log(`[IDB] Strava sync: +${newActs.length} new`);
+      if(routesFixed)console.log(`[IDB] routes restored: ${routesFixed}`);
+      if(toSave.length){
+        await saveActivitiesBatch(toSave).catch(err=>{
+          console.error('[IDB] Strava sync save failed:',err);
+          setStorageError('Strava sync save failed. Please refresh and try again.');
+        });
+      }
+      lastSyncRef.current=Date.now();
+      if(newActs.length||routesFixed){
+        setActsRaw(newActs.length?[...newActs,...patched]:patched);
+        const syncMsg=newActs.length?`✓ ${newActs.length} new run${newActs.length!==1?"s":""} synced`:routesFixed?`✓ ${routesFixed} route${routesFixed!==1?"s":""} restored`:"";
+        if(syncMsg)setStravaSync({loading:false,msg:syncMsg});else setStravaSync({loading:false,msg:""});
+      }else{
+        setStravaSync({loading:false,msg:""});
+      }
     }catch(e){setStravaSync({loading:false,msg:"Sync failed."});}
     isSyncingRef.current=false;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
   const onPullStart=useCallback((e)=>{
@@ -322,27 +370,31 @@ const App=()=>{
     if(el&&el.scrollTop>0){pullStartRef.current=null;setPullY(0);return;}
     const dy=e.touches[0].clientY-pullStartRef.current;
     if(dy<=0){setPullY(0);return;}
-    setPullY(Math.min(110,dy*0.5));
+    setPullY(Math.min(PULL_MAX_PX,dy*0.5));
   },[]);
   const onPullEnd=useCallback(()=>{
     if(pullStartRef.current==null)return;
     pullStartRef.current=null;
-    const triggered=pullY>=PULL_THRESHOLD;
+    const triggered=pullY>=PULL_THRESHOLD_PX;
     setPullReleasing(true);
     setPullY(0);
-    if(triggered&&stravaAuth)doStravaSync(false);
+    if(triggered&&stravaAuth){
+      if(isSyncingRef.current)setStravaSync(p=>({...p,msg:"Sync in progress…"}));
+      else doStravaSync(false);
+    }
   },[pullY,stravaAuth,doStravaSync]);
 
   useEffect(()=>{
     const params=new URLSearchParams(window.location.search);const code=params.get("code");
     if(!code)return;
     const returnedState=params.get("state");
-    let savedState=null;try{savedState=sessionStorage.getItem('_rl_oauth_state');sessionStorage.removeItem('_rl_oauth_state');}catch{}
-    if(savedState&&returnedState!==savedState){console.warn('[OAuth] state mismatch — ignoring callback');return;}
+    let savedState=null;try{savedState=sessionStorage.getItem('_rl_oauth_state');}catch{}
+    if(!savedState||returnedState!==savedState){console.warn('[OAuth] state mismatch or missing — ignoring callback');return;}
+    try{sessionStorage.removeItem('_rl_oauth_state');}catch{}
     window.history.replaceState({},"",window.location.pathname);
     (async()=>{
       try{
-        const r=await fetch("/api/strava-token?code="+encodeURIComponent(code));if(!r.ok)return;
+        const r=await fetch("/api/strava-token",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})});if(!r.ok)return;
         const data=await r.json();saveStravaAuth(data);setStravaAuth(data);
         setTimeout(()=>doStravaSync(false),500);
       }catch(e){}
@@ -411,8 +463,8 @@ const App=()=>{
           {stravaAuth&&!stravaSync.loading&&stravaSync.msg&&(
             <div style={{fontSize:".68rem",color:"var(--gn)",background:"var(--gn2)",padding:"2px 8px",borderRadius:20,fontWeight:600}}>{stravaSync.msg}</div>
           )}
-          <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1rem",cursor:"pointer",padding:"4px 6px"}} onClick={()=>setTheme(t=>t==='dark'?'light':'dark')} aria-label="Toggle theme">{theme==='dark'?'☀️':'🌙'}</button>
-          <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.05rem",cursor:"pointer",padding:"4px 6px"}} onClick={openSettings} aria-label="Settings">⚙️</button>
+          <button className="hdr-btn" onClick={()=>setTheme(t=>t==='dark'?'light':'dark')} aria-label="Toggle theme">{theme==='dark'?'☀️':'🌙'}</button>
+          <button className="hdr-btn" onClick={openSettings} aria-label="Settings">⚙️</button>
         </div>
       </div>
       {/* Offline banner */}
@@ -465,7 +517,7 @@ const App=()=>{
           <div key={tab} className="tab-in"
             style={{transform:`translateY(${pullY}px)`,transition:pullReleasing?"transform .25s ease":"none"}}
             onTransitionEnd={()=>{if(pullReleasing)setPullReleasing(false);}}>
-            {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
+            {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings} onOpenPlan={()=>setShowPlanBuilder(true)} onOpenSettings={openSettings}/>}
             {tab==="stats"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><StatsTab acts={acts} analytics={analytics} hrProfile={hrProfile} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/></Suspense>}
             {tab==="hr"&&<MoreTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings} onViewMonthly={openMonthly} onViewYearReview={openYearReview} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
             {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail} onOpenWrapped={setWrappedMonth}/>}
@@ -473,7 +525,7 @@ const App=()=>{
           </div>
         </div>
       }
-      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(6,8,15,.97)",backdropFilter:"blur(16px)",WebkitBackdropFilter:"blur(16px)",borderTop:"1px solid var(--bd)",display:"flex",zIndex:100,paddingBottom:"env(safe-area-inset-bottom)"}}>
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(6,8,15,.97)",backdropFilter:"blur(16px)",WebkitBackdropFilter:"blur(16px)",borderTop:"1px solid var(--bd)",display:"flex",zIndex:100,paddingBottom:"max(env(safe-area-inset-bottom),4px)"}}>
         {TABS.map(t=>(
           <button key={t.id} className={"tab-btn"+(tab===t.id?" on":"")} onClick={()=>setTab(t.id)} style={{position:"relative"}}>
             {t.id==="awards"&&hasUnseen&&<div style={{position:"absolute",top:6,right:"20%",width:7,height:7,borderRadius:"50%",background:"var(--or)",animation:"pulse 1.5s ease infinite"}}/>}
@@ -483,8 +535,8 @@ const App=()=>{
         ))}
       </div>
       {detail&&<Detail act={detail} hrProfile={hrProfile} onClose={back} onDelete={deleteAct} onShare={()=>openShare(detail)}/>}
-      {shareAct&&<ShareModal act={shareAct} onClose={back} onOpenEditor={switchToEditor}/>}
-      {showEditor&&editorAct&&<ShareEditor act={editorAct} onClose={back}/>}
+      {shareAct&&<Suspense fallback={null}><ShareModal act={shareAct} onClose={back} onOpenEditor={switchToEditor}/></Suspense>}
+      {showEditor&&editorAct&&<Suspense fallback={null}><ShareEditor act={editorAct} onClose={back}/></Suspense>}
       {prDetail&&<PRDetailModal entry={prDetail} onClose={back}
         onOpenRun={id=>{setPrDetail(null);const found=acts.find(a=>a.id===id);if(found)openDetail(found);}}/>}
       {showUpload&&<Upload acts={acts} onAdd={newActs=>{newActs.forEach(a=>addAct(a));back();}}
@@ -516,10 +568,10 @@ const App=()=>{
         onStravaSync={()=>doStravaSync(false)}
         onClose={back}/>}
       {showAllRuns&&<AllRunsView acts={acts} onClose={back} onSelectAct={act=>{setShowAllRuns(false);openDetail(act);}}/>}
-      {showMonthly&&<MonthlyReport acts={acts} onClose={back}/>}
-      {wrappedMonth&&<MonthlyWrapped acts={acts} yearMonth={wrappedMonth} onClose={()=>setWrappedMonth(null)} onSelectAct={a=>{setWrappedMonth(null);openDetail(a);}}/>}
-      {showYearReview&&<YearInReview acts={acts} onClose={back}/>}
-      {showShoes&&<ShoeTracker acts={acts} onClose={back}/>}
+      {showMonthly&&<Suspense fallback={null}><MonthlyReport acts={acts} onClose={back}/></Suspense>}
+      {wrappedMonth&&<Suspense fallback={null}><MonthlyWrapped acts={acts} yearMonth={wrappedMonth} onClose={()=>setWrappedMonth(null)} onSelectAct={a=>{setWrappedMonth(null);openDetail(a);}}/></Suspense>}
+      {showYearReview&&<Suspense fallback={null}><YearInReview acts={acts} onClose={back}/></Suspense>}
+      {showShoes&&<Suspense fallback={null}><ShoeTracker acts={acts} onClose={back}/></Suspense>}
       {dbReady&&acts.length===0&&!localStorage.getItem(ONBOARDING_KEY)&&(
         <Onboarding profile={profile} goals={goals}
           onComplete={({name,weeklyGoal})=>{
@@ -532,14 +584,15 @@ const App=()=>{
       )}
       {toast&&(
         <div style={{position:'fixed',bottom:96,left:'50%',transform:'translateX(-50%)',zIndex:400,animation:'fadeUp .3s ease both',pointerEvents:'auto'}}>
-          <div style={{background:'var(--s1)',border:'1.5px solid var(--or)',borderRadius:14,padding:'12px 18px',display:'flex',alignItems:'center',gap:10,boxShadow:'0 6px 28px rgba(0,0,0,.35)',minWidth:200,maxWidth:300}}>
+          <div style={{background:'var(--s1)',border:'1.5px solid var(--or)',borderRadius:14,padding:'12px 18px',display:'flex',alignItems:'center',gap:10,boxShadow:'0 6px 28px rgba(0,0,0,.35)',minWidth:200,maxWidth:320}}>
             <span style={{fontSize:'1.5rem',flexShrink:0}}>{toast.emoji}</span>
             <span style={{fontWeight:700,fontSize:'.88rem',flex:1,lineHeight:1.4}}>{toast.msg}</span>
+            {toast.undo&&<button onClick={undoDelete} style={{background:'var(--or2)',border:'1px solid var(--or)',color:'var(--or)',borderRadius:8,cursor:'pointer',fontSize:'.8rem',fontWeight:700,fontFamily:'inherit',padding:'4px 10px',flexShrink:0}}>Undo</button>}
             <button onClick={()=>setToast(null)} style={{background:'none',border:'none',color:'var(--tx3)',cursor:'pointer',fontSize:'.9rem',flexShrink:0,padding:'2px 4px'}}>✕</button>
           </div>
         </div>
       )}
-      {showPlanBuilder&&<PlanBuilderModal acts={acts} analytics={analytics} onClose={()=>setShowPlanBuilder(false)}/>}
+      {showPlanBuilder&&<Suspense fallback={null}><PlanBuilderModal acts={acts} analytics={analytics} onClose={()=>setShowPlanBuilder(false)}/></Suspense>}
       {showDebug&&<DebugPanel acts={acts} onClose={()=>setShowDebug(false)}
         onRepairRoutes={()=>{
           if(isRepairingRef.current)return;

@@ -1,10 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { getMafZones } from '../../utils/analytics.js';
 import { fmtDur, fmtPace } from '../../utils/formatters.js';
 import { notifSupported, notifPermission, notifEnabled, setNotifEnabled, requestNotifPermission } from '../../utils/notifications.js';
 
 export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onImport,onClose,stravaAuth,stravaSync,isOnline,onStravaConnect,onStravaSync,onStravaDisconnect}){
   const[view,setView]=useState("main");
+  // Close on Escape regardless of which child has focus (inputs, textareas, etc.)
+  useEffect(()=>{
+    const h=(e)=>{if(e.key==='Escape'){e.stopPropagation();onClose();}};
+    document.addEventListener('keydown',h,true); // capture phase — fires before App.jsx's window handler
+    return()=>document.removeEventListener('keydown',h,true);
+  },[onClose]);
   const[notifPerm,setNotifPerm]=useState(()=>notifPermission());
   const[notifOn,setNotifOn]=useState(()=>notifEnabled());
   const[importMsg,setImportMsg]=useState("");
@@ -16,8 +22,8 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
   const prevMaf=useOv&&parseInt(ov)?parseInt(ov):ageNum?180-ageNum:null;
   const backBtn=<button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.1rem"}} onClick={()=>setView("main")}>‹</button>;
   return(
-    <div className="fade-overlay" style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,.6)"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div className="glass sheet" style={{width:"100%",maxWidth:430,borderRadius:"22px 22px 0 0",padding:"22px 20px",paddingBottom:"max(40px,calc(env(safe-area-inset-bottom)+20px))",maxHeight:"92vh",overflowY:"auto",border:"1px solid var(--bd)"}}>
+    <div role="presentation" className="fade-overlay" style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,.6)"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div role="dialog" aria-modal="true" aria-label="Settings" className="glass sheet" style={{width:"100%",maxWidth:430,borderRadius:"22px 22px 0 0",padding:"22px 20px",paddingBottom:"max(40px,calc(env(safe-area-inset-bottom)+20px))",maxHeight:"92vh",overflowY:"auto",border:"1px solid var(--bd)"}}>
         <div style={{width:36,height:4,borderRadius:2,background:"var(--bd2)",margin:"0 auto 18px"}}/>
         {view==="main"&&(
           <div>
@@ -40,7 +46,9 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
                 </div>
               ))}
             </div>
-            <button className="btn b-rd" style={{width:"100%",padding:"12px",fontSize:".84rem"}} onClick={onClearAll}>🗑 Delete All Activities</button>
+            <button className="btn b-rd" style={{width:"100%",padding:"12px",fontSize:".84rem"}} onClick={()=>{
+              if(window.confirm("Delete ALL activities? This cannot be undone.\n\nTap OK to permanently delete everything."))onClearAll();
+            }}>🗑 Delete All Activities</button>
           </div>
         )}
         {view==="profile"&&(

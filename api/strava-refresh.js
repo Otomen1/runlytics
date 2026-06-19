@@ -50,7 +50,7 @@ export default async function handler(req, res) {
 
     const data = await response.json();
 
-    if (!data.access_token) {
+    if (!data.access_token || !data.refresh_token || !data.expires_at) {
       return res.status(401).json({ error: "Token refresh failed. Please reconnect Strava." });
     }
 

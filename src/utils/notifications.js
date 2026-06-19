@@ -23,7 +23,8 @@ function showNotif(title,body){
 
 export function checkAndNotify(acts,goals){
   if(!notifSupported()||Notification.permission!=='granted'||!notifEnabled())return;
-  const today=new Date().toISOString().slice(0,10);
+  const _n=new Date();
+  const today=_n.getFullYear()+'-'+String(_n.getMonth()+1).padStart(2,'0')+'-'+String(_n.getDate()).padStart(2,'0');
   if(localStorage.getItem(NOTIF_LAST_KEY)===today)return;
   localStorage.setItem(NOTIF_LAST_KEY,today);
   if(!acts.length)return;
@@ -31,7 +32,7 @@ export function checkAndNotify(acts,goals){
   // Streak risk: has run recently but not today or yesterday
   const runDays=new Set(acts.map(a=>a.date).filter(Boolean));
   const d1=new Date();d1.setDate(d1.getDate()-1);
-  const yesterday=d1.toISOString().slice(0,10);
+  const yesterday=d1.getFullYear()+'-'+String(d1.getMonth()+1).padStart(2,'0')+'-'+String(d1.getDate()).padStart(2,'0');
   const hasRecentRun=acts.some(a=>a.dateTs&&(Date.now()-a.dateTs)<7*86400000);
   if(hasRecentRun&&!runDays.has(today)&&!runDays.has(yesterday)){
     showNotif("Don't break the chain! 🔥","You haven't run in 2+ days. Let's go!");

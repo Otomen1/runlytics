@@ -428,6 +428,9 @@ export function ShareEditor({ act, onClose }) {
   const [busy, setBusy]         = useState(false);
   const cardRef  = useRef(null);
   const dragRef  = useRef(null);
+  // Always-current state ref so startDrag can read elements synchronously
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   const setElements = useCallback(updater =>
     setStateRaw(prev => ({ ...prev, elements: typeof updater === 'function' ? updater(prev.elements) : updater }))
@@ -447,8 +450,7 @@ export function ShareEditor({ act, onClose }) {
       cy: ev.touches ? ev.touches[0].clientY : ev.clientY,
     });
     const { cx: startCX, cy: startCY } = getXY(e);
-    let startEl;
-    setStateRaw(prev => { startEl = { ...prev.elements[key] }; return prev; });
+    const startEl = { ...stateRef.current.elements[key] };
     dragRef.current = true;
 
     const snap = val => { for (const p of snapPoints) if (Math.abs(val - p) < snapThresh) return p; return Math.round(val * 10) / 10; };

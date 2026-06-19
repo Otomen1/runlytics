@@ -28,7 +28,7 @@ export function getStreak(completions){
   const today=new Date();today.setHours(0,0,0,0);
   for(let i=0;i<365;i++){
     const d=new Date(today);d.setDate(d.getDate()-i);
-    if(completions[d.toISOString().slice(0,10)])streak++;
+    if(completions[d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')])streak++;
     else if(i>0)break;
   }
   return streak;

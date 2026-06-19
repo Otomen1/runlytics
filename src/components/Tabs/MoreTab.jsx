@@ -4,7 +4,7 @@ import { Ring } from '../common/Ring.jsx';
 import { getMafHR, getMafZones, computeZones } from '../../utils/analytics.js';
 import { PLAN_KEY } from '../../constants/keys.js';
 import { getPlanAdherence, getPlanWeekNumber, getPlanWeek, getWeekDays } from '../../utils/trainingPlan.js';
-import { weekOf, fmtKm } from '../../utils/formatters.js';
+import { weekOf, fmtKm, todayKey } from '../../utils/formatters.js';
 
 function StreakCalendar({ acts }) {
   const now = new Date();
@@ -66,7 +66,7 @@ export function MoreTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview,
   },[plan,acts]);
   const currentPlanWeek=useMemo(()=>plan?getPlanWeek(plan,todayWeek):null,[plan,todayWeek]);
   const currentWeekDays=useMemo(()=>getWeekDays(currentPlanWeek),[currentPlanWeek]);
-  const todayDate=new Date().toISOString().slice(0,10);
+  const todayDate=todayKey();
   const runsWithHR=acts.filter(a=>a.avgHR&&a.distanceKm>0);
   const last5=runsWithHR.slice(0,5);
   const aggZones=useMemo(()=>{
@@ -155,7 +155,7 @@ export function MoreTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview,
                   </div>
                   {currentWeekDays.map(day=>{
                     const isToday=day.date===todayDate;
-                    const isDone=day.type!=='rest'&&acts.some(a=>a.date===day.date&&a.runClass===day.type);
+                    const isDone=day.type!=='rest'&&acts.some(a=>a.date===day.date);
                     return(
                       <div key={day.date} style={{
                         display:'flex',alignItems:'center',gap:10,

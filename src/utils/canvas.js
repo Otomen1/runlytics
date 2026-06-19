@@ -309,7 +309,7 @@ export const CANVAS_RENDERERS={velocity:cRenderVelocity,raceday:cRenderRaceDay,e
 
 export function renderToCanvas(ctx,act,templateId,W,H){
   const render=CANVAS_RENDERERS[templateId]||CANVAS_RENDERERS.raceday;
-  try{render(ctx,act,W,H);}catch(e){}
+  try{render(ctx,act,W,H);}catch(e){console.error('[canvas] render error:',e);}
 }
 
 export function cClipRounded(ctx,W,H,r){
@@ -332,6 +332,7 @@ export async function downloadExport(act, templateId, format) {
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D context unavailable — try disabling hardware acceleration or use a different browser.');
   cClipRounded(ctx, W, H, 48);
   renderToCanvas(ctx, act, templateId, W, H);
   const blob = await canvasToBlob(canvas, format);
@@ -344,7 +345,7 @@ export async function downloadExport(act, templateId, format) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 export async function exportCustomCard(act, state, format) {
@@ -352,6 +353,7 @@ export async function exportCustomCard(act, state, format) {
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D context unavailable — try disabling hardware acceleration or use a different browser.');
   cClipRounded(ctx, W, H, 48);
   const { bg, fx, elements: el, style: st } = state;
 
@@ -464,5 +466,5 @@ export async function exportCustomCard(act, state, format) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
