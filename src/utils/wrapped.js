@@ -1,4 +1,4 @@
-import { monthOf } from './formatters.js';
+import { monthOf, weekOf } from './formatters.js';
 
 const MOODS_ORDER = ['strong','great','good','normal','tough'];
 
@@ -40,7 +40,20 @@ export function computeWrapped(acts, yearMonth) {
   }
   streakDays = maxStreak;
 
-  return { totalDistance, totalRuns, longestRun, fastestRun, topMood, moodCounts, favoriteMemory, memoryCount, streakDays };
+  const totalTimeSec = filtered.reduce((s,a)=>s+(a.movingTimeSec||0),0);
+  const avgDistanceKm = totalRuns>0 ? totalDistance/totalRuns : 0;
+
+  const weekMap={};
+  filtered.forEach(a=>{
+    const w=weekOf(a.dateTs);
+    if(!weekMap[w])weekMap[w]={week:w,km:0,runs:0};
+    weekMap[w].km+=a.distanceKm||0;weekMap[w].runs++;
+  });
+  const weeklyBreakdown=Object.values(weekMap).sort((a,b)=>a.week.localeCompare(b.week));
+
+  const biggestClimb=filtered.filter(a=>(a.elevGainM||0)>50).sort((a,b)=>b.elevGainM-a.elevGainM)[0]||null;
+
+  return { totalDistance, totalRuns, totalTimeSec, avgDistanceKm, longestRun, fastestRun, biggestClimb, topMood, moodCounts, favoriteMemory, memoryCount, streakDays, weeklyBreakdown };
 }
 
 export function getMonthsWithActivity(acts) {
