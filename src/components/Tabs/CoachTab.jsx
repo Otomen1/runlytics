@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { PLAN_KEY, FITNESS_TEST_KEY } from '../../constants/keys.js';
+import { FITNESS_TEST_KEY } from '../../constants/keys.js';
 import { weekOf, fmtKm, fmtPace } from '../../utils/formatters.js';
 import { getPlanWeek, getPlanWeekNumber, getPlanAdherence } from '../../utils/trainingPlan.js';
 import { computeFitnessProfile, estimateVO2Max } from '../../utils/fitnessProfile.js';
@@ -36,12 +36,8 @@ function Card({ children, style }) {
 const PHASE_COLORS = { base: '#3b82f6', build: 'var(--or)', taper: '#8b5cf6', race: '#22c55e' };
 const INSIGHT_COLORS = { success: '#22c55e', warning: 'var(--or)', caution: '#ef4444', info: '#3b82f6' };
 
-export function CoachTab({ acts, analytics, hrProfile }) {
-  const plan = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem(PLAN_KEY) || 'null'); } catch { return null; }
-  }, []);
-
-  const today = useMemo(() => weekOf(Date.now()), []);
+export function CoachTab({ acts, analytics, hrProfile, plan }) {
+  const today = weekOf(Date.now());
   const planWeek      = useMemo(() => plan ? getPlanWeek(plan, today) : null,       [plan, today]);
   const planWeekNum   = useMemo(() => plan ? getPlanWeekNumber(plan, today) : null, [plan, today]);
   const planAdh       = useMemo(() => plan ? getPlanAdherence(plan, analytics.weeklyKm) : null, [plan, analytics]);

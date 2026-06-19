@@ -17,7 +17,7 @@ import { checkAndNotify } from './utils/notifications.js';
 // ── Constants ────────────────────────────────────────────────────────────────
 import {
   GOALS_KEY, HR_KEY, PROFILE_KEY, BADGES_KEY,
-  TAB_KEY, ONBOARDING_KEY, MILESTONES_KEY, THEME_KEY, TIERS_KEY,
+  TAB_KEY, ONBOARDING_KEY, MILESTONES_KEY, THEME_KEY, TIERS_KEY, PLAN_KEY,
 } from './constants/keys.js';
 import { TABS } from './constants/activityTypes.js';
 import {
@@ -126,6 +126,7 @@ const App=()=>{
   const[hasUnseen,setHasUnseen]=useState(false);
   const[showDebug,setShowDebug]=useState(false);
   const[showPlanBuilder,setShowPlanBuilder]=useState(false);
+  const[plan,setPlan]=useState(()=>{try{return JSON.parse(localStorage.getItem(PLAN_KEY)||'null');}catch{return null;}});
   const[theme,setTheme]=useState(loadTheme);
   const[toast,setToast]=useState(null);
   const toastTimerRef=useRef(null);
@@ -525,7 +526,7 @@ const App=()=>{
             {tab==="hr"&&<MoreTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings} onViewMonthly={openMonthly} onViewYearReview={openYearReview} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
             {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail} onOpenWrapped={setWrappedMonth}/>}
             {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={newTiers}/>}
-            {tab==="coach"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><CoachTab acts={acts} analytics={analytics} hrProfile={hrProfile}/></Suspense>}
+            {tab==="coach"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><CoachTab acts={acts} analytics={analytics} hrProfile={hrProfile} plan={plan}/></Suspense>}
           </div>
         </div>
       }
@@ -598,7 +599,7 @@ const App=()=>{
           </div>
         </div>
       )}
-      {showPlanBuilder&&<Suspense fallback={null}><PlanBuilderModal acts={acts} analytics={analytics} onClose={()=>setShowPlanBuilder(false)}/></Suspense>}
+      {showPlanBuilder&&<Suspense fallback={null}><PlanBuilderModal acts={acts} analytics={analytics} onClose={()=>setShowPlanBuilder(false)} onPlanChange={setPlan}/></Suspense>}
       {showDebug&&<DebugPanel acts={acts} onClose={()=>setShowDebug(false)}
         onRepairRoutes={()=>{
           if(isRepairingRef.current)return;

@@ -36,7 +36,7 @@ function fmtRaceDate(str) {
   return new Date(str + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export function PlanBuilderModal({ acts, analytics, onClose }) {
+export function PlanBuilderModal({ acts, analytics, onClose, onPlanChange }) {
   const existingPlan = useMemo(() => {
     try { return JSON.parse(localStorage.getItem(PLAN_KEY) || 'null'); } catch { return null; }
   }, []);
@@ -59,12 +59,14 @@ export function PlanBuilderModal({ acts, analytics, onClose }) {
     const p = generatePlan(raceType, raceDate, baseKm);
     localStorage.setItem(PLAN_KEY, JSON.stringify(p));
     setPlan(p);
+    onPlanChange?.(p);
     setView('existing');
   }
 
   function handleDelete() {
     localStorage.removeItem(PLAN_KEY);
     setPlan(null);
+    onPlanChange?.(null);
     setView('wizard');
     setStep(1);
     setConfirmDelete(false);
