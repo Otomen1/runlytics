@@ -29,7 +29,8 @@ import { Styles } from './styles/GlobalStyles.jsx';
 
 // ── Tab Screens ───────────────────────────────────────────────────────────────
 import { HomeTab }         from './components/Tabs/HomeTab.jsx';
-const StatsTab = lazy(()=>import('./components/Tabs/StatsTab.jsx').then(m=>({default:m.StatsTab})));
+const StatsTab  = lazy(()=>import('./components/Tabs/StatsTab.jsx').then(m=>({default:m.StatsTab})));
+const CoachTab  = lazy(()=>import('./components/Tabs/CoachTab.jsx').then(m=>({default:m.CoachTab})));
 import { MoreTab }         from './components/Tabs/MoreTab.jsx';
 import { MemoriesTab }     from './components/Tabs/MemoriesTab.jsx';
 import { AchievementsTab } from './components/Tabs/AchievementsTab.jsx';
@@ -524,6 +525,7 @@ const App=()=>{
             {tab==="hr"&&<MoreTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings} onViewMonthly={openMonthly} onViewYearReview={openYearReview} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
             {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail} onOpenWrapped={setWrappedMonth}/>}
             {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={newTiers}/>}
+            {tab==="coach"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><CoachTab acts={acts} analytics={analytics} hrProfile={hrProfile}/></Suspense>}
           </div>
         </div>
       }

@@ -17,6 +17,8 @@ export const SHOES_KEY          = 'runlytics_shoes_v1';
 export const ONBOARDING_KEY     = 'runlytics_onboarding_v1';
 export const PLAN_KEY           = 'runlytics_plan_v1';
 export const MILESTONES_KEY     = 'runlytics_milestones_v1';
+export const COACH_KEY          = 'runlytics_coach_v1';
+export const FITNESS_TEST_KEY   = 'runlytics_fitness_test_v1';
 export const THEME_KEY          = 'runlytics_theme_v1';
 
 // IndexedDB identifiers
