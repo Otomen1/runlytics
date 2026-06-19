@@ -64,20 +64,61 @@ function MemoryCard({ act, onSelect }) {
   );
 }
 
+const HIGHLIGHT_META = {
+  'Strongest Run':  { color:'var(--or)', hero:a=>String(a.trainingLoad||''), unit:'load' },
+  'Favorite Memory':{ color:'#8b5cf6',  hero:null,                           unit:null   },
+  'Longest Run':    { color:'#3b82f6',  hero:a=>fmtKm(a.distanceKm),        unit:'km'   },
+  'Fastest Run':    { color:'#eab308',  hero:a=>fmtPace(a.avgPaceSecKm),     unit:'/km'  },
+  'Biggest Climb':  { color:'#22c55e',  hero:a=>String(a.elevGainM||''),     unit:'m ↑'  },
+};
+
 function HighlightCard({ icon, label, act, onSelect }) {
   const thumb = useThumb(act.id, act.photoCount);
+  const mood  = act.mood ? MOODS_MAP[act.mood] : null;
+  const meta  = HIGHLIGHT_META[label] || { color:'var(--tx2)', hero:null, unit:null };
+  const { color } = meta;
+  const heroVal = meta.hero ? meta.hero(act) : null;
+  const isMem = label === 'Favorite Memory';
+
   return (
-    <div className="card" onClick={() => onSelect(act)}
-      style={{padding:'14px',cursor:'pointer',position:'relative',overflow:'hidden',flexShrink:0,width:160}}>
-      {thumb && (
+    <div onClick={() => onSelect(act)} style={{
+      cursor:'pointer', flexShrink:0, width:155, display:'flex', flexDirection:'column',
+      borderRadius:'var(--r-lg)', background:'var(--s2)', border:'1px solid var(--bd)',
+      borderLeft:`3px solid ${color}`, overflow:'hidden',
+    }}>
+      {/* Photo strip for Favorite Memory */}
+      {isMem && thumb && (
         <img src={thumb} alt="" loading="lazy"
-          style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',opacity:.18,borderRadius:'inherit'}}/>
+          style={{width:'100%',height:80,objectFit:'cover',display:'block'}}/>
       )}
-      <div style={{position:'relative'}}>
-        <div style={{fontSize:'1.6rem',marginBottom:6}}>{icon}</div>
-        <div style={{fontSize:'.62rem',fontWeight:700,color:'var(--tx3)',letterSpacing:'.06em',marginBottom:3}}>{label.toUpperCase()}</div>
-        <div style={{fontSize:'.8rem',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{act.name}</div>
-        <div style={{fontSize:'.68rem',color:'var(--tx2)',marginTop:2}}>{fmtKm(act.distanceKm)} km · {fmtDate(act.date)}</div>
+      {isMem && !thumb && (
+        <div style={{width:'100%',height:72,background:`${color}18`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'2rem'}}>
+          {mood ? mood.emoji : '📸'}
+        </div>
+      )}
+
+      <div style={{padding:'12px 12px 14px',display:'flex',flexDirection:'column',gap:5,flex:1}}>
+        {/* Icon + label */}
+        <div style={{display:'flex',alignItems:'center',gap:7}}>
+          <div style={{width:28,height:28,borderRadius:'50%',background:`${color}18`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'1rem',flexShrink:0}}>
+            {icon}
+          </div>
+          <div style={{fontSize:'.54rem',fontWeight:700,color,letterSpacing:'.07em',textTransform:'uppercase',lineHeight:1.2}}>{label}</div>
+        </div>
+
+        {/* Hero metric */}
+        {heroVal && (
+          <div style={{display:'flex',alignItems:'baseline',gap:3}}>
+            <span style={{fontSize:'1.8rem',fontWeight:900,color,lineHeight:1}}>{heroVal}</span>
+            <span style={{fontSize:'.58rem',color,opacity:.75,fontWeight:600}}>{meta.unit}</span>
+          </div>
+        )}
+
+        {/* Activity name + secondary */}
+        <div style={{marginTop:'auto'}}>
+          <div style={{fontSize:'.76rem',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'var(--tx)'}}>{act.name}</div>
+          <div style={{fontSize:'.62rem',color:'var(--tx2)',marginTop:2}}>{fmtKm(act.distanceKm)} km · {fmtDate(act.date)}</div>
+        </div>
       </div>
     </div>
   );
