@@ -1,5 +1,6 @@
-const CACHE = 'runlytics-v2';
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
+const CACHE = 'runlytics-v3';
+const HTML_TTL_MS  = 60 * 60 * 1000;        // 1 hour for HTML (catches new deploys quickly)
+const ASSET_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days for hashed JS/CSS bundles
 
 self.addEventListener('install', e => {
   e.waitUntil(
@@ -18,17 +19,35 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   if (!e.request.url.startsWith(self.location.origin)) return;
-  // Never cache API calls — always go to network
   if (e.request.url.includes('/api/')) return;
+
+  // HTML: network-first so new deployments are picked up within 1 hour
+  const isHtml = e.request.headers.get('accept')?.includes('text/html') ||
+                 e.request.url === self.location.origin + '/';
+
+  if (isHtml) {
+    e.respondWith(
+      fetch(e.request)
+        .then(res => {
+          if (res.ok) {
+            caches.open(CACHE).then(c => putWithTimestamp(c, e.request, res.clone()));
+          }
+          return res;
+        })
+        .catch(() => caches.open(CACHE).then(c => c.match(e.request)))
+    );
+    return;
+  }
+
+  // Assets (JS/CSS/images): stale-while-revalidate with longer TTL
+  const ttl = e.request.url.match(/\.[a-f0-9]{8}\.(js|css)/) ? ASSET_TTL_MS : HTML_TTL_MS;
 
   e.respondWith(
     caches.open(CACHE).then(cache =>
       cache.match(e.request).then(cached => {
-        // Check TTL on cached response
         if (cached) {
           const cachedAt = cached.headers.get('sw-cached-at');
-          if (cachedAt && Date.now() - Number(cachedAt) < CACHE_TTL_MS) {
-            // Serve from cache but refresh in background
+          if (cachedAt && Date.now() - Number(cachedAt) < ttl) {
             fetch(e.request).then(res => {
               if (res.ok) putWithTimestamp(cache, e.request, res);
             }).catch(() => {});

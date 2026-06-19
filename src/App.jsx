@@ -10,7 +10,8 @@ import { loadStravaAuth, saveStravaAuth, clearStravaAuth, getStravaToken, mapStr
 
 // ── Utils ────────────────────────────────────────────────────────────────────
 import { migrateActivity } from './utils/activity.js';
-import { buildAnalytics, computeTierProgress, computeEarnedBadges } from './utils/analytics.js';
+import { buildAnalytics, computeTierProgress } from './utils/analytics.js';
+import { computeEarnedBadges } from './constants/achievements.js';
 import { checkAndNotify } from './utils/notifications.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -34,17 +35,18 @@ import { AchievementsTab } from './components/Tabs/AchievementsTab.jsx';
 import { Detail }        from './components/Activity/Detail.jsx';
 import { Upload }        from './components/Activity/Upload.jsx';
 import { AllRunsView }   from './components/Activity/AllRunsView.jsx';
-import { ShareModal }    from './components/Share/ShareModal.jsx';
-import { ShareEditor }   from './components/Share/ShareEditor.jsx';
 import { SettingsPanel } from './components/Modals/SettingsPanel.jsx';
-import { MonthlyReport } from './components/Modals/MonthlyReport.jsx';
-import { MonthlyWrapped } from './components/Modals/MonthlyWrapped.jsx';
-import { YearInReview }  from './components/Modals/YearInReview.jsx';
-import { ShoeTracker }   from './components/Modals/ShoeTracker.jsx';
 import { PRDetailModal } from './components/Modals/PRDetailModal.jsx';
 import { DebugPanel }    from './components/Modals/DebugPanel.jsx';
 import { Onboarding }   from './components/Modals/Onboarding.jsx';
-import { PlanBuilderModal } from './components/Modals/PlanBuilderModal.jsx';
+// Heavy modals — lazy-loaded on first use to keep initial bundle smaller
+const ShareModal     = lazy(()=>import('./components/Share/ShareModal.jsx').then(m=>({default:m.ShareModal})));
+const ShareEditor    = lazy(()=>import('./components/Share/ShareEditor.jsx').then(m=>({default:m.ShareEditor})));
+const MonthlyReport  = lazy(()=>import('./components/Modals/MonthlyReport.jsx').then(m=>({default:m.MonthlyReport})));
+const MonthlyWrapped = lazy(()=>import('./components/Modals/MonthlyWrapped.jsx').then(m=>({default:m.MonthlyWrapped})));
+const YearInReview   = lazy(()=>import('./components/Modals/YearInReview.jsx').then(m=>({default:m.YearInReview})));
+const ShoeTracker    = lazy(()=>import('./components/Modals/ShoeTracker.jsx').then(m=>({default:m.ShoeTracker})));
+const PlanBuilderModal = lazy(()=>import('./components/Modals/PlanBuilderModal.jsx').then(m=>({default:m.PlanBuilderModal})));
 
 // ── localStorage helpers (lightweight prefs only) ────────────────────────────
 let _onStorageError=null; // set by App to surface quota errors to the UI
@@ -130,15 +132,33 @@ const App=()=>{
   const scrollRef=useRef(null);
   const PULL_THRESHOLD=60;
 
-  const detRef=useRef(null),setRef=useRef(null),arRef=useRef(null),monRef=useRef(null),upRef=useRef(null),shaRef=useRef(null),prRef=useRef(null),yrRef=useRef(null),shRef=useRef(null);
   const isSyncingRef=useRef(false),lastSyncRef=useRef(0),isRepairingRef=useRef(false);
+  // Undo-delete: hold a pending delete in memory for 3 s before committing to IDB
+  const pendingDeleteRef=useRef(null);
+  const deleteTimerRef=useRef(null);
 
-  const edRef=useRef(null);
-  useEffect(()=>{
-    detRef.current=detail;setRef.current=showSettings;
-    arRef.current=showAllRuns;monRef.current=showMonthly;upRef.current=showUpload;
-    shaRef.current=shareAct;prRef.current=prDetail;edRef.current=showEditor;yrRef.current=showYearReview;shRef.current=showShoes;
-  },[detail,showSettings,showAllRuns,showMonthly,showUpload,shareAct,prDetail,showEditor,showYearReview,showShoes]);
+  // Single ref map for all open modals — drives both popstate and keydown without duplication
+  const modalCloseOrder=useRef([
+    {get:()=>showEditor,     set:()=>setShowEditor(false)},
+    {get:()=>shareAct,       set:()=>setShareAct(null)},
+    {get:()=>prDetail,       set:()=>setPrDetail(null)},
+    {get:()=>detail,         set:()=>setDetail(null)},
+    {get:()=>showSettings,   set:()=>setShowSettings(false)},
+    {get:()=>showAllRuns,    set:()=>setShowAllRuns(false)},
+    {get:()=>showMonthly,    set:()=>setShowMonthly(false)},
+    {get:()=>showYearReview, set:()=>setShowYearReview(false)},
+    {get:()=>showShoes,      set:()=>setShowShoes(false)},
+    {get:()=>showUpload,     set:()=>setShowUpload(false)},
+  ]);
+
+  const closeTopModal=useCallback(()=>{
+    const entries=modalCloseOrder.current;
+    for(const entry of entries){
+      if(entry.get()){entry.set();history.replaceState({_rl:"s"},"");return true;}
+    }
+    return false;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[showEditor,shareAct,prDetail,detail,showSettings,showAllRuns,showMonthly,showYearReview,showShoes,showUpload]);
 
   useEffect(()=>{
     try{history.replaceState({_rl:"root"},"");history.pushState({_rl:"s"},"");}catch(e){}
@@ -146,41 +166,21 @@ const App=()=>{
 
   useEffect(()=>{
     const h=(e)=>{
-      if(edRef.current){setShowEditor(false);history.replaceState({_rl:"s"},"");return;}
-      if(shaRef.current){setShareAct(null);history.replaceState({_rl:"s"},"");return;}
-      if(prRef.current){setPrDetail(null);history.replaceState({_rl:"s"},"");return;}
-      if(detRef.current){setDetail(null);history.replaceState({_rl:"s"},"");return;}
-      if(setRef.current){setShowSettings(false);history.replaceState({_rl:"s"},"");return;}
-      if(arRef.current){setShowAllRuns(false);history.replaceState({_rl:"s"},"");return;}
-      if(monRef.current){setShowMonthly(false);history.replaceState({_rl:"s"},"");return;}
-      if(yrRef.current){setShowYearReview(false);history.replaceState({_rl:"s"},"");return;}
-      if(shRef.current){setShowShoes(false);history.replaceState({_rl:"s"},"");return;}
-      if(upRef.current){setShowUpload(false);history.replaceState({_rl:"s"},"");return;}
-      if(!e.state||e.state._rl==="root"){history.replaceState({_rl:"s"},"");}
+      if(!closeTopModal()&&(!e.state||e.state._rl==="root")){history.replaceState({_rl:"s"},"");}
     };
     window.addEventListener("popstate",h);return()=>window.removeEventListener("popstate",h);
-  },[]);
+  },[closeTopModal]);
 
-  // Keyboard navigation: Escape closes any open overlay
   useEffect(()=>{
     const onKey=(e)=>{
       if(e.key!=='Escape')return;
       const tag=document.activeElement&&document.activeElement.tagName;
       if(tag==='INPUT'||tag==='TEXTAREA')return;
-      if(edRef.current){setShowEditor(false);history.replaceState({_rl:"s"},"");return;}
-      if(shaRef.current){setShareAct(null);history.replaceState({_rl:"s"},"");return;}
-      if(prRef.current){setPrDetail(null);history.replaceState({_rl:"s"},"");return;}
-      if(detRef.current){setDetail(null);history.replaceState({_rl:"s"},"");return;}
-      if(setRef.current){setShowSettings(false);history.replaceState({_rl:"s"},"");return;}
-      if(arRef.current){setShowAllRuns(false);history.replaceState({_rl:"s"},"");return;}
-      if(monRef.current){setShowMonthly(false);history.replaceState({_rl:"s"},"");return;}
-      if(yrRef.current){setShowYearReview(false);history.replaceState({_rl:"s"},"");return;}
-      if(shRef.current){setShowShoes(false);history.replaceState({_rl:"s"},"");return;}
-      if(upRef.current){setShowUpload(false);history.replaceState({_rl:"s"},"");return;}
+      closeTopModal();
     };
     window.addEventListener('keydown',onKey);
     return()=>window.removeEventListener('keydown',onKey);
-  },[]);
+  },[closeTopModal]);
 
   const back=useCallback(()=>history.back(),[]);
 
@@ -241,12 +241,31 @@ const App=()=>{
   const openShoes=useCallback(()=>{history.pushState({_rl:"sh"},"");setShowShoes(true);},[]);
   const openUpload=useCallback(()=>{history.pushState({_rl:"u"},"");setShowUpload(true);},[]);
 
-  // deleteAct: update React state immediately, then remove from IDB.
-  const deleteAct=useCallback(id=>{
-    setActsRaw(p=>p.filter(a=>a.id!==id));
-    if(detRef.current)history.back();
-    deleteActivity(id).catch(err=>console.error("[IDB] deleteActivity failed:",err));
+  const undoDelete=useCallback(()=>{
+    if(!pendingDeleteRef.current)return;
+    clearTimeout(deleteTimerRef.current);
+    const restored=pendingDeleteRef.current;
+    pendingDeleteRef.current=null;
+    setActsRaw(p=>[...p,restored].sort((a,b)=>b.date-a.date));
+    setToast(null);
   },[]);
+
+  // deleteAct: optimistic UI remove + 3.5-second undo window before IDB delete
+  const deleteAct=useCallback(id=>{
+    const found=acts.find(a=>a.id===id);
+    setActsRaw(p=>p.filter(a=>a.id!==id));
+    history.back();
+    // Cancel any in-flight pending delete first
+    if(deleteTimerRef.current){clearTimeout(deleteTimerRef.current);if(pendingDeleteRef.current)deleteActivity(pendingDeleteRef.current.id).catch(()=>{});}
+    pendingDeleteRef.current=found||null;
+    clearTimeout(toastTimerRef.current);
+    setToast({emoji:'🗑',msg:'Run deleted',undo:true});
+    deleteTimerRef.current=setTimeout(()=>{
+      if(pendingDeleteRef.current){deleteActivity(pendingDeleteRef.current.id).catch(err=>console.error("[IDB] deleteActivity failed:",err));pendingDeleteRef.current=null;}
+      setToast(null);
+    },3500);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[acts]);
 
   // addAct: optimistic state update first (instant UI), then persist to IDB.
   // Verification checks that route data was actually written — surfaces error if not.
@@ -338,11 +357,11 @@ const App=()=>{
     if(!code)return;
     const returnedState=params.get("state");
     let savedState=null;try{savedState=sessionStorage.getItem('_rl_oauth_state');sessionStorage.removeItem('_rl_oauth_state');}catch{}
-    if(savedState&&returnedState!==savedState){console.warn('[OAuth] state mismatch — ignoring callback');return;}
+    if(!savedState||returnedState!==savedState){console.warn('[OAuth] state mismatch or missing — ignoring callback');return;}
     window.history.replaceState({},"",window.location.pathname);
     (async()=>{
       try{
-        const r=await fetch("/api/strava-token?code="+encodeURIComponent(code));if(!r.ok)return;
+        const r=await fetch("/api/strava-token",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})});if(!r.ok)return;
         const data=await r.json();saveStravaAuth(data);setStravaAuth(data);
         setTimeout(()=>doStravaSync(false),500);
       }catch(e){}
@@ -411,8 +430,8 @@ const App=()=>{
           {stravaAuth&&!stravaSync.loading&&stravaSync.msg&&(
             <div style={{fontSize:".68rem",color:"var(--gn)",background:"var(--gn2)",padding:"2px 8px",borderRadius:20,fontWeight:600}}>{stravaSync.msg}</div>
           )}
-          <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1rem",cursor:"pointer",padding:"4px 6px"}} onClick={()=>setTheme(t=>t==='dark'?'light':'dark')} aria-label="Toggle theme">{theme==='dark'?'☀️':'🌙'}</button>
-          <button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.05rem",cursor:"pointer",padding:"4px 6px"}} onClick={openSettings} aria-label="Settings">⚙️</button>
+          <button className="hdr-btn" onClick={()=>setTheme(t=>t==='dark'?'light':'dark')} aria-label="Toggle theme">{theme==='dark'?'☀️':'🌙'}</button>
+          <button className="hdr-btn" onClick={openSettings} aria-label="Settings">⚙️</button>
         </div>
       </div>
       {/* Offline banner */}
@@ -465,7 +484,7 @@ const App=()=>{
           <div key={tab} className="tab-in"
             style={{transform:`translateY(${pullY}px)`,transition:pullReleasing?"transform .25s ease":"none"}}
             onTransitionEnd={()=>{if(pullReleasing)setPullReleasing(false);}}>
-            {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
+            {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings} onOpenPlan={()=>setShowPlanBuilder(true)} onOpenSettings={openSettings}/>}
             {tab==="stats"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><StatsTab acts={acts} analytics={analytics} hrProfile={hrProfile} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/></Suspense>}
             {tab==="hr"&&<MoreTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings} onViewMonthly={openMonthly} onViewYearReview={openYearReview} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
             {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail} onOpenWrapped={setWrappedMonth}/>}
@@ -473,7 +492,7 @@ const App=()=>{
           </div>
         </div>
       }
-      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(6,8,15,.97)",backdropFilter:"blur(16px)",WebkitBackdropFilter:"blur(16px)",borderTop:"1px solid var(--bd)",display:"flex",zIndex:100,paddingBottom:"env(safe-area-inset-bottom)"}}>
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(6,8,15,.97)",backdropFilter:"blur(16px)",WebkitBackdropFilter:"blur(16px)",borderTop:"1px solid var(--bd)",display:"flex",zIndex:100,paddingBottom:"max(env(safe-area-inset-bottom),4px)"}}>
         {TABS.map(t=>(
           <button key={t.id} className={"tab-btn"+(tab===t.id?" on":"")} onClick={()=>setTab(t.id)} style={{position:"relative"}}>
             {t.id==="awards"&&hasUnseen&&<div style={{position:"absolute",top:6,right:"20%",width:7,height:7,borderRadius:"50%",background:"var(--or)",animation:"pulse 1.5s ease infinite"}}/>}
@@ -483,8 +502,8 @@ const App=()=>{
         ))}
       </div>
       {detail&&<Detail act={detail} hrProfile={hrProfile} onClose={back} onDelete={deleteAct} onShare={()=>openShare(detail)}/>}
-      {shareAct&&<ShareModal act={shareAct} onClose={back} onOpenEditor={switchToEditor}/>}
-      {showEditor&&editorAct&&<ShareEditor act={editorAct} onClose={back}/>}
+      {shareAct&&<Suspense fallback={null}><ShareModal act={shareAct} onClose={back} onOpenEditor={switchToEditor}/></Suspense>}
+      {showEditor&&editorAct&&<Suspense fallback={null}><ShareEditor act={editorAct} onClose={back}/></Suspense>}
       {prDetail&&<PRDetailModal entry={prDetail} onClose={back}
         onOpenRun={id=>{setPrDetail(null);const found=acts.find(a=>a.id===id);if(found)openDetail(found);}}/>}
       {showUpload&&<Upload acts={acts} onAdd={newActs=>{newActs.forEach(a=>addAct(a));back();}}
@@ -516,10 +535,10 @@ const App=()=>{
         onStravaSync={()=>doStravaSync(false)}
         onClose={back}/>}
       {showAllRuns&&<AllRunsView acts={acts} onClose={back} onSelectAct={act=>{setShowAllRuns(false);openDetail(act);}}/>}
-      {showMonthly&&<MonthlyReport acts={acts} onClose={back}/>}
-      {wrappedMonth&&<MonthlyWrapped acts={acts} yearMonth={wrappedMonth} onClose={()=>setWrappedMonth(null)} onSelectAct={a=>{setWrappedMonth(null);openDetail(a);}}/>}
-      {showYearReview&&<YearInReview acts={acts} onClose={back}/>}
-      {showShoes&&<ShoeTracker acts={acts} onClose={back}/>}
+      {showMonthly&&<Suspense fallback={null}><MonthlyReport acts={acts} onClose={back}/></Suspense>}
+      {wrappedMonth&&<Suspense fallback={null}><MonthlyWrapped acts={acts} yearMonth={wrappedMonth} onClose={()=>setWrappedMonth(null)} onSelectAct={a=>{setWrappedMonth(null);openDetail(a);}}/></Suspense>}
+      {showYearReview&&<Suspense fallback={null}><YearInReview acts={acts} onClose={back}/></Suspense>}
+      {showShoes&&<Suspense fallback={null}><ShoeTracker acts={acts} onClose={back}/></Suspense>}
       {dbReady&&acts.length===0&&!localStorage.getItem(ONBOARDING_KEY)&&(
         <Onboarding profile={profile} goals={goals}
           onComplete={({name,weeklyGoal})=>{
@@ -532,14 +551,15 @@ const App=()=>{
       )}
       {toast&&(
         <div style={{position:'fixed',bottom:96,left:'50%',transform:'translateX(-50%)',zIndex:400,animation:'fadeUp .3s ease both',pointerEvents:'auto'}}>
-          <div style={{background:'var(--s1)',border:'1.5px solid var(--or)',borderRadius:14,padding:'12px 18px',display:'flex',alignItems:'center',gap:10,boxShadow:'0 6px 28px rgba(0,0,0,.35)',minWidth:200,maxWidth:300}}>
+          <div style={{background:'var(--s1)',border:'1.5px solid var(--or)',borderRadius:14,padding:'12px 18px',display:'flex',alignItems:'center',gap:10,boxShadow:'0 6px 28px rgba(0,0,0,.35)',minWidth:200,maxWidth:320}}>
             <span style={{fontSize:'1.5rem',flexShrink:0}}>{toast.emoji}</span>
             <span style={{fontWeight:700,fontSize:'.88rem',flex:1,lineHeight:1.4}}>{toast.msg}</span>
+            {toast.undo&&<button onClick={undoDelete} style={{background:'var(--or2)',border:'1px solid var(--or)',color:'var(--or)',borderRadius:8,cursor:'pointer',fontSize:'.8rem',fontWeight:700,fontFamily:'inherit',padding:'4px 10px',flexShrink:0}}>Undo</button>}
             <button onClick={()=>setToast(null)} style={{background:'none',border:'none',color:'var(--tx3)',cursor:'pointer',fontSize:'.9rem',flexShrink:0,padding:'2px 4px'}}>✕</button>
           </div>
         </div>
       )}
-      {showPlanBuilder&&<PlanBuilderModal acts={acts} analytics={analytics} onClose={()=>setShowPlanBuilder(false)}/>}
+      {showPlanBuilder&&<Suspense fallback={null}><PlanBuilderModal acts={acts} analytics={analytics} onClose={()=>setShowPlanBuilder(false)}/></Suspense>}
       {showDebug&&<DebugPanel acts={acts} onClose={()=>setShowDebug(false)}
         onRepairRoutes={()=>{
           if(isRepairingRef.current)return;

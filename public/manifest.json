@@ -2,6 +2,7 @@
   "name": "Runlytics",
   "short_name": "Runlytics",
   "description": "Personal running journal with beautiful analytics",
+  "categories": ["sports", "health", "fitness"],
   "theme_color": "#06080e",
   "background_color": "#06080e",
   "display": "standalone",
@@ -13,5 +14,14 @@
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Upload GPX",
+      "short_name": "Upload",
+      "description": "Upload a GPX file",
+      "url": "/?action=upload",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
   ]
 }

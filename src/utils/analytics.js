@@ -170,8 +170,6 @@ export function computeSplits(act){
   return splits;
 }
 
-export function computeEarnedBadges(acts){return BADGE_DEFS.filter(b=>{try{return b.check(acts);}catch(e){return false;}}).map(b=>b.id);}
-
 export function computeAtlCtl(acts,displayDays=90){
   if(!acts||!acts.length)return[];
   const loadByDate={};

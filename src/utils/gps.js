@@ -15,11 +15,13 @@ export function parseGPX(xmlStr,fileName){
   const pfx=`[GPX:${fileName||'?'}]`;
   if(!xmlStr||typeof xmlStr!=="string"||xmlStr.length<30){console.warn(pfx,'empty/short input');return null;}
   if(xmlStr.length>MAX_GPX_BYTES){console.warn(pfx,'file >10MB');return null;}
-  // Strip script tags and on* event attributes before parsing to prevent XSS
+  // Strip dangerous content before parsing. Regex catches common patterns; DOMParser
+  // provides the real sandboxing — we never render the parsed DOM as HTML.
   const sanitized=xmlStr
     .replace(/<script[\s\S]*?<\/script>/gi,'')
-    .replace(/\bon\w+\s*=\s*["'][^"']*["']/gi,'')
-    .replace(/javascript\s*:/gi,'');
+    .replace(/\bon\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi,'')  // quoted AND unquoted event attrs
+    .replace(/\bjavascript\s*:/gi,'')
+    .replace(/\bdata\s*:\s*text\/html/gi,'');
   try{
     const parser=new DOMParser();
     const doc=parser.parseFromString(sanitized,"application/xml");

@@ -5,11 +5,12 @@
 import { rateLimit, setCors } from './_security.js';
 
 export default async function handler(req, res) {
-  setCors(req, res, "GET, OPTIONS");
+  setCors(req, res, "POST, OPTIONS");
   if (!rateLimit(req, res)) return;
   if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { code } = req.query;
+  const { code } = req.body || {};
   if (!code || typeof code !== "string" || code.length > 512) {
     return res.status(400).json({ error: "Missing or invalid code parameter" });
   }

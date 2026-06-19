@@ -78,7 +78,7 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
     });
   };
   return(
-    <div style={{position:"fixed",inset:0,zIndex:240,background:"var(--bg)",display:"flex",flexDirection:"column",overflowY:"auto"}}>
+    <div role="dialog" aria-modal="true" aria-label="Activity detail" style={{position:"fixed",inset:0,zIndex:240,background:"var(--bg)",display:"flex",flexDirection:"column",overflowY:"auto"}}>
       <div className="glass" style={{position:"sticky",top:0,zIndex:10,padding:"14px 18px 0",borderBottom:"1px solid var(--bd)"}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
           <div style={{flex:1,minWidth:0,paddingRight:10}}>

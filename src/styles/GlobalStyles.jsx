@@ -6,7 +6,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   --bg:#06080f;--s1:#0b0f1a;--s2:#101622;--s3:#141c2a;--bd:#1c2538;--bd2:#232f48;
   --or:#f97316;--or2:rgba(249,115,22,.14);--or3:rgba(249,115,22,.07);
   --gn:#22c55e;--gn2:rgba(34,197,94,.13);--rd:#ef4444;--rd2:rgba(239,68,68,.12);
-  --bl:#3b82f6;--yw:#eab308;--tx:#d8e6f7;--tx2:#6e8aab;--tx3:#4a6580;
+  --bl:#3b82f6;--yw:#eab308;
+  /* tx: primary text | tx2: secondary labels (≥4.5:1 on --bg) | tx3: tertiary, placeholders (≥4.5:1) */
+  --tx:#d8e6f7;--tx2:#6e8aab;--tx3:#6b82a0;
   --r-sm:10px;--r-md:12px;--r-lg:14px;--r-xl:18px;
   /* Typography scale */
   --fs-xs:.72rem;--fs-sm:.8rem;--fs-base:.88rem;
@@ -14,6 +16,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   /* Spacing rhythm */
   --gap-card:14px;--pad-card:16px;
 }
+/* Global focus ring — ensures keyboard users always see where focus is */
+*:focus-visible{outline:2px solid var(--or);outline-offset:2px;border-radius:4px;}
 ::-webkit-scrollbar{width:0;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes tabIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
@@ -39,11 +43,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .share-close:active{background:rgba(255,255,255,.2);transform:scale(.92);}
 @media(hover:hover){.share-close:hover{background:rgba(255,255,255,.16);}}
 .inp{width:100%;background:var(--s2);border:1.5px solid var(--bd);border-radius:var(--r-md);color:var(--tx);font-family:inherit;font-size:.88rem;padding:12px 14px;outline:none;transition:border-color .15s;}
-.inp:focus{border-color:var(--or);box-shadow:0 0 0 3px rgba(249,115,22,.1);}
-.tab-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:9px 2px 10px;border:none;background:transparent;color:var(--tx3);cursor:pointer;font-size:.62rem;font-weight:600;font-family:inherit;letter-spacing:.04em;text-transform:uppercase;position:relative;transition:color .18s;-webkit-tap-highlight-color:transparent;}
+.inp:focus{border-color:var(--or);box-shadow:0 0 0 3px rgba(249,115,22,.15);}
+/* Tab bar buttons: min 44px touch target for WCAG 2.5.5 */
+.tab-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:11px 2px 11px;min-height:44px;border:none;background:transparent;color:var(--tx3);cursor:pointer;font-size:.62rem;font-weight:600;font-family:inherit;letter-spacing:.04em;text-transform:uppercase;position:relative;transition:color .18s;-webkit-tap-highlight-color:transparent;}
 .tab-btn.on{color:var(--or);}
 .tab-btn::after{content:'';position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:0;height:2px;border-radius:1px;background:var(--or);transition:width .22s cubic-bezier(.4,0,.2,1);}
 .tab-btn.on::after{width:22px;}
+/* Icon-only header buttons: 44×44px touch area */
+.hdr-btn{background:none;border:none;color:var(--tx2);font-size:1rem;cursor:pointer;min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-md);transition:color .15s,background .15s;-webkit-tap-highlight-color:transparent;}
+@media(hover:hover){.hdr-btn:hover{background:var(--s2);color:var(--tx);}}
 .sl{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--tx3);}
 .pb{height:6px;background:var(--bd);border-radius:3px;overflow:hidden;}
 .pf{height:100%;border-radius:3px;transition:width .85s cubic-bezier(.4,0,.2,1);}
@@ -88,12 +96,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 [data-theme=light]{
   --bg:#f8fafc;--s1:#ffffff;--s2:#f1f5f9;--s3:#e8edf3;
   --bd:#e2e8f0;--bd2:#cbd5e1;
-  --tx:#1e293b;--tx2:#64748b;--tx3:#94a3b8;
+  --tx:#1e293b;--tx2:#475569;--tx3:#64748b;
   --or2:rgba(249,115,22,.1);--or3:rgba(249,115,22,.05);
   --gn2:rgba(34,197,94,.1);--rd2:rgba(239,68,68,.08);
 }
 [data-theme=light] .glass{background:rgba(248,250,252,.96);border-color:rgba(0,0,0,.06);}
-[data-theme=light] .tab-btn{color:#94a3b8;}
+[data-theme=light] .tab-btn{color:#64748b;}
 [data-theme=light] .tab-btn.on{color:var(--or);}
 `}</style>;
 export { Styles as GlobalStyles };

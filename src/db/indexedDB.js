@@ -165,7 +165,15 @@ export async function migrateFromLocalStorage(){
   }
 }
 
+const ALLOWED_PHOTO_MIME = new Set(['image/jpeg','image/png','image/webp','image/heic','image/heif']);
+
 export async function addPhoto(activityId, blob, thumbBlob, mimeType){
+  if(!ALLOWED_PHOTO_MIME.has(mimeType)){
+    throw new Error(`Unsupported photo type: ${mimeType}. Use JPEG, PNG, or WebP.`);
+  }
+  if(blob.size>10*1024*1024){
+    throw new Error('Photo exceeds 10 MB limit.');
+  }
   return openIDB().then(db=>new Promise((resolve,reject)=>{
     const tx=db.transaction(IDB_PHOTOS,"readwrite");
     const req=tx.objectStore(IDB_PHOTOS).add({activityId,blob,thumbBlob,mimeType,addedAt:Date.now()});
