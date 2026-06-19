@@ -511,7 +511,7 @@ const App=()=>{
             <div style={{position:"absolute",top:0,left:0,right:0,display:"flex",justifyContent:"center",alignItems:"center",
               height:Math.max(0,pullY),overflow:"hidden",pointerEvents:"none",zIndex:5,
               transition:pullReleasing?"height .25s ease":"none"}}>
-              <div className="spinner" style={{opacity:Math.min(1,pullY/PULL_THRESHOLD),transform:`rotate(${pullY*3}deg)`}}/>
+              <div className="spinner" style={{opacity:Math.min(1,pullY/PULL_THRESHOLD_PX),transform:`rotate(${pullY*3}deg)`}}/>
             </div>
           )}
           <div key={tab} className="tab-in"
