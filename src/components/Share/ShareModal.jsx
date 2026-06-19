@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ShareCard } from './ShareCard.jsx';
 import { downloadExport } from '../../utils/canvas.js';
-import { SHARE_TEMPLATES } from '../../constants/canvas.js';
+import { SHARE_TEMPLATES, SHARE_UI } from '../../constants/canvas.js';
 
 export function ShareModal({act,onClose,onOpenEditor}){
   const[idx,setIdx]=useState(0);
