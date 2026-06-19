@@ -246,7 +246,7 @@ export function CoachTab({ acts, analytics, hrProfile }) {
               )}
               {fitness.longestRun > 0 && (
                 <div className="card" style={{ padding: '10px 12px' }}>
-                  <div style={{ fontSize: '.62rem', fontWeight: 700, color: 'var(--tx3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Longest</div>
+                  <div style={{ fontSize: '.62rem', fontWeight: 700, color: 'var(--tx3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 3 }}>Longest (cycle)</div>
                   <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#8b5cf6', lineHeight: 1 }}>{fmtKm(fitness.longestRun)}<span style={{ fontSize: '.6rem', fontWeight: 600 }}> km</span></div>
                 </div>
               )}
@@ -258,7 +258,7 @@ export function CoachTab({ acts, analytics, hrProfile }) {
               )}
             </div>
             <div style={{ fontSize: '.64rem', color: 'var(--tx3)', marginTop: 8, textAlign: 'center' }}>
-              Estimated — based on your recent runs via Riegel formula
+              Training effort estimates — actual race performance is typically 10–15% faster
             </div>
           </>
         ) : (

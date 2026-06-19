@@ -27,7 +27,12 @@ export function computeFitnessProfile(acts, plan, analytics) {
     'FM':  riegelTime(ref.movingTimeSec, ref.distanceKm, 42.195),
   } : null;
   const vo2max = ref ? estimateVO2Max(ref.avgPaceSecKm) : null;
-  const longestRun = acts.length ? Math.max(...acts.map(a => a.distanceKm)) : 0;
+  // Filter to current plan period (or last 180 days) so stale long runs don't mislead
+  const cycleStartTs = plan?.startDate
+    ? new Date(plan.startDate + 'T00:00:00').getTime()
+    : Date.now() - 180 * 86400000;
+  const cycleActs = acts.filter(a => a.dateTs >= cycleStartTs);
+  const longestRun = cycleActs.length ? Math.max(...cycleActs.map(a => a.distanceKm)) : 0;
   const currentWeekKm = analytics.weeklyKm?.find(w => w.week === weekOf(Date.now()))?.km || 0;
 
   let consistencyPct = null;
