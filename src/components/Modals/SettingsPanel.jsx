@@ -1,10 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { getMafZones } from '../../utils/analytics.js';
 import { fmtDur, fmtPace } from '../../utils/formatters.js';
 import { notifSupported, notifPermission, notifEnabled, setNotifEnabled, requestNotifPermission } from '../../utils/notifications.js';
 
 export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onImport,onClose,stravaAuth,stravaSync,isOnline,onStravaConnect,onStravaSync,onStravaDisconnect}){
   const[view,setView]=useState("main");
+  // Close on Escape regardless of which child has focus (inputs, textareas, etc.)
+  useEffect(()=>{
+    const h=(e)=>{if(e.key==='Escape'){e.stopPropagation();onClose();}};
+    document.addEventListener('keydown',h,true); // capture phase — fires before App.jsx's window handler
+    return()=>document.removeEventListener('keydown',h,true);
+  },[onClose]);
   const[notifPerm,setNotifPerm]=useState(()=>notifPermission());
   const[notifOn,setNotifOn]=useState(()=>notifEnabled());
   const[importMsg,setImportMsg]=useState("");

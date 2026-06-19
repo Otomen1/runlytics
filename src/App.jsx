@@ -137,8 +137,9 @@ const App=()=>{
   const pendingDeleteRef=useRef(null);
   const deleteTimerRef=useRef(null);
 
-  // Single ref map for all open modals — drives both popstate and keydown without duplication
-  const modalCloseOrder=useRef([
+  // Keep ref in sync with current state on every render so popstate/keydown always see fresh values
+  const modalCloseOrder=useRef(null);
+  modalCloseOrder.current=[
     {get:()=>showEditor,     set:()=>setShowEditor(false)},
     {get:()=>shareAct,       set:()=>setShareAct(null)},
     {get:()=>prDetail,       set:()=>setPrDetail(null)},
@@ -149,16 +150,16 @@ const App=()=>{
     {get:()=>showYearReview, set:()=>setShowYearReview(false)},
     {get:()=>showShoes,      set:()=>setShowShoes(false)},
     {get:()=>showUpload,     set:()=>setShowUpload(false)},
-  ]);
+  ];
 
   const closeTopModal=useCallback(()=>{
-    const entries=modalCloseOrder.current;
-    for(const entry of entries){
+    for(const entry of modalCloseOrder.current){
       if(entry.get()){entry.set();history.replaceState({_rl:"s"},"");return true;}
     }
     return false;
+  // modalCloseOrder.current is always current — no deps needed
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[showEditor,shareAct,prDetail,detail,showSettings,showAllRuns,showMonthly,showYearReview,showShoes,showUpload]);
+  },[]);
 
   useEffect(()=>{
     try{history.replaceState({_rl:"root"},"");history.pushState({_rl:"s"},"");}catch(e){}
