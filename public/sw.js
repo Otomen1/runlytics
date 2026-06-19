@@ -1,4 +1,4 @@
-const CACHE = 'runlytics-v3';
+const CACHE = 'runlytics-v4';
 const HTML_TTL_MS  = 60 * 60 * 1000;        // 1 hour for HTML (catches new deploys quickly)
 const ASSET_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days for hashed JS/CSS bundles
 
