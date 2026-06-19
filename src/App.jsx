@@ -247,7 +247,8 @@ const App=()=>{
     clearTimeout(deleteTimerRef.current);
     const restored=pendingDeleteRef.current;
     pendingDeleteRef.current=null;
-    setActsRaw(p=>[...p,restored].sort((a,b)=>b.date-a.date));
+    setActsRaw(p=>[...p,restored].sort((a,b)=>b.dateTs-a.dateTs));
+    saveActivity(restored).catch(err=>setStorageError(`Undo failed: ${err.message}`));
     setToast(null);
   },[]);
 

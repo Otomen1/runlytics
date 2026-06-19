@@ -110,7 +110,7 @@ export function mapStravaActivity(a){
   const route=encoded?decodePolyline(encoded):[];
   return migrateActivity({
     id:"s"+a.id, name:String(a.name||"Run").slice(0,128), type:a.sport_type||a.type||"Run",
-    date:d.slice(0,10), dateTs,
+    date:d.split('T')[0], dateTs,
     distanceKm:parseFloat(distKm.toFixed(3)), movingTimeSec:movingTime,
     avgPaceSecKm:parseFloat(paceSecKm.toFixed(1)),
     avgHR, maxHR, elevGainM:elevGain, elevLossM:0,
