@@ -33,7 +33,7 @@ export function StatsTab({acts,analytics,hrProfile,onViewAll,onViewMonthly,onOpe
   const currentForm=atlCtl.length?atlCtl[atlCtl.length-1].form:0;
   const recentRacePRs=useMemo(()=>{
     const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-6);
-    return computeRacePRs(acts.filter(a=>a.date&&a.date>=cutoff.toISOString().slice(0,10)));
+    return computeRacePRs(acts.filter(a=>a.date&&a.date>=(cutoff.getFullYear()+'-'+String(cutoff.getMonth()+1).padStart(2,'0')+'-'+String(cutoff.getDate()).padStart(2,'0'))));
   },[acts]);
   const predictions=useMemo(()=>predictRaceTimes(racePRs,recentRacePRs,currentForm),[racePRs,recentRacePRs,currentForm]);
   const vo2maxEst=useMemo(()=>estimateVO2max(racePRs),[racePRs]);
