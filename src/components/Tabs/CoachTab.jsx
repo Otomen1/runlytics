@@ -173,7 +173,9 @@ export function CoachTab({ acts, analytics, hrProfile, plan }) {
               <div>
                 <div style={{ fontSize: '1rem', fontWeight: 800, color: healthColor, marginBottom: 4 }}>{healthLabel}</div>
                 <div style={{ fontSize: '.76rem', color: 'var(--tx2)', lineHeight: 1.5 }}>
-                  Based on adherence, consistency, recent activity, and plan progress.
+                  {health === null
+                    ? 'Score unlocks after your first full plan week. Keep training.'
+                    : 'Based on adherence, consistency, recent activity, and plan progress.'}
                 </div>
               </div>
             </div>

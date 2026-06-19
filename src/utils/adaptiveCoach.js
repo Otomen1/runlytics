@@ -34,6 +34,7 @@ export function computeGoalHealthScore(plan, analytics, acts) {
   if (!plan || !analytics.weeklyKm) return null;
   const adh = getPlanAdherence(plan, analytics.weeklyKm);
   if (!adh) return null;
+  if (adh.weeksCompleted === 0) return null;
 
   const adhScore = Math.min(100, adh.adherencePct);
   const consistPct = adh.weeksCompleted > 0
