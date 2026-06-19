@@ -1,0 +1,993 @@
+================================================================================
+RUNLYTICS — COMPLETE APP DOCUMENTATION
+================================================================================
+
+React 18 + Vite 5 Progressive Web App (PWA) for offline-first running
+analytics, training plan management, and performance coaching.
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+1.  Overview & Architecture
+2.  Tab Structure
+3.  Data Storage
+4.  Activity Data Model
+5.  Utils — Analytics
+6.  Utils — Training Plan
+7.  Utils — Adaptive Coach
+8.  Utils — Fitness Profile
+9.  Utils — GPS / GPX Parsing
+10. Utils — Canvas / Share Cards
+11. Utils — Formatters
+12. Utils — Notifications
+13. Utils — Session Compliance (NEW)
+14. Database Layer (IndexedDB)
+15. Strava Integration
+16. Components — Tab Screens
+17. Components — Modals
+18. Components — Activity
+19. Components — Share
+20. Components — Map & Common
+21. Constants & Config
+22. Achievements & Tiers
+23. State Management (App.jsx)
+24. File Structure
+
+================================================================================
+1. OVERVIEW & ARCHITECTURE
+================================================================================
+
+Runlytics is a mobile-first PWA designed to work fully offline. It stores all
+activity data in IndexedDB and uses localStorage only for lightweight
+preferences (goals, profile, theme, badges). No backend server — everything
+runs in the browser.
+
+Key design principles:
+  - Offline-first: all computation is local, no API calls for core features
+  - Privacy-first: user data never leaves the device (except optional Strava)
+  - Rule-based coaching: all coaching logic is deterministic, no AI/LLM calls
+  - Reactive via React state: App.jsx owns acts[], analytics, plan, goals
+  - Lazy-loaded heavy components (StatsTab, CoachTab, modals) via React.lazy()
+
+Tech stack:
+  - React 18, Vite 5, Vitest (200 tests)
+  - IndexedDB (Dexie-style manual wrappers, no ORM)
+  - No routing library — tab state is a simple useState
+  - No CSS framework — all custom CSS variables in GlobalStyles.jsx
+  - PWA manifest + service worker for installability and offline caching
+
+================================================================================
+2. TAB STRUCTURE
+================================================================================
+
+The app has 6 tabs rendered in a fixed bottom nav bar.
+
+  ID        Icon  Label     Lazy?  Component
+  -------   ----  --------  -----  --------------------
+  home      🏠   Home      No     HomeTab
+  stats     📊   Stats     Yes    StatsTab
+  memories  📸   Memories  No     MemoriesTab
+  awards    🏆   Awards    No     AchievementsTab
+  coach     🎯   Coach     Yes    CoachTab
+  hr        ❤️   More      No     MoreTab
+
+Tab state is saved to localStorage under PLAN_KEY so the user returns to
+their last tab on reload.
+
+Pull-to-refresh: swipe down anywhere (threshold 60px, max pull 110px) to
+trigger an activity reload or Strava sync.
+
+================================================================================
+3. DATA STORAGE
+================================================================================
+
+  Store              Type           Key / Store Name                 Contents
+  -----------------  -------------  --------------------------------  -------------------
+  Activities         IndexedDB      "activities" (IDB_ACTS)          All run objects
+  Photos             IndexedDB      "photos" (IDB_PHOTOS)            Base64 activity photos
+  Goals              localStorage   runlytics_goals_v1               {weekly, monthly} km
+  HR Profile         localStorage   runlytics_hr_profile_v1          {age, modifier, overrideMAF}
+  User Profile       localStorage   runlytics_profile_v1             {name}
+  Training Plan      localStorage   runlytics_plan_v1                Full plan object
+  Badges             localStorage   runlytics_badges_v1              Array of earned badge ids
+  Tiers              localStorage   runlytics_tiers_v1               Milestone tier states
+  Theme              localStorage   runlytics_theme_v1               "light" | "dark"
+  Tab                localStorage   runlytics_tab_v1                 Last active tab id
+  Shoes              localStorage   runlytics_shoes_v1               Shoe inventory array
+  Milestones         localStorage   runlytics_milestones_v1          Coach milestone states
+  Onboarding         localStorage   runlytics_onboarding_v1          Boolean, seen flag
+  Coach state        localStorage   runlytics_coach_v1               Coach preferences
+  Fitness test       localStorage   runlytics_fitness_test_v1        Manual fitness test result
+  Strava auth        localStorage   runlytics_strava_v1              Athlete id, name, expires_at
+  Strava refresh     localStorage   runlytics_strava_refresh_ls      Refresh token backup
+  Strava access      sessionStorage runlytics_strava_access          Short-lived access token
+  Strava refresh     sessionStorage runlytics_strava_refresh         Short-lived refresh token
+
+IndexedDB "activities" store:
+  keyPath: "id"
+  Indexes: by_date (dateTs), by_source (source)
+
+IndexedDB "photos" store:
+  keyPath: "id" (autoIncrement)
+  Indexes: by_activity (activityId)
+
+================================================================================
+4. ACTIVITY DATA MODEL
+================================================================================
+
+Every activity (run, walk, hike, etc.) is a normalized object:
+
+  Field           Type                     Description
+  -------------   ----------------------   ------------------------------------
+  id              string                   Unique ID (auto-generated or Strava)
+  name            string                   Activity title
+  type            string                   "Run" | "Walk" | "Hike" | "TrailRun" | "VirtualRun"
+  date            "YYYY-MM-DD"             Local date of activity
+  dateTs          number                   Timestamp in ms (for sorting)
+  distanceKm      number                   Total distance in kilometres
+  movingTimeSec   number                   Moving time in seconds
+  avgPaceSecKm    number                   Average pace (sec/km)
+  avgHR           number | null            Average heart rate (bpm)
+  maxHR           number | null            Maximum heart rate (bpm)
+  elevGainM       number                   Elevation gain in metres
+  elevLossM       number                   Elevation loss in metres
+  runClass        "easy"|"long"|"workout"  Auto-classified effort type
+  hrSamples       [{sec, hr}]              HR time-series (max 500 points)
+  route           [{lat, lon}]             GPS route (max 500 points)
+  source          "gpx" | "strava"         Import source
+  trainingLoad    number                   Monotony-adjusted training load
+  notes           string                   User journal notes
+  mood            string | null            "strong"|"great"|"good"|"normal"|"tough"
+  photoCount      number                   Number of attached photos
+  shoeId          string | null            Foreign key to shoe in SHOES_KEY
+  isRace          boolean                  Marked as a race
+  raceGoalSec     number | null            Target finish time for the race
+  raceLocation    string                   Race name / location
+
+Run classification (classifyRun in activity.js):
+  distance >= 13 km        → "long"
+  pace < 320 sec/km (fast) → "workout"
+  everything else          → "easy"
+
+================================================================================
+5. UTILS — ANALYTICS (src/utils/analytics.js)
+================================================================================
+
+buildAnalytics(acts) → { streak, totalKm, weeklyKm, monthlyKm }
+
+  Called in App.jsx via useMemo([acts]). Recomputes whenever acts changes.
+  Returns the core analytics object passed to most tabs as a prop.
+
+  streak      number          Current consecutive run-day streak
+  totalKm     number          Lifetime km total
+  weeklyKm    array           [{week:"YYYY-MM-DD", km, load, runs}]
+  monthlyKm   array           [{month:"YYYY-MM", km, runs, timeSec, acts:[]}]
+
+getMafHR(hrProfile) → number
+  Calculates the Maffetone Aerobic Threshold heart rate.
+  Formula: max(100, 180 - age + modifier)
+  If hrProfile.overrideMAF is set, returns that value directly.
+
+getMafZones(mafHR) → [{zone, label, lo, hi, color, pct:0}]
+  5 zones relative to mafHR:
+    Zone 1 Recovery   < mafHR - 30
+    Zone 2 Aerobic    mafHR-30 to mafHR-10
+    Zone 3 MAF        mafHR-10 to mafHR
+    Zone 4 Threshold  mafHR to mafHR+15
+    Zone 5 Anaerobic  > mafHR+15
+
+computeZones(hrSamples, mafHR) → zones with seconds, minutes, pct filled
+  Takes the raw HR time-series from an activity and bins time spent in each zone.
+
+computeAtlCtl(acts, displayDays=90) → [{date, atl, ctl, form}]
+  Acute Training Load (7-day EMA of daily load).
+  Chronic Training Load (42-day EMA of daily load).
+  Form = CTL - ATL (positive = fresh, negative = fatigued).
+  Used in StatsTab for the form/fitness chart.
+
+computeRacePRs(acts) → [{cat, best, top3, history}]
+  Finds personal records for 5K, 10K, Half Marathon, and Marathon.
+  Matches activities by distance range (5K = 4.5-5.5 km, etc.)
+  Returns best pace, top 3 finishes, and full history for charts.
+
+estimateVO2max(prs) → {vo2max, label, color, basedOn, estimates}
+  Uses Jack Daniels' VO2max formula from race times.
+  Returns VO2max estimate, fitness label, and category colour.
+
+predictRaceTimes(allPRs, recentPRs=[], form=0) → [{cat, predictedSec, ...}]
+  Riegel formula: T2 = T1 × (D2/D1)^1.06
+  Adjusts predictions based on current training form (ATL/CTL).
+
+computeSplits(act) → [{km, splitSec, cumulativeSec, avgHR, elev, source}] | null
+  Derives per-km splits from GPS route + hrSamples.
+  Falls back to estimated splits from avg pace if no GPS data.
+
+computeTierProgress(acts) → [{id, progress, pct, badge, current, next}]
+  Tracks progress across 4 achievement tracks:
+    distance  — cumulative km
+    runs      — total run count
+    streak    — longest streak (days)
+    elevation — cumulative elevation gain (m)
+
+computeYearWrapped(acts, year) → {...}
+  Annual summary: total km/time/elevation, best month, mood breakdown,
+  longest run, fastest pace, "Everests climbed" (elevation ÷ 8849m).
+
+================================================================================
+6. UTILS — TRAINING PLAN (src/utils/trainingPlan.js)
+================================================================================
+
+generatePlan(raceType, raceDate, baseWeeklyKm) → plan object
+
+  Creates a week-by-week marathon training plan from today's next Monday
+  to race day. Plan is stored in localStorage under PLAN_KEY.
+
+  raceType options: "5K" | "10K" | "HM" | "Marathon"
+
+  Peak weekly volume limits (RACE_PEAK):
+    5K:       55 km/week
+    10K:      70 km/week
+    HM:       85 km/week
+    Marathon: 110 km/week
+
+  Minimum base requirement (BASE_MIN) before starting plan:
+    5K:       15 km/week
+    10K:      20 km/week
+    HM:       30 km/week
+    Marathon: 40 km/week
+
+  Plan phases:
+    base   — first 3 weeks, easy runs only, no quality sessions
+    build  — progressive volume with long runs and quality sessions
+    taper  — race-type-specific volume reduction before race
+    race   — race week (25% of peak volume)
+
+  Taper week counts (TAPER_WEEKS):
+    5K: 1 week, 10K: 2 weeks, HM: 2 weeks, Marathon: 3 weeks
+
+  Taper volume factors (TAPER_FACTORS):
+    5K:       [0.60]
+    10K:      [0.75, 0.50]
+    HM:       [0.75, 0.50]
+    Marathon: [0.80, 0.60, 0.40]
+
+  Recovery weeks: every 4th week drops to 72% of previous week's volume.
+  Build weeks: 8% increase per week capped at peak volume.
+
+  Run type slots per week (runTypesForKm):
+    < 30 km/week:  3 easy + 1 long
+    30-50 km/week: 2 easy + 1 long + 1 workout
+    50-70 km/week: 3 easy + 1 long + 1 workout
+    ≥ 70 km/week:  3 easy + 1 long + 2 workouts
+
+  Workout type by phase:
+    base phase:     easy runs only (workouts redistributed as easy)
+    build (non-marathon): "workout" (Tempo Run)
+    build (marathon):     "mp" (Marathon Pace)
+    taper: follows same rules as build
+
+  Long run minimums (LONG_RUN_MIN):
+    5K: 6 km, 10K: 8 km, HM: 10 km, Marathon: 14 km
+
+  Weekly schedule slot assignment (Mon=0 through Sun=6):
+    Sat (5): long run
+    Tue (1): workout 1 (if applicable)
+    Thu (3): workout 2 (if applicable)
+    Easy runs fill: Wed→Fri→Sun→Mon
+
+getWeekDays(planWeek) → [{date, dayOfWeek, day, type, label, icon, color, targetKm}]
+  Expands a plan week into 7 day objects (Mon-Sun).
+  Session types: easy, long, workout, mp, rest
+
+getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form=0)
+  Determines the recommended workout for today based on what's left this week.
+  Counts completed easy/long/workout sessions, finds the remaining priority.
+  Returns pace range (min/max sec/km) and distance target.
+
+  Pace prescriptions:
+    easy:    avgPaceSecKm + 45-75 sec/km (based on form)
+    long:    avgPaceSecKm + 60-90 sec/km
+    workout: avgPaceSecKm - 20 to -40 sec/km (threshold effort)
+    mp:      avgPaceSecKm - 5 to -25 sec/km (marathon goal pace)
+
+getPlanAdherence(plan, weeklyKm) → { adherencePct, weeksCompleted, totalPlanned, totalActual, detail }
+  Compares actual km logged per week vs plan targets for completed weeks.
+  Caps at 120% to prevent outlier distortion.
+  Returns detail array with per-week breakdown.
+
+getPlanWeek(plan, weekKey) → week object | null
+  Returns the plan week matching the given "YYYY-MM-DD" week key.
+
+getPlanWeekNumber(plan, weekKey) → number | null
+  Returns 1-based week number within the plan.
+
+detectBaseKm(weeklyKm) → number
+  Computes the user's current weekly base from the last 4 completed weeks.
+  Used to pre-fill step 3 of PlanBuilderModal.
+  Falls back to 25 km if no history.
+
+detectPeakBaseKm(weeklyKm) → number
+  Scans full run history to find the best 4-week rolling average.
+  Represents the user's fitness ceiling (not just recent base).
+  Used alongside detectBaseKm in the plan wizard to give the user a choice.
+
+classifyEffort(act, refPaceSec, mafHR) → "easy" | "moderate" | "hard" | "unknown"
+  Classifies a run's effort relative to reference pace and MAF heart rate.
+  HR-primary: avgHR vs mafHR thresholds.
+  Pace fallback: delta from fastest recent training pace.
+    easy:     avgHR <= mafHR   OR  pace >= refPace + 45s/km
+    moderate: avgHR <= mafHR+15 OR  pace within -10 to +45s/km of ref
+    hard:     avgHR > mafHR+15 OR  pace > 10s/km faster than ref
+
+checkSessionCompliance(day, act, refPaceSec, mafHR) → {status, label} | null
+  Compares a completed run against the prescribed session for that day.
+  Returns null for rest days or if no run was logged.
+
+  Status values:
+    compliant  — correct effort for the session type
+    too_hard   — prescribed easy/long but ran at hard effort
+    too_easy   — prescribed workout/mp but ran at easy effort
+    short      — long run logged but distance < 80% of target km
+    done       — run logged but effort unknown (no HR + no pace ref)
+
+================================================================================
+7. UTILS — ADAPTIVE COACH (src/utils/adaptiveCoach.js)
+================================================================================
+
+computeGoalHealthScore(plan, analytics, acts) → 0-100 | null
+
+  Composite score measuring how well the user is executing their plan.
+  Returns null when weeksCompleted === 0 (no data yet to score).
+
+  Components (weighted):
+    adherencePct  × 0.40   — km logged vs km planned
+    consistencyPct × 0.30  — % of weeks with ≥ 70% adherence
+    recentScore   × 0.20   — runs in last 14 days (×20, capped at 100)
+    progressScore × 0.10   — completed weeks / total plan weeks
+
+  Maturity factor (prevents false-high early scores):
+    weeksCompleted < 8: scale = 0.65 + (weeksCompleted/8 × 0.35)
+    weeksCompleted ≥ 8: scale = 1.0
+
+  Label thresholds:
+    ≥ 90:  Excellent (green)
+    ≥ 75:  Good (blue)
+    ≥ 60:  Needs Attention (orange)
+    < 60:  At Risk (red)
+
+computeCoachInsights(plan, analytics, acts) → [{type, icon, title, body}]
+
+  Generates contextual coaching insights. Rules checked in order:
+    Strong Consistency:   recent 3-week avg ≥ 90%
+    Falling Behind:       this week pct < 70% (suppressed in taper/race phase)
+    Overreaching:         overall adherence > 110%
+    Accumulated Fatigue:  ≥ 6 consecutive high-compliance weeks (≥90%)
+    Slightly Behind:      adherence 70-89%
+    Consecutive Missed:   ≥ 2 consecutive near-zero weeks (< 30%)
+    No Recent Activity:   no run in ≥ 7 days
+    Long Run Behind:      longest run in cycle < target threshold and ≥ 3 weeks left
+      Marathon threshold: 28 km
+      HM threshold:       16 km
+    On Track:             fallback when no other insights fire
+
+  Insight types: "success" | "warning" | "caution" | "info"
+
+computeAdaptiveReco(plan, analytics) → {status, color, reco}
+
+  Returns a single adaptive recommendation based on current plan phase and adherence.
+
+  Taper phase:    "Taper Phase" — reduce volume as prescribed
+  pct ≥ 90-110%:  "On Track" — continue plan
+  pct > 110%:     "Ahead of Plan" — return to prescribed volume (not increase)
+  pct 70-89%:     "Slightly Behind" — prioritise long run and quality session
+  pct < 70%:      "Behind Plan" — re-engage, do not back-fill missed volume
+
+computeCoachMilestones(plan, acts, analytics) → [{id, icon, label, earned}]
+
+  10 milestones tracked:
+    w20       First 20 km week
+    w30       First 30 km week
+    w40       First 40 km week
+    w50       First 50 km week
+    r13       Long run 13 km+
+    r21       Long run 21 km+
+    r32       Long run 32 km+
+    lrready   Long run ≥ 80% of race distance in current cycle
+    taper     Taper phase started
+    peak      Peak build week completed
+
+computeCatchUpPath(plan, analytics) → catch-up object | null
+
+  Only computed when adherence < 85%. Shows the user how to safely rebuild
+  their volume using the 10% rule (8% per week cap in the implementation).
+
+  Returns:
+    actualCurrentKm   — avg km/week from last 3 completed weeks
+    targetPeakKm      — highest target km in the build/base weeks
+    projectedPeakKm   — projected km after ramping at 8%/week
+    canReachPeak      — whether projection reaches ≥ 90% of target
+    weeksToNearPeak   — how many weeks until 90% of peak is reached
+    buildWeeksLeft    — build/base weeks remaining in the plan
+    nextWeekTarget    — recommended km target for next week
+
+================================================================================
+8. UTILS — FITNESS PROFILE (src/utils/fitnessProfile.js)
+================================================================================
+
+estimateVO2Max(paceSecPerKm) → number
+  Daniels' formula: v = 1000 / (pace/60)
+  VO2max = -4.6 + 0.182258×v + 0.000104×v²
+
+computeFitnessProfile(acts, plan, analytics) → { raceTimes, vo2max, longestRun, currentWeekKm, consistencyPct }
+
+  raceTimes    — Riegel race time predictions for 5K/10K/HM/FM
+                 based on best recent run ≥ 5 km (or ≥ 3 km fallback)
+                 Note: training-pace estimates; actual race is ~10-15% faster
+  vo2max       — Daniels' VO2max estimate from the reference pace
+  longestRun   — longest single run within current plan cycle (or last 180 days)
+  currentWeekKm — total km logged in the current calendar week
+  consistencyPct — % of plan weeks with ≥ 70% adherence
+
+  Riegel formula: T2 = T1 × (D2/D1)^1.06
+
+================================================================================
+9. UTILS — GPS / GPX PARSING (src/utils/gps.js)
+================================================================================
+
+parseGPX(xmlStr, fileName) → Activity | null
+  Parses a GPX file string into a normalized Activity object.
+  - Sanitizes input to prevent XSS (strips script/html tags)
+  - Extracts trackpoints: lat, lon, ele, time, hr (from Garmin extensions)
+  - Computes: distance (haversine), pace, moving time, elevation gain/loss
+  - Downsamples route to MAX_GPX_POINTS (8000) if needed
+  - Derives hrSamples (max 500 evenly-spaced points)
+  - Falls back to 1-hour duration if timestamps are missing
+
+readFileText(file) → Promise<string>
+  Reads a File object as text. Used before parseGPX.
+
+Supported GPX extensions:
+  - Standard GPX 1.1 trackpoints
+  - Garmin TrainingCenterDatabase heart rate extensions
+  - Both <trkpt> and <rtept> elements
+
+================================================================================
+10. UTILS — CANVAS / SHARE CARDS (src/utils/canvas.js)
+================================================================================
+
+6 share card templates (1080×1920px at 0.92 quality):
+
+  velocity    — speed/pace focused card with route art
+  raceday     — race celebration card
+  endurance   — long run achievement card
+  cinematic   — film-style dark card
+  glass       — frosted glass aesthetic
+  minimal     — clean, typography-focused
+
+Each template has a dedicated renderer: cRenderVelocity, cRenderRaceDay, etc.
+
+downloadExport(act, templateId, format) → Promise
+  Renders the selected template to an offscreen canvas and triggers download.
+  format: "jpg" | "png"
+
+exportCustomCard(act, editorState, format) → Promise
+  Renders user-customized card with custom colors, text, and layout settings.
+
+canvasToBlob(canvas, format) → Promise<Blob>
+  Converts canvas to blob for sharing via Web Share API.
+
+drawRouteCanvas(ctx, route, ox, oy, W, H, opts)
+  Draws the GPS route as a styled path on the canvas.
+
+================================================================================
+11. UTILS — FORMATTERS (src/utils/formatters.js)
+================================================================================
+
+fmtKm(km)          → "0.00"            e.g. "42.20"
+fmtPace(sec/km)     → "M:SS"           e.g. "5:30"  ("--:--" if invalid)
+fmtDur(sec)         → "H:MM:SS"/"M:SS" e.g. "1:23:45" or "45:30"
+fmtDate(str)        → "Mon, 1 Jan"     locale en-GB
+fmtDateS(str)       → "Jan 1"          locale en-US
+fmtRaceTime(sec)    → same as fmtDur
+weekOf(ts)          → "YYYY-MM-DD"     Monday of the week containing ts
+monthOf(ts)         → "YYYY-MM"
+greet()             → time-of-day greeting ("Good morning" / "afternoon" / "evening")
+todayKey()          → "YYYY-MM-DD"     today's date
+
+================================================================================
+12. UTILS — NOTIFICATIONS (src/utils/notifications.js)
+================================================================================
+
+Uses the browser Notifications API (requires user permission).
+
+checkAndNotify(acts, goals)
+  Called once per app load. Checks a "last notified" date so it only fires once/day.
+
+  Notification triggers:
+    Streak at risk: user has an active streak but hasn't run in 2+ days.
+      → "Your X-day streak is at risk — go for a run today!"
+    Weekly goal nudge: it's Fri/Sat/Sun and the user is within 40% of their
+      weekly km goal but hasn't reached it.
+      → "X km to go for your weekly goal. You can do it!"
+
+  Helper functions:
+    notifSupported()  → bool
+    notifPermission() → "granted"|"denied"|"default"
+    notifEnabled()    → bool (user toggle in settings)
+    showNotif(title, body) → void
+
+================================================================================
+13. UTILS — SESSION COMPLIANCE (src/utils/trainingPlan.js)
+================================================================================
+
+These functions check whether a logged run matches what the training plan prescribed.
+
+classifyEffort(act, refPaceSec, mafHR) → "easy" | "moderate" | "hard" | "unknown"
+
+  Priority:
+    1. HR-based (if avgHR and mafHR both exist):
+       avgHR <= mafHR        → easy
+       avgHR <= mafHR + 15   → moderate
+       avgHR > mafHR + 15    → hard
+    2. Pace-based (if refPaceSec and avgPaceSecKm exist):
+       pace >= refPace + 45s → easy
+       pace >= refPace - 10s → moderate
+       faster                → hard
+    3. If neither: "unknown"
+
+  refPaceSec = fastest run ≥ 3km logged in the last 90 days
+  mafHR      = 180 - age + modifier (from HR profile)
+
+checkSessionCompliance(day, act, refPaceSec, mafHR) → { status, label } | null
+
+  Compares the prescribed day type against the actual run's effort.
+  Returns null for rest days or days with no logged run.
+
+  Rules:
+    easy day  + hard effort   → { status:"too_hard", label:"Too hard for an easy day" }
+    easy day  + easy/moderate → { status:"compliant", label:null }
+    long day  + hard effort   → { status:"too_hard", label:"Too hard — long runs should be easy" }
+    long day  + short dist    → { status:"short",    label:"Short — X of Y km" }  (< 80% of targetKm)
+    long day  + correct       → { status:"compliant", label:null }
+    workout/mp + easy effort  → { status:"too_easy", label:"Too easy — missed quality stimulus" }
+    workout/mp + correct      → { status:"compliant", label:null }
+
+  Displayed in MoreTab "This Week" schedule:
+    ✓ (green)  = compliant or done (unknown effort)
+    ⚠ (orange) = too_hard, too_easy, or short
+
+================================================================================
+14. DATABASE LAYER (src/db/indexedDB.js)
+================================================================================
+
+Thin wrapper around the browser's native IndexedDB API. No external library.
+
+Database: "runlytics_db"  version 2
+Stores:
+  "activities"  — all run/walk/hike data, indexed by dateTs and source
+  "photos"      — base64 photo blobs, indexed by activityId
+
+Key exported functions:
+
+  loadActivities() → Promise<Activity[]>
+    Reads all records from the activities store, sorted newest-first by dateTs.
+
+  saveActivity(act) → Promise
+    Upserts a single activity (put by id).
+
+  saveActivitiesBatch(acts) → Promise
+    Upserts multiple activities in one transaction.
+
+  deleteActivity(id) → Promise
+    Deletes an activity record and all associated photos.
+
+  deletePhotosForActivity(actId) → Promise
+    Removes all photo records where activityId === actId.
+
+  clearAllActivities() → Promise
+    Wipes both stores. Used by "clear all data" in settings.
+
+  verifyActivityPersistence(id, expectRoute?) → Promise<{ok, reason}>
+    Reads back a saved activity and confirms fields persisted correctly.
+    Optionally checks that route data was preserved.
+
+  migrateFromLocalStorage() → Promise<bool>
+    One-time migration from the old localStorage array to IndexedDB.
+    Checks IDB_MIGRATED flag to avoid running twice.
+
+  loadActsLegacy() → Promise<Activity[]>
+    Reads the old localStorage format (DATA_KEY). Only used during migration.
+
+================================================================================
+15. STRAVA INTEGRATION (src/db/strava.js)
+================================================================================
+
+OAuth 2.0 flow with Strava API. Tokens are intentionally short-lived in storage.
+
+Token storage strategy:
+  access_token  → sessionStorage only (cleared when tab closes)
+  refresh_token → sessionStorage + localStorage backup (survives restarts)
+  athlete meta  → localStorage (athlete_id, athlete_name, expires_at)
+
+mapStravaActivity(stravaAct) → Activity
+  Converts Strava's API response format to Runlytics' internal Activity shape.
+  Decodes the Strava summary_polyline (Google polyline format) into route points.
+  Maps: distance_m → distanceKm, moving_time → movingTimeSec, etc.
+
+getStravaToken() → string | null
+  Returns current access_token. Checks sessionStorage first, then refreshes
+  if the token is expired.
+
+Sync loop (in App.jsx):
+  Polls every SYNC_INTERVAL_MS (5 min) when Strava is connected.
+  Respects SYNC_COOLDOWN_MS (60s) between syncs.
+  New activities fetched are merged by id (no duplicates).
+
+================================================================================
+16. COMPONENTS — TAB SCREENS
+================================================================================
+
+HomeTab (src/components/Tabs/HomeTab.jsx)
+  Props: acts, analytics, goals, hrProfile, profile, onSelectAct, onUpload,
+         onViewAll, onViewMonthly, onEditGoals, onOpenPlan, onOpenSettings
+  Shows:
+    - Time-of-day greeting with user name
+    - Weekly goal progress bar (km done / km target)
+    - Today's planned workout (if training plan active)
+    - Recent run cards (last 3-5 activities)
+    - Quick action buttons (upload GPX, etc.)
+
+StatsTab (src/components/Tabs/StatsTab.jsx) — lazy loaded
+  Props: acts, analytics, hrProfile, onViewAll, onViewMonthly, onOpenPR,
+         onViewYearReview, onManageShoes
+  Shows:
+    - Personal records (5K/10K/HM/Marathon)
+    - VO2max estimate with category
+    - ATL/CTL/Form chart (training load trends)
+    - Kilometre trends (weekly/monthly chart)
+    - Splits breakdown for recent runs
+    - Shoe tracker summary
+
+CoachTab (src/components/Tabs/CoachTab.jsx) — lazy loaded
+  Props: acts, analytics, hrProfile, plan
+  Note: plan is passed from App.jsx state (not read from localStorage)
+  Shows:
+    - Current goal card (race type, date, weeks remaining)
+    - Goal health score (circular gauge, 0-100, null if week 0)
+    - Plan adherence bar (% of planned km completed)
+    - Weekly volume chart
+    - Coach Insights (contextual tips based on adherence patterns)
+    - Catch-Up Path (only when adherence < 85%)
+    - Fitness Profile (race time predictions, VO2max, longest run)
+    - Adaptive Recommendation (single prioritised action)
+    - Coach Milestones (10 milestone badges)
+    - Today's Workout card
+
+MemoriesTab (src/components/Tabs/MemoriesTab.jsx)
+  Props: acts, onSelectAct, onOpenWrapped
+  Shows:
+    - Activity photo gallery
+    - Memories grouped by month
+    - Mood history timeline
+    - Monthly Wrapped shortcut buttons
+
+AchievementsTab (src/components/Tabs/AchievementsTab.jsx)
+  Props: earnedBadges, acts, analytics, tierProgress, newTiers
+  Shows:
+    - Badge collection (38 badges, earned/unearned states)
+    - 4 tier progress tracks (Distance, Runs, Streak, Elevation)
+    - Tier milestones with 16 named levels (Bronze I → Elite)
+
+MoreTab (src/components/Tabs/MoreTab.jsx)
+  Props: acts, hrProfile, onEditHR, onViewMonthly, onViewYearReview, onOpenPlan
+  Note: reads plan independently from localStorage
+  Shows:
+    - Heart rate zone distribution (last 5 runs with HR)
+    - MAF zone breakdown pie/bar
+    - Streak calendar (last ~35 days)
+    - Training plan card with weekly schedule
+    - Session compliance indicators on each day (✓ / ⚠)
+
+================================================================================
+17. COMPONENTS — MODALS
+================================================================================
+
+All modals are bottom-sheet overlays (position:fixed, bottom-anchored).
+Click-outside-to-close is standard on all modals.
+
+SettingsPanel (src/components/Modals/SettingsPanel.jsx)
+  Not lazy-loaded.
+  Sections: Profile, Goals, Heart Rate, Notifications, Strava, Data Export/Clear
+
+Onboarding (src/components/Modals/Onboarding.jsx)
+  Not lazy-loaded. Shown once on first launch.
+  Steps: Name → Goals → HR Profile → Import / Strava
+
+PlanBuilderModal (src/components/Modals/PlanBuilderModal.jsx) — lazy
+  Props: acts, analytics, onClose, onPlanChange
+  Wizard steps:
+    1. Race type selection (5K/10K/HM/Marathon cards)
+    2. Race date picker (min 8 weeks out, max 52 weeks)
+    3. Weekly base km (with "Recent" and "Peak" shortcuts)
+  After generation: shows current plan weeks, phase chart, adherence bar
+  onPlanChange: callback to App.jsx to update shared plan state reactively
+
+MonthlyReport (src/components/Modals/MonthlyReport.jsx) — lazy
+  Props: acts, onClose
+  Shows stats for a selected month (totals, pace distribution, best run)
+
+MonthlyWrapped (src/components/Modals/MonthlyWrapped.jsx) — lazy
+  Props: acts, yearMonth, onClose, onSelectAct
+  Styled summary card for sharing monthly highlights
+
+YearInReview (src/components/Modals/YearInReview.jsx) — lazy
+  Props: acts, onClose
+  Full annual recap (uses computeYearWrapped from analytics.js)
+
+PRDetailModal (src/components/Modals/PRDetailModal.jsx)
+  Not lazy-loaded.
+  Props: entry, onClose, onOpenRun
+  Shows PR history chart, best run detail
+
+ShoeTracker (src/components/Modals/ShoeTracker.jsx) — lazy
+  Props: acts, onClose
+  Features: add/edit/retire shoes, mileage tracking, wear warning at 85% of max km
+
+DebugPanel (src/components/Modals/DebugPanel.jsx)
+  Not lazy-loaded. Developer tool, hidden behind tap sequence.
+  Props: acts, onClose, onRepairRoutes
+  Shows: raw data, route repair tool, IndexedDB stats
+
+================================================================================
+18. COMPONENTS — ACTIVITY
+================================================================================
+
+Detail (src/components/Activity/Detail.jsx)
+  Props: act, hrProfile, onClose, onDelete, onShare
+  Full activity detail view:
+    - Route map (SVG)
+    - Stats (distance, pace, HR, elevation)
+    - Per-km splits with HR
+    - HR zone breakdown for this run
+    - Journal tab (notes, mood, shoe assignment, race info)
+    - Share button
+
+Upload (src/components/Activity/Upload.jsx)
+  Props: acts, onAdd, onClearAll
+  GPX file import with drag-and-drop.
+  Validates, parses, and deduplicates by id before saving.
+
+AllRunsView (src/components/Activity/AllRunsView.jsx)
+  Props: acts, onSelectAct, onClose
+  Scrollable list of all activities with search/filter.
+
+JournalTab (src/components/Activity/JournalTab.jsx)
+  Props: act, onPatch
+  Inline editor for notes, mood picker, shoe selector, race toggle.
+
+================================================================================
+19. COMPONENTS — SHARE
+================================================================================
+
+ShareModal (src/components/Share/ShareModal.jsx) — lazy
+  Props: act, onClose, onOpenEditor
+  Template picker (6 card styles), download, and native share.
+
+ShareEditor (src/components/Share/ShareEditor.jsx) — lazy
+  Props: act, onClose
+  Custom card builder: adjust colors, text, layout.
+  mergeEditorState(saved) — merges saved preferences with defaults.
+
+ShareCard (src/components/Share/ShareCard.jsx)
+  Exports: ShareCard, StatRow
+  HTML-based card previews for the template picker.
+
+================================================================================
+20. COMPONENTS — MAP & COMMON
+================================================================================
+
+RouteMapSVG (src/components/Map/RouteMapSVG.jsx)
+  Props: route, act
+  Full-size SVG route visualization with elevation colouring.
+
+MiniRoute (src/components/Map/MiniRoute.jsx)
+  Props: route, W=160, H=110, glowColor='#f97316', bgColor=null
+  Small route thumbnail with glow effect. Used in activity cards.
+
+MiniMapThumb (src/components/Map/MiniMapThumb.jsx)
+  React.memo. Props: route, color.
+  Smallest route thumbnail for list views.
+
+CalendarHeatmap (src/components/CalendarHeatmap.jsx)
+  Props: acts
+  GitHub-style activity heatmap (last ~52 weeks).
+
+Ring (src/components/common/Ring.jsx)
+  Props: pct=0, size=64, color="var(--or)", children, sw=7
+  Circular SVG progress indicator.
+
+SH (src/components/common/SH.jsx)
+  Props: title, sub
+  Styled section header used across modals and tabs.
+
+ErrorBoundary (src/components/common/ErrorBoundary.jsx)
+  Class component. Catches render errors, shows reload prompt.
+
+================================================================================
+21. CONSTANTS & CONFIG
+================================================================================
+
+src/constants/config.js — UI behaviour tunables:
+  SYNC_COOLDOWN_MS    = 60,000ms    Min time between Strava syncs
+  SYNC_INTERVAL_MS    = 300,000ms   Automatic sync poll interval (5 min)
+  PULL_THRESHOLD_PX   = 60px        Pull distance to trigger refresh
+  PULL_MAX_PX         = 110px       Max visual pull distance
+  UNDO_WINDOW_MS      = 3,500ms     Time to undo a delete action
+  MAX_PHOTO_MB        = 10 MB       Max photo upload size
+  ROUTE_MAX_PTS       = 500         Max GPS points stored per activity
+  TOAST_DURATION_MS   = 4,000ms     Toast notification display time
+
+src/constants/limits.js — file processing limits:
+  MAX_GPX_BYTES       = 10 MB
+  MAX_GPX_POINTS      = 8,000       Points before downsampling
+  GPX_FALLBACK_SEC    = 3,600s      Default duration when timestamps missing
+  REFRESH_TOKEN_MAX_AGE_MS = 14d    Max age before re-auth required
+  DEFAULT_SHOE_MAX_KM = 600 km      Default shoe lifespan
+  SHOE_WARN_THRESHOLD = 0.85        Warn at 85% of shoe max km
+
+src/constants/activityTypes.js — run types, colours, and tab config:
+  ACT_ICN   — emoji icons per activity type (Run, Walk, Hike, TrailRun, VirtualRun)
+  ACT_CLR   — CSS variable colours per type
+  IC, IC_BG, IC_BD — training intensity colour sets
+  TABS      — 6-element array defining the bottom nav
+
+================================================================================
+22. ACHIEVEMENTS & TIERS
+================================================================================
+
+src/constants/achievements.js
+
+TIER_TRACKS — 4 progression tracks, each with ~12 thresholds:
+  distance   — cumulative km: 10, 25, 50, 100, 250, 500, 1000, 2000, 3000, 5000, 7500 km
+  runs       — total runs:    5, 10, 20, 50, 100, 200, 365, 500, 750, 1000, 1500 runs
+  streak     — longest streak: 3, 5, 7, 14, 21, 30, 60, 90, 180, 365, 500 days
+  elevation  — cumulative gain: 500m, 1000m, 2500m, 5000m, ... 250,000m
+
+TIER_NAMES — 16 named tiers: Bronze I → Bronze III → Silver I → ... → Elite
+TIER_COLS  — gradient colour for each tier level
+
+BADGE_DEFS — 38 individual badges (select examples):
+  first_run    — Log your first activity
+  km_10        — Run 10 km total
+  km_50/100/500 — Distance milestones
+  streak_3/7   — Multi-day streaks
+  long_10/21/42 — Single-run distance achievements
+  early_bird   — Run before 7am
+  night_owl    — Run after 9pm
+  consistent_4 — 4+ runs in a week
+  elevation_1000 — 1000m gain in a single run
+  maf_master   — Complete a MAF HR session
+
+computeEarnedBadges(acts) → string[]
+  Evaluates all badge check functions against the activity array.
+  Returns array of earned badge ids. Saved to localStorage under BADGES_KEY.
+
+================================================================================
+23. STATE MANAGEMENT (App.jsx)
+================================================================================
+
+App.jsx is the single source of truth for all global state.
+
+Key state variables:
+  acts          Activity[]    All activities (from IndexedDB)
+  analytics     object        buildAnalytics(acts) result — recomputed on acts change
+  goals         object        {weekly, monthly} km targets
+  hrProfile     object        {age, modifier, overrideMAF}
+  profile       object        {name}
+  plan          object|null   Training plan (lifted from localStorage to React state)
+  earnedBadges  string[]      Computed from acts via computeEarnedBadges
+  tierProgress  array         computeTierProgress(acts) result
+  stravaAuth    object|null   OAuth credentials
+  theme         string        "light" | "dark"
+  tab           string        Current tab id
+  toast         object|null   Active toast notification
+  showPlanBuilder  bool       Plan builder modal open state
+  showDebug     bool          Debug panel open state
+
+Computed (useMemo):
+  analytics         = buildAnalytics(acts)           — deps: [acts]
+  tierProgress      = computeTierProgress(acts)      — deps: [acts]
+  earnedBadgesSet   = new Set(computeEarnedBadges(acts))
+
+Plan state is lifted to App.jsx so:
+  - CoachTab receives plan as a prop (no stale localStorage read)
+  - PlanBuilderModal calls onPlanChange(plan) to sync back to App state
+  - Any component that needs plan gets a consistent, reactive reference
+
+Toast system:
+  setToast({msg, icon})  — shows a toast for TOAST_DURATION_MS
+  Auto-clears via useRef timer
+
+Pull-to-refresh:
+  Touch events tracked via onTouchStart/Move/End on the main container.
+  Triggers either Strava sync (if connected) or a manual reload message.
+
+Undo delete:
+  Deleted activity stored in undoRef for UNDO_WINDOW_MS.
+  "Undo" toast button re-inserts the activity before the window expires.
+
+================================================================================
+24. FILE STRUCTURE
+================================================================================
+
+  runlytics/
+  ├── index.html
+  ├── vite.config.js
+  ├── package.json
+  ├── RUNLYTICS_DOCS.txt          ← this file
+  ├── src/
+  │   ├── main.jsx                Entry point
+  │   ├── App.jsx                 Root component, global state
+  │   ├── styles/
+  │   │   └── GlobalStyles.jsx    CSS variables, reset, component styles
+  │   ├── constants/
+  │   │   ├── activityTypes.js    Tab config, run type colours
+  │   │   ├── achievements.js     38 badges, 4 tier tracks
+  │   │   ├── canvas.js           Share card template constants
+  │   │   ├── config.js           UI behaviour constants
+  │   │   ├── keys.js             All localStorage/IndexedDB key names
+  │   │   └── limits.js           File size and processing limits
+  │   ├── db/
+  │   │   ├── indexedDB.js        Activity/photo storage (IndexedDB)
+  │   │   └── strava.js           Strava OAuth + activity mapping
+  │   ├── utils/
+  │   │   ├── activity.js         Activity normalization, classifyRun
+  │   │   ├── analytics.js        Stats, PRs, VO2max, zones, ATL/CTL
+  │   │   ├── adaptiveCoach.js    Health score, insights, milestones
+  │   │   ├── canvas.js           Share card rendering (6 templates)
+  │   │   ├── fitnessProfile.js   Riegel race predictions, VO2max
+  │   │   ├── formatters.js       Date/pace/distance formatters
+  │   │   ├── gps.js              GPX parsing
+  │   │   ├── notifications.js    Push notification logic
+  │   │   ├── trainingPlan.js     Plan generation, adherence, compliance
+  │   │   └── wrapped.js          Monthly summary computation
+  │   └── components/
+  │       ├── Tabs/
+  │       │   ├── HomeTab.jsx
+  │       │   ├── StatsTab.jsx         lazy
+  │       │   ├── CoachTab.jsx         lazy
+  │       │   ├── MemoriesTab.jsx
+  │       │   ├── AchievementsTab.jsx
+  │       │   └── MoreTab.jsx
+  │       ├── Activity/
+  │       │   ├── Detail.jsx
+  │       │   ├── Upload.jsx
+  │       │   ├── AllRunsView.jsx
+  │       │   └── JournalTab.jsx
+  │       ├── Modals/
+  │       │   ├── SettingsPanel.jsx
+  │       │   ├── Onboarding.jsx
+  │       │   ├── MonthlyReport.jsx    lazy
+  │       │   ├── MonthlyWrapped.jsx   lazy
+  │       │   ├── YearInReview.jsx     lazy
+  │       │   ├── PRDetailModal.jsx
+  │       │   ├── PlanBuilderModal.jsx lazy
+  │       │   ├── ShoeTracker.jsx      lazy
+  │       │   └── DebugPanel.jsx
+  │       ├── Share/
+  │       │   ├── ShareModal.jsx       lazy
+  │       │   ├── ShareEditor.jsx      lazy
+  │       │   └── ShareCard.jsx
+  │       ├── Map/
+  │       │   ├── RouteMapSVG.jsx
+  │       │   ├── MiniRoute.jsx
+  │       │   └── MiniMapThumb.jsx
+  │       ├── common/
+  │       │   ├── ErrorBoundary.jsx
+  │       │   ├── Ring.jsx
+  │       │   └── SH.jsx
+  │       └── CalendarHeatmap.jsx
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================
