@@ -155,7 +155,7 @@ export function MoreTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview,
                   </div>
                   {currentWeekDays.map(day=>{
                     const isToday=day.date===todayDate;
-                    const isDone=day.type!=='rest'&&acts.some(a=>a.date===day.date&&a.runClass===day.type);
+                    const isDone=day.type!=='rest'&&acts.some(a=>a.date===day.date);
                     return(
                       <div key={day.date} style={{
                         display:'flex',alignItems:'center',gap:10,
