@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { PLAN_KEY } from '../../constants/keys.js';
-import { generatePlan, detectBaseKm, getPlanWeekNumber, getWeekDays } from '../../utils/trainingPlan.js';
+import { generatePlan, detectBaseKm, detectPeakBaseKm, getPlanWeekNumber, getWeekDays } from '../../utils/trainingPlan.js';
 import { weekOf, fmtKm } from '../../utils/formatters.js';
 
 const RACES = [
@@ -40,6 +40,8 @@ export function PlanBuilderModal({ acts, analytics, onClose }) {
   const existingPlan = useMemo(() => {
     try { return JSON.parse(localStorage.getItem(PLAN_KEY) || 'null'); } catch { return null; }
   }, []);
+
+  const peakKm = useMemo(() => detectPeakBaseKm(analytics?.weeklyKm || []), [analytics]);
 
   const [view, setView] = useState(existingPlan ? 'existing' : 'wizard');
   const [step, setStep] = useState(1);
@@ -270,9 +272,21 @@ export function PlanBuilderModal({ acts, analytics, onClose }) {
               {step === 3 && (
                 <div style={{ animation: 'fadeUp .22s ease both' }}>
                   <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--tx2)', marginBottom: 4 }}>Confirm your current fitness</div>
-                  <div style={{ fontSize: '.72rem', color: 'var(--tx3)', marginBottom: 20 }}>Based on your last 4 weeks of training</div>
+                  <div style={{ fontSize: '.72rem', color: 'var(--tx3)', marginBottom: 20 }}>Set your starting base — use Recent (last 4 weeks) or Peak (best 4-week stretch)</div>
                   <div style={{ padding: '16px', borderRadius: 14, background: 'var(--s2)', border: '1px solid var(--bd)' }}>
                     <div style={{ fontSize: '.68rem', color: 'var(--tx3)', marginBottom: 8 }}>Weekly base (km)</div>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                      <button
+                        onClick={() => setBaseKm(detectBaseKm(analytics?.weeklyKm || []))}
+                        style={{ flex: 1, padding: '7px 0', borderRadius: 10, border: '1px solid var(--bd)', background: 'var(--s3)', color: 'var(--tx2)', fontSize: '.7rem', cursor: 'pointer' }}>
+                        Recent<br/><strong style={{ color: 'var(--tx)' }}>{detectBaseKm(analytics?.weeklyKm || [])} km</strong>
+                      </button>
+                      <button
+                        onClick={() => setBaseKm(peakKm)}
+                        style={{ flex: 1, padding: '7px 0', borderRadius: 10, border: '1px solid var(--or)', background: 'rgba(249,115,22,.08)', color: 'var(--tx2)', fontSize: '.7rem', cursor: 'pointer' }}>
+                        Peak<br/><strong style={{ color: 'var(--or)' }}>{peakKm} km</strong>
+                      </button>
+                    </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <button
                         onClick={() => setBaseKm(k => Math.max(10, parseFloat((k - 2.5).toFixed(1))))}

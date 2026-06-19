@@ -5,7 +5,7 @@ import { getPlanWeek, getPlanWeekNumber, getPlanAdherence } from '../../utils/tr
 import { computeFitnessProfile, estimateVO2Max } from '../../utils/fitnessProfile.js';
 import {
   computeGoalHealthScore, computeCoachInsights,
-  computeAdaptiveReco, computeCoachMilestones,
+  computeAdaptiveReco, computeCoachMilestones, computeCatchUpPath,
 } from '../../utils/adaptiveCoach.js';
 
 function fmtSec(sec) {
@@ -50,6 +50,7 @@ export function CoachTab({ acts, analytics, hrProfile }) {
   const health        = useMemo(() => computeGoalHealthScore(plan, analytics, acts), [plan, analytics, acts]);
   const milestones    = useMemo(() => computeCoachMilestones(plan, acts, analytics), [plan, acts, analytics]);
   const fitness       = useMemo(() => computeFitnessProfile(acts, plan, analytics),  [acts, plan, analytics]);
+  const catchUp       = useMemo(() => computeCatchUpPath(plan, analytics),            [plan, analytics]);
 
   const [showFitnessTest, setShowFitnessTest] = useState(false);
   const [testInput, setTestInput] = useState({ distKm: '', timeMin: '' });
@@ -221,6 +222,37 @@ export function CoachTab({ acts, analytics, hrProfile }) {
               <div style={{ fontSize: '.76rem', color: 'var(--tx2)', lineHeight: 1.55 }}>{ins.body}</div>
             </div>
           ))}
+        </section>
+      )}
+
+      {/* Section 4b — Catch-Up Path (only when behind) */}
+      {plan && catchUp && (
+        <section style={{ marginBottom: 22 }}>
+          <SectionLabel>📈 Catch-Up Path</SectionLabel>
+          <Card>
+            <div style={{ fontSize: '.72rem', color: 'var(--tx3)', marginBottom: 12 }}>
+              Based on your actual recent running, here's your safe ramp to plan peak volume.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--tx)' }}>{catchUp.actualCurrentKm}</div>
+                <div style={{ fontSize: '.6rem', color: 'var(--tx3)' }}>Current km/wk</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--or)' }}>{catchUp.nextWeekTarget}</div>
+                <div style={{ fontSize: '.6rem', color: 'var(--tx3)' }}>Next week target</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: catchUp.canReachPeak ? '#22c55e' : '#ef4444' }}>{catchUp.targetPeakKm}</div>
+                <div style={{ fontSize: '.6rem', color: 'var(--tx3)' }}>Plan peak</div>
+              </div>
+            </div>
+            <div style={{ fontSize: '.76rem', color: 'var(--tx2)', lineHeight: 1.5 }}>
+              {catchUp.canReachPeak
+                ? `At 8% weekly build you can reach plan peak volume in ~${catchUp.weeksToNearPeak} week${catchUp.weeksToNearPeak === 1 ? '' : 's'}. Start this week at ${catchUp.nextWeekTarget} km.`
+                : `At 8% weekly build you'll reach ~${catchUp.projectedPeakKm} km — ${Math.round((1 - catchUp.projectedPeakKm / catchUp.targetPeakKm) * 100)}% short of plan peak. Focus on consistency rather than closing the gap fast.`}
+            </div>
+          </Card>
         </section>
       )}
 

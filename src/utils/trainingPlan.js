@@ -117,6 +117,22 @@ export function detectBaseKm(weeklyKm) {
   return parseFloat((complete.reduce((s, w) => s + w.km, 0) / complete.length).toFixed(1));
 }
 
+export function detectPeakBaseKm(weeklyKm) {
+  if (!weeklyKm || !weeklyKm.length) return 25;
+  const today = weekOf(Date.now());
+  const complete = weeklyKm.filter(w => w.week < today);
+  if (!complete.length) return 25;
+  if (complete.length < 4) {
+    return parseFloat((complete.reduce((s, w) => s + w.km, 0) / complete.length).toFixed(1));
+  }
+  let peak = 0;
+  for (let i = 3; i < complete.length; i++) {
+    const avg = (complete[i].km + complete[i-1].km + complete[i-2].km + complete[i-3].km) / 4;
+    if (avg > peak) peak = avg;
+  }
+  return parseFloat(peak.toFixed(1));
+}
+
 export function getPlanWeek(plan, weekKey) {
   if (!plan || !plan.weeks) return null;
   return plan.weeks.find(w => w.week === weekKey) || null;

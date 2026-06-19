@@ -204,3 +204,43 @@ export function computeCoachMilestones(plan, acts, analytics) {
     earned: !!m.check(wkm, acts, plan, today),
   }));
 }
+
+export function computeCatchUpPath(plan, analytics) {
+  if (!plan || !analytics.weeklyKm) return null;
+  const adh = getPlanAdherence(plan, analytics.weeklyKm);
+  if (!adh || adh.adherencePct >= 85) return null;
+
+  const today = weekOf(Date.now());
+  const recentActual = (analytics.weeklyKm || []).filter(w => w.week < today).slice(-3);
+  if (!recentActual.length) return null;
+  const actualCurrentKm = recentActual.reduce((s, w) => s + w.km, 0) / recentActual.length;
+
+  const buildWeeks = plan.weeks.filter(w => w.phase === 'build' || w.phase === 'base');
+  const peakTarget = buildWeeks.length
+    ? Math.max(...buildWeeks.map(w => w.targetKm))
+    : plan.baseWeeklyKm * 1.5;
+  const buildWeeksLeft = plan.weeks.filter(
+    w => w.week >= today && w.phase !== 'taper' && w.phase !== 'race'
+  ).length;
+  if (buildWeeksLeft <= 0) return null;
+
+  let projected = actualCurrentKm;
+  for (let i = 0; i < buildWeeksLeft; i++) projected = Math.min(projected * 1.08, peakTarget);
+
+  let weeksToNearPeak = null;
+  let sim = actualCurrentKm;
+  for (let i = 0; i < buildWeeksLeft; i++) {
+    sim = Math.min(sim * 1.08, peakTarget);
+    if (sim >= peakTarget * 0.9) { weeksToNearPeak = i + 1; break; }
+  }
+
+  return {
+    actualCurrentKm: parseFloat(actualCurrentKm.toFixed(1)),
+    targetPeakKm:    parseFloat(peakTarget.toFixed(1)),
+    projectedPeakKm: parseFloat(projected.toFixed(1)),
+    canReachPeak:    projected >= peakTarget * 0.9,
+    weeksToNearPeak,
+    buildWeeksLeft,
+    nextWeekTarget:  parseFloat(Math.min(actualCurrentKm * 1.08, peakTarget).toFixed(1)),
+  };
+}
