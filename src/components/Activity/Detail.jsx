@@ -46,11 +46,12 @@ export function Detail({act,hrProfile,onClose,onDelete,onShare}){
   const col=ACT_CLR[actState.type]||"#6b7280";
   const mafHR=getMafHR(hrProfile);
   const zones=actState.hrSamples&&actState.hrSamples.length?computeZones(actState.hrSamples,mafHR):null;
-  const shoes=useMemo(()=>{try{return JSON.parse(localStorage.getItem(SHOES_KEY)||'{}');}catch{return{};}
+  const shoes=useMemo(()=>{try{return JSON.parse(localStorage.getItem(SHOES_KEY)||'[]');}catch{return[];}
   },[]);
   const shoeLabel=useMemo(()=>{
-    if(!actState.shoeId||!shoes[actState.shoeId])return null;
-    const s=shoes[actState.shoeId];
+    if(!actState.shoeId)return null;
+    const s=(shoes||[]).find(s=>s.id===actState.shoeId);
+    if(!s)return null;
     return(`${s.brand||''} ${s.model||''}`.trim()||null);
   },[actState.shoeId,shoes]);
 

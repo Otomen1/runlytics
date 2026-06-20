@@ -49,8 +49,11 @@ export function JournalTab({ act, onPatch }) {
   const [lightbox, setLightbox] = useState(null);
   const [lightboxUrl, setLightboxUrl] = useState(null);
   const [goalInput, setGoalInput] = useState(() => fmtGoalTime(act.raceGoalSec));
-  const fileInputRef = useRef(null);
-  const debounceRef  = useRef(null);
+  const fileInputRef   = useRef(null);
+  const debounceRef    = useRef(null);
+  const pendingNotes   = useRef(null);
+  const onPatchRef     = useRef(onPatch);
+  useEffect(() => { onPatchRef.current = onPatch; }, [onPatch]);
 
   const shoes = useMemo(() => {
     try { return JSON.parse(localStorage.getItem(SHOES_KEY) || '[]'); } catch { return []; }
@@ -71,10 +74,21 @@ export function JournalTab({ act, onPatch }) {
     return () => { if (lightboxUrl) URL.revokeObjectURL(lightboxUrl); };
   }, [lightboxUrl]);
 
+  useEffect(() => () => {
+    if (debounceRef.current && pendingNotes.current !== null) {
+      clearTimeout(debounceRef.current);
+      onPatchRef.current({ notes: pendingNotes.current });
+    }
+  }, []);
+
   const handleNotes = e => {
     const notes = e.target.value;
+    pendingNotes.current = notes;
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => onPatch({ notes }), 600);
+    debounceRef.current = setTimeout(() => {
+      onPatch({ notes });
+      pendingNotes.current = null;
+    }, 600);
   };
 
   const handleGoalBlur = () => {

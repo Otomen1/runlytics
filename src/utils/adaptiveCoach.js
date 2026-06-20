@@ -215,6 +215,7 @@ export function computeCatchUpPath(plan, analytics) {
   const recentActual = (analytics.weeklyKm || []).filter(w => w.week < today).slice(-3);
   if (!recentActual.length) return null;
   const actualCurrentKm = recentActual.reduce((s, w) => s + w.km, 0) / recentActual.length;
+  if (actualCurrentKm === 0) return null;
 
   const buildWeeks = plan.weeks.filter(w => w.phase === 'build' || w.phase === 'base');
   const peakTarget = buildWeeks.length

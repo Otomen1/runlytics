@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspens
 import {
   loadActivities, saveActivity, saveActivitiesBatch,
   deleteActivity, deletePhotosForActivity, clearAllActivities, verifyActivityPersistence,
-  migrateFromLocalStorage, loadActsLegacy,
+  migrateFromLocalStorage, loadActsLegacy, cleanupOrphanedPhotos,
 } from './db/indexedDB.js';
 import { loadStravaAuth, saveStravaAuth, clearStravaAuth, getStravaToken, mapStravaActivity } from './db/strava.js';
 
@@ -138,6 +138,12 @@ const App=()=>{
   const pullStartRef=useRef(null);
   const scrollRef=useRef(null);
 
+  useEffect(()=>{
+    const h=()=>{setStravaAuth(null);setStravaSync({loading:false,msg:'Session expired — reconnect Strava'});};
+    window.addEventListener('strava-auth-expired',h);
+    return()=>window.removeEventListener('strava-auth-expired',h);
+  },[]);
+
   const isSyncingRef=useRef(false),lastSyncRef=useRef(0),isRepairingRef=useRef(false);
   // Undo-delete: hold a pending delete in memory for 3 s before committing to IDB
   const pendingDeleteRef=useRef(null);
@@ -210,6 +216,7 @@ const App=()=>{
         await migrateFromLocalStorage();
         const loaded=await loadActivities();
         setActsRaw(loaded);
+        cleanupOrphanedPhotos(new Set(loaded.map(a=>a.id))).catch(()=>{});
       }catch(e){
         console.error("[IDB] init failed — falling back to localStorage:",e.message);
         setStorageError("Storage initialisation failed. Data may not persist across sessions.");
@@ -521,9 +528,9 @@ const App=()=>{
           <div key={tab} className="tab-in"
             style={{transform:`translateY(${pullY}px)`,transition:pullReleasing?"transform .25s ease":"none"}}
             onTransitionEnd={()=>{if(pullReleasing)setPullReleasing(false);}}>
-            {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings} onOpenPlan={()=>setShowPlanBuilder(true)} onOpenSettings={openSettings}/>}
+            {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} plan={plan} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings} onOpenPlan={()=>setShowPlanBuilder(true)} onOpenSettings={openSettings}/>}
             {tab==="stats"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><StatsTab acts={acts} analytics={analytics} hrProfile={hrProfile} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/></Suspense>}
-            {tab==="hr"&&<MoreTab acts={acts} hrProfile={hrProfile} onEditHR={openSettings} onViewMonthly={openMonthly} onViewYearReview={openYearReview} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
+            {tab==="hr"&&<MoreTab acts={acts} hrProfile={hrProfile} plan={plan} onEditHR={openSettings} onViewMonthly={openMonthly} onViewYearReview={openYearReview} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
             {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail} onOpenWrapped={setWrappedMonth}/>}
             {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={newTiers}/>}
             {tab==="coach"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><CoachTab acts={acts} analytics={analytics} hrProfile={hrProfile} plan={plan}/></Suspense>}

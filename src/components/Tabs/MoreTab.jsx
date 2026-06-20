@@ -2,7 +2,6 @@ import React, { useMemo } from 'react';
 import { SH } from '../common/SH.jsx';
 import { Ring } from '../common/Ring.jsx';
 import { getMafHR, getMafZones, computeZones } from '../../utils/analytics.js';
-import { PLAN_KEY } from '../../constants/keys.js';
 import { getPlanAdherence, getPlanWeekNumber, getPlanWeek, getWeekDays, checkSessionCompliance } from '../../utils/trainingPlan.js';
 import { weekOf, fmtKm, todayKey } from '../../utils/formatters.js';
 
@@ -49,9 +48,8 @@ function StreakCalendar({ acts }) {
   );
 }
 
-export function MoreTab({acts,hrProfile,onEditHR,onViewMonthly,onViewYearReview,onOpenPlan}){
+export function MoreTab({acts,hrProfile,plan,onEditHR,onViewMonthly,onViewYearReview,onOpenPlan}){
   const mafHR=getMafHR(hrProfile);
-  const plan=useMemo(()=>{try{return JSON.parse(localStorage.getItem(PLAN_KEY)||'null');}catch{return null;}},[]);
   const todayWeek=weekOf(Date.now());
   const planWeekNum=plan?getPlanWeekNumber(plan,todayWeek):null;
   const planAdherence=useMemo(()=>{

@@ -213,6 +213,17 @@ export async function deletePhotosForActivity(activityId){
   }));
 }
 
+export async function cleanupOrphanedPhotos(validActivityIds){
+  return openIDB().then(db=>new Promise((resolve,reject)=>{
+    const tx=db.transaction(IDB_PHOTOS,"readwrite");
+    const store=tx.objectStore(IDB_PHOTOS);
+    const req=store.getAll();
+    req.onsuccess=()=>{req.result.forEach(photo=>{if(!validActivityIds.has(photo.activityId))store.delete(photo.id);});};
+    tx.oncomplete=()=>resolve();
+    tx.onerror=e=>reject(e.target.error);
+  }));
+}
+
 export function loadActsLegacy(){
   try{
     const raw=localStorage.getItem(DATA_KEY)||"[]";

@@ -176,7 +176,7 @@ const DAY_TYPE_INFO = {
 
 export function getWeekDays(planWeek) {
   if (!planWeek) return [];
-  const { week, targetKm, easy, long, workout, raceType, phase } = planWeek;
+  const { week, targetKm, easy, long, workout, raceType = 'HM', phase } = planWeek;
 
   // Marathon build weeks use MP runs instead of generic tempo
   const wType = (raceType === 'Marathon' && phase === 'build') ? 'mp' : 'workout';
@@ -308,7 +308,7 @@ export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 
 }
 
 export function classifyEffort(act, refPaceSec, mafHR) {
-  if (act.avgHR && mafHR) {
+  if (act.avgHR > 0 && mafHR > 0) {
     if (act.avgHR <= mafHR)       return 'easy';
     if (act.avgHR <= mafHR + 15)  return 'moderate';
     return 'hard';

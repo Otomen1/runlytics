@@ -5,7 +5,6 @@ import { ACT_CLR } from '../../constants/activityTypes.js';
 import { fmtKm, fmtPace, fmtDate, todayKey, greet, weekOf } from '../../utils/formatters.js';
 import { getMafHR, computeAtlCtl, computeRacePRs, estimateVO2max, computeTierProgress } from '../../utils/analytics.js';
 import { getPhotos } from '../../db/indexedDB.js';
-import { PLAN_KEY } from '../../constants/keys.js';
 import { getPlanWeek, getPlanAdherence, getPlanWeekNumber, getTodayWorkout } from '../../utils/trainingPlan.js';
 
 const CONDITIONS = [
@@ -25,7 +24,7 @@ const MOODS_MAP = {
 };
 
 
-export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUpload,onViewAll,onViewMonthly,onEditGoals,onOpenPlan,onOpenSettings}){
+export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct,onUpload,onViewAll,onViewMonthly,onEditGoals,onOpenPlan,onOpenSettings}){
   const lastRun=acts.length?acts.reduce((b,a)=>a.dateTs>b.dateTs?a:b):null;
   const mafHR=getMafHR(hrProfile);
   const racePRs=useMemo(()=>computeRacePRs(acts),[acts]);
@@ -62,7 +61,6 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,onSelectAct,onUp
   },[tierProgress]);
   const memories = useMemo(() => (acts||[]).filter(a => a.mood || a.notes || a.photoCount > 0).slice(0, 5), [acts]);
 
-  const plan = useMemo(()=>{try{return JSON.parse(localStorage.getItem(PLAN_KEY)||'null');}catch{return null;}},[]);
   const todayWeek = weekOf(Date.now());
   const planWeek = plan ? getPlanWeek(plan, todayWeek) : null;
   const planWeekNum = plan ? getPlanWeekNumber(plan, todayWeek) : null;

@@ -58,7 +58,7 @@ export function migrateActivity(a){
     name:String(a.name||"Activity").slice(0,128),
     type:a.type||"Run",
     date:a.date||todayKey(),
-    dateTs:a.dateTs||0,
+    dateTs:a.dateTs||(a.date?new Date(a.date+'T00:00:00').getTime():0),
     distanceKm:isFinite(a.distanceKm)?+a.distanceKm:0,
     movingTimeSec:isFinite(a.movingTimeSec)?+a.movingTimeSec:0,
     avgPaceSecKm:isFinite(a.avgPaceSecKm)&&+a.avgPaceSecKm>0?+a.avgPaceSecKm:0,

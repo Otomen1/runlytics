@@ -56,7 +56,7 @@ export async function getStravaToken(auth){
     const r=await fetch("/api/strava-refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({refresh_token:refreshToken})});
     if(!r.ok){
       // 401 means refresh token is invalid — clear so user reconnects
-      if(r.status===401)clearStravaAuth();
+      if(r.status===401){clearStravaAuth();window.dispatchEvent(new CustomEvent('strava-auth-expired'));}
       return null;
     }
     const data=await r.json();
