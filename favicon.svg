@@ -1,4 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <rect width="64" height="64" rx="14" fill="#f97316"/>
-  <text x="32" y="46" font-size="38" text-anchor="middle" fill="white">⚡</text>
+  <path d="M14 54 L14 10 L34 10 Q44 10 44 21 Q44 32 34 32 L14 32 L50 54"
+    fill="none" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="2" y1="38" x2="8" y2="38" stroke="rgba(255,255,255,0.5)" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="2" y1="44" x2="8" y2="44" stroke="rgba(255,255,255,0.3)" stroke-width="2" stroke-linecap="round"/>
 </svg>
