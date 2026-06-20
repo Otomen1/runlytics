@@ -15,16 +15,14 @@ export function parseGPX(xmlStr,fileName){
   const pfx=`[GPX:${fileName||'?'}]`;
   if(!xmlStr||typeof xmlStr!=="string"||xmlStr.length<30){console.warn(pfx,'empty/short input');return null;}
   if(xmlStr.length>MAX_GPX_BYTES){console.warn(pfx,'file >10MB');return null;}
-  // Strip dangerous content before parsing. Regex catches common patterns; DOMParser
-  // provides the real sandboxing — we never render the parsed DOM as HTML.
-  const sanitized=xmlStr
-    .replace(/<script[\s\S]*?<\/script>/gi,'')
-    .replace(/\bon\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi,'')  // quoted AND unquoted event attrs
-    .replace(/\bjavascript\s*:/gi,'')
-    .replace(/\bdata\s*:\s*text\/html/gi,'');
   try{
+    // Security model: DOMParser with "application/xml" parses the file as an XML
+    // document, NOT as HTML. Scripts never execute; event attributes are inert XML
+    // attributes. We then extract ONLY whitelisted elements (trkpt, rtept, wpt, name,
+    // ele, time, hr, heartrate) via .textContent / .getAttribute() — never innerHTML.
+    // The activity name is capped to 128 chars and treated as a plain string everywhere.
     const parser=new DOMParser();
-    const doc=parser.parseFromString(sanitized,"application/xml");
+    const doc=parser.parseFromString(xmlStr,"application/xml");
     const parseErr=doc.querySelector("parsererror");
     if(parseErr){console.error(pfx,'XML parse error:',parseErr.textContent?.slice(0,200));return null;}
     const nameFallback=fileName?fileName.replace(/\.gpx$/i,"").slice(0,128):"Activity";

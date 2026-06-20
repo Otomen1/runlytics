@@ -4,9 +4,11 @@ import { migrateActivity, decodePolyline, classifyRun } from '../utils/activity.
 
 const SESSION_TOKEN_KEY = STRAVA_ACCESS_KEY;
 
-// Only non-sensitive metadata (athlete name, expires_at, savedAt) goes to localStorage.
-// Both access_token and refresh_token live in sessionStorage — cleared when tab closes.
-// This prevents long-lived credential theft via localStorage (XSS, extensions, devtools).
+// Security model: only non-sensitive metadata (athlete name, expires_at, savedAt) goes to
+// localStorage. BOTH access_token AND refresh_token live in sessionStorage only — cleared
+// when the tab closes. Storing a refresh token in localStorage would grant indefinite
+// Strava access to any script that can read the origin's storage (XSS, extensions).
+// Trade-off: users must re-authenticate after closing the browser tab. Acceptable.
 export function loadStravaAuth(){
   try{
     const base=JSON.parse(localStorage.getItem(STRAVA_KEY)||"null");
@@ -16,8 +18,7 @@ export function loadStravaAuth(){
       return null;
     }
     const sessionToken=sessionStorage.getItem(SESSION_TOKEN_KEY);
-    // Fall back to localStorage so auth survives browser restarts
-    const refreshToken=sessionStorage.getItem(STRAVA_REFRESH_KEY)||localStorage.getItem(STRAVA_REFRESH_LS_KEY)||undefined;
+    const refreshToken=sessionStorage.getItem(STRAVA_REFRESH_KEY)||undefined;
     if(!refreshToken)return null;
     return{...base,access_token:sessionToken||undefined,refresh_token:refreshToken};
   }catch(e){return null;}
@@ -32,7 +33,7 @@ export function saveStravaAuth(a){
     if(access_token)sessionStorage.setItem(SESSION_TOKEN_KEY,access_token);
     if(refresh_token){
       sessionStorage.setItem(STRAVA_REFRESH_KEY,refresh_token);
-      localStorage.setItem(STRAVA_REFRESH_LS_KEY,refresh_token);
+      // Intentionally NOT stored in localStorage — sessionStorage only.
     }
   }catch(e){}
 }

@@ -104,5 +104,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 [data-theme=light] .glass{background:rgba(248,250,252,.96);border-color:rgba(0,0,0,.06);}
 [data-theme=light] .tab-btn{color:#64748b;}
 [data-theme=light] .tab-btn.on{color:var(--or);}
+/* Visually hidden but accessible to screen readers (WCAG 2.4.6) */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border-width:0;}
 `}</style>;
 export { Styles as GlobalStyles };

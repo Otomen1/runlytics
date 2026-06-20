@@ -539,9 +539,9 @@ const App=()=>{
       }
       <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"rgba(6,8,15,.97)",backdropFilter:"blur(16px)",WebkitBackdropFilter:"blur(16px)",borderTop:"1px solid var(--bd)",display:"flex",zIndex:100,paddingBottom:"max(env(safe-area-inset-bottom),4px)"}}>
         {TABS.map(t=>(
-          <button key={t.id} className={"tab-btn"+(tab===t.id?" on":"")} onClick={()=>setTab(t.id)} style={{position:"relative"}}>
-            {t.id==="awards"&&hasUnseen&&<div style={{position:"absolute",top:6,right:"20%",width:7,height:7,borderRadius:"50%",background:"var(--or)",animation:"pulse 1.5s ease infinite"}}/>}
-            <span style={{fontSize:"1.1rem",lineHeight:1}}>{t.icon}</span>
+          <button key={t.id} className={"tab-btn"+(tab===t.id?" on":"")} onClick={()=>setTab(t.id)} style={{position:"relative"}} aria-current={tab===t.id?"page":undefined}>
+            {t.id==="awards"&&hasUnseen&&<div aria-label="New badge earned" style={{position:"absolute",top:6,right:"20%",width:7,height:7,borderRadius:"50%",background:"var(--or)",animation:"pulse 1.5s ease infinite"}}/>}
+            <span aria-hidden="true" style={{fontSize:"1.1rem",lineHeight:1}}>{t.icon}</span>
             {t.label}
           </button>
         ))}
@@ -596,16 +596,18 @@ const App=()=>{
           isOnline={isOnline}
           onStravaConnect={startStravaConnect}/>
       )}
-      {toast&&(
-        <div style={{position:'fixed',bottom:96,left:'50%',transform:'translateX(-50%)',zIndex:400,animation:'fadeUp .3s ease both',pointerEvents:'auto'}}>
-          <div style={{background:'var(--s1)',border:'1.5px solid var(--or)',borderRadius:14,padding:'12px 18px',display:'flex',alignItems:'center',gap:10,boxShadow:'0 6px 28px rgba(0,0,0,.35)',minWidth:200,maxWidth:320}}>
-            <span style={{fontSize:'1.5rem',flexShrink:0}}>{toast.emoji}</span>
-            <span style={{fontWeight:700,fontSize:'.88rem',flex:1,lineHeight:1.4}}>{toast.msg}</span>
-            {toast.undo&&<button onClick={undoDelete} style={{background:'var(--or2)',border:'1px solid var(--or)',color:'var(--or)',borderRadius:8,cursor:'pointer',fontSize:'.8rem',fontWeight:700,fontFamily:'inherit',padding:'4px 10px',flexShrink:0}}>Undo</button>}
-            <button onClick={()=>setToast(null)} style={{background:'none',border:'none',color:'var(--tx3)',cursor:'pointer',fontSize:'.9rem',flexShrink:0,padding:'2px 4px'}}>✕</button>
+      <div aria-live="polite" aria-atomic="true" style={{position:'fixed',bottom:96,left:'50%',transform:'translateX(-50%)',zIndex:400,pointerEvents:toast?'auto':'none'}}>
+        {toast&&(
+          <div style={{animation:'fadeUp .3s ease both'}}>
+            <div style={{background:'var(--s1)',border:'1.5px solid var(--or)',borderRadius:14,padding:'12px 18px',display:'flex',alignItems:'center',gap:10,boxShadow:'0 6px 28px rgba(0,0,0,.35)',minWidth:200,maxWidth:320}}>
+              <span aria-hidden="true" style={{fontSize:'1.5rem',flexShrink:0}}>{toast.emoji}</span>
+              <span style={{fontWeight:700,fontSize:'.88rem',flex:1,lineHeight:1.4}}>{toast.msg}</span>
+              {toast.undo&&<button onClick={undoDelete} style={{background:'var(--or2)',border:'1px solid var(--or)',color:'var(--or)',borderRadius:8,cursor:'pointer',fontSize:'.8rem',fontWeight:700,fontFamily:'inherit',padding:'4px 10px',flexShrink:0}}>Undo</button>}
+              <button onClick={()=>setToast(null)} aria-label="Dismiss notification" style={{background:'none',border:'none',color:'var(--tx3)',cursor:'pointer',fontSize:'.9rem',flexShrink:0,padding:'2px 4px'}}>✕</button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
       {showPlanBuilder&&<Suspense fallback={null}><PlanBuilderModal acts={acts} analytics={analytics} onClose={()=>setShowPlanBuilder(false)} onPlanChange={setPlan}/></Suspense>}
       {showDebug&&<DebugPanel acts={acts} onClose={()=>setShowDebug(false)}
         onRepairRoutes={()=>{

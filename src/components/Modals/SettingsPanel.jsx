@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { getMafZones } from '../../utils/analytics.js';
 import { fmtDur, fmtPace } from '../../utils/formatters.js';
 import { notifSupported, notifPermission, notifEnabled, setNotifEnabled, requestNotifPermission } from '../../utils/notifications.js';
+import { SHOES_KEY, PLAN_KEY } from '../../constants/keys.js';
+
+function lsGet(key){try{return JSON.parse(localStorage.getItem(key)||'null');}catch{return null;}}
+function lsSet(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch(e){}}
 
 export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onImport,onClose,stravaAuth,stravaSync,isOnline,onStravaConnect,onStravaSync,onStravaDisconnect}){
   const[view,setView]=useState("main");
@@ -14,6 +18,14 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
   const[notifPerm,setNotifPerm]=useState(()=>notifPermission());
   const[notifOn,setNotifOn]=useState(()=>notifEnabled());
   const[importMsg,setImportMsg]=useState("");
+  const[quota,setQuota]=useState(null);
+  useEffect(()=>{
+    if(view!=="export")return;
+    if(!navigator.storage?.estimate)return;
+    navigator.storage.estimate().then(({usage,quota:q})=>{
+      setQuota({usedMB:Math.round(usage/1024/1024),totalMB:Math.round(q/1024/1024),pct:Math.round(usage/q*100)});
+    }).catch(()=>{});
+  },[view]);
   const[age,setAge]=useState(hrProfile.age||"");
   const[ov,setOv]=useState(hrProfile.overrideMAF||"");
   const[useOv,setUseOv]=useState(!!hrProfile.overrideMAF);
@@ -105,7 +117,20 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
         {view==="export"&&(
           <div>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>{backBtn}<div className="screen-title">Export & Backup</div></div>
-            <div className="card2" style={{padding:14,borderRadius:12,marginBottom:16}}>
+
+            {/* Storage quota meter */}
+            {quota&&(
+              <div style={{marginBottom:14,padding:"10px 14px",borderRadius:12,background:quota.pct>=80?"rgba(239,68,68,.08)":"var(--s3)",border:`1px solid ${quota.pct>=80?"rgba(239,68,68,.2)":"var(--bd)"}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                  <span style={{fontSize:".76rem",color:"var(--tx2)"}}>Browser storage used</span>
+                  <span style={{fontSize:".76rem",fontWeight:700,color:quota.pct>=80?"var(--rd)":"var(--tx)"}}>{quota.usedMB} MB / {quota.totalMB} MB ({quota.pct}%)</span>
+                </div>
+                <div className="pb"><div className="pf" style={{width:quota.pct+"%",background:quota.pct>=80?"var(--rd)":"var(--or)"}}/></div>
+                {quota.pct>=80&&<div style={{fontSize:".7rem",color:"var(--rd)",marginTop:6}}>⚠️ Storage is nearly full. Export a backup and consider deleting old photos.</div>}
+              </div>
+            )}
+
+            <div className="card2" style={{padding:14,borderRadius:12,marginBottom:14}}>
               {[["Activities",String(acts.length)],["Est. size",Math.round(JSON.stringify(acts).length/1024)+" KB"]].map(([l,v])=>(
                 <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0"}}>
                   <span style={{fontSize:".8rem",color:"var(--tx2)"}}>{l}</span>
@@ -113,15 +138,25 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
                 </div>
               ))}
             </div>
-            <button className="btn b-or" style={{width:"100%",padding:"12px",marginBottom:10}} onClick={()=>{
-              const data=JSON.stringify(acts,null,2);
-              const blob=new Blob([data],{type:"application/json"});
+
+            {/* Full backup: activities + settings */}
+            <button className="btn b-or" style={{width:"100%",padding:"12px",marginBottom:8}} onClick={()=>{
+              const backup={
+                version:2,
+                exportedAt:new Date().toISOString(),
+                activities:acts,
+                settings:{goals,hrProfile,profile,shoes:lsGet(SHOES_KEY),plan:lsGet(PLAN_KEY)},
+              };
+              const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
               const url=URL.createObjectURL(blob);
               const a=document.createElement("a");
               a.href=url;a.download="runlytics-backup-"+new Date().toISOString().slice(0,10)+".json";
               document.body.appendChild(a);a.click();document.body.removeChild(a);
               setTimeout(()=>URL.revokeObjectURL(url),100);
-            }}>⬇️ Export JSON backup</button>
+            }}>⬇️ Export full backup (JSON)</button>
+            <div style={{fontSize:".7rem",color:"var(--tx3)",marginBottom:14,paddingLeft:2}}>Includes activities, goals, HR profile, shoes &amp; training plan</div>
+
+            {/* CSV export: human-readable, activities only */}
             <button className="btn b-gh" style={{width:"100%",padding:"12px",marginBottom:10}} onClick={()=>{
               const headers=['Date','Name','Type','Distance (km)','Time','Pace (min/km)','HR (bpm)','Elevation (m)','Mood','Notes'];
               const rows=acts.map(a=>[
@@ -143,21 +178,40 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
               a.href=url;a.download="runlytics-export-"+new Date().toISOString().slice(0,10)+".csv";
               document.body.appendChild(a);a.click();document.body.removeChild(a);
               setTimeout(()=>URL.revokeObjectURL(url),100);
-            }}>📊 Export CSV</button>
+            }}>📊 Export CSV (activities only)</button>
+
             <div style={{borderTop:"1px solid var(--bd)",paddingTop:16,marginTop:4}}>
               <div style={{fontSize:".76rem",fontWeight:600,marginBottom:8}}>Restore from backup</div>
-              <div style={{fontSize:".74rem",color:"var(--tx2)",marginBottom:12,lineHeight:1.6}}>Import a previously exported JSON file. Existing activities are kept — duplicates are skipped.</div>
+              <div style={{fontSize:".74rem",color:"var(--tx2)",marginBottom:12,lineHeight:1.6}}>Import a previously exported JSON file. Existing activities are kept — duplicates are skipped. Settings are restored from full backups (v2+).</div>
               <label style={{display:"block",width:"100%"}}>
                 <div className="btn b-gh" style={{padding:"12px",textAlign:"center",cursor:"pointer"}}>📂 Choose JSON file</div>
                 <input type="file" accept=".json,application/json" style={{display:"none"}} onChange={async e=>{
                   const file=e.target.files[0];if(!file)return;
-                  if(file.size>10*1024*1024){setImportMsg("✗ File too large (max 10 MB). Make sure you're importing a Runlytics backup file.");e.target.value="";return;}
+                  if(file.size>50*1024*1024){setImportMsg("✗ File too large (max 50 MB).");e.target.value="";return;}
                   try{
                     const text=await file.text();
                     const parsed=JSON.parse(text);
-                    if(!Array.isArray(parsed))throw new Error("Not an array");
-                    onImport(parsed);
-                    setImportMsg("✓ Import started — "+parsed.length+" activities processed");
+                    // Support both v1 (plain array) and v2 (full backup object)
+                    let actList,settings=null;
+                    if(Array.isArray(parsed)){
+                      actList=parsed;
+                    }else if(parsed&&Array.isArray(parsed.activities)){
+                      actList=parsed.activities;
+                      settings=parsed.settings||null;
+                    }else{
+                      throw new Error("Unrecognised format");
+                    }
+                    onImport(actList);
+                    // Restore settings from full backup
+                    if(settings){
+                      if(settings.goals&&typeof settings.goals==='object'){onSaveGoals(settings.goals);}
+                      if(settings.hrProfile&&typeof settings.hrProfile==='object'){onSaveHR(settings.hrProfile);}
+                      if(settings.profile&&typeof settings.profile==='object'){onSaveProfile(settings.profile);}
+                      if(settings.shoes)lsSet(SHOES_KEY,settings.shoes);
+                      if(settings.plan)lsSet(PLAN_KEY,settings.plan);
+                    }
+                    const settingsRestored=settings?", settings restored":"";
+                    setImportMsg(`✓ Import started — ${actList.length} activities processed${settingsRestored}`);
                   }catch(err){void err;setImportMsg("✗ Invalid file. Make sure you're importing a Runlytics JSON backup.");}
                   e.target.value="";
                 }}/>
