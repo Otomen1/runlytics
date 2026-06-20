@@ -583,7 +583,7 @@ const App=()=>{
         onClose={back}/>}
       {showAllRuns&&<AllRunsView acts={acts} onClose={back} onSelectAct={act=>{setShowAllRuns(false);openDetail(act);}}/>}
       {showMonthly&&<Suspense fallback={null}><MonthlyReport acts={acts} onClose={back}/></Suspense>}
-      {wrappedMonth&&<Suspense fallback={null}><MonthlyWrapped acts={acts} yearMonth={wrappedMonth} onClose={()=>setWrappedMonth(null)} onSelectAct={a=>{setWrappedMonth(null);openDetail(a);}}/></Suspense>}
+      {wrappedMonth&&<Suspense fallback={null}><MonthlyWrapped acts={acts} yearMonth={wrappedMonth} plan={plan} analytics={analytics} onClose={()=>setWrappedMonth(null)} onSelectAct={a=>{setWrappedMonth(null);openDetail(a);}}/></Suspense>}
       {showYearReview&&<Suspense fallback={null}><YearInReview acts={acts} onClose={back}/></Suspense>}
       {showShoes&&<Suspense fallback={null}><ShoeTracker acts={acts} onClose={back}/></Suspense>}
       {dbReady&&acts.length===0&&!localStorage.getItem(ONBOARDING_KEY)&&(
