@@ -324,9 +324,12 @@ const App=()=>{
     try{
       const token=await getStravaToken(auth);
       if(!token){setStravaSync({loading:false,msg:"Token refresh failed."});isSyncingRef.current=false;return;}
-      const afterTs=lastSyncRef.current?`&after=${Math.floor(lastSyncRef.current/1000)}`:'';
-      const perPage=lastSyncRef.current?30:100;
-      const r=await fetch(`https://www.strava.com/api/v3/athlete/activities?per_page=${perPage}&page=1${afterTs}`,{headers:{Authorization:"Bearer "+token}});
+      // No `after` filter: Strava sorts desc by start_date, so the 30 most recent
+      // always includes late-uploaded runs (e.g. watch synced hours after the run).
+      // Dedup by ID (existingIds below) makes this safe and idempotent.
+      const hasStrava=actsRef.current.some(a=>a.source==='strava');
+      const perPage=hasStrava?30:100;
+      const r=await fetch(`https://www.strava.com/api/v3/athlete/activities?per_page=${perPage}&page=1`,{headers:{Authorization:"Bearer "+token}});
       if(!r.ok){setStravaSync({loading:false,msg:"Sync failed ("+r.status+")."});isSyncingRef.current=false;return;}
       const data=await r.json();
       const mapped=data.map(mapStravaActivity).filter(Boolean);
@@ -473,6 +476,9 @@ const App=()=>{
           {stravaSync.loading&&<div className="spinner"/>}
           {stravaAuth&&!stravaSync.loading&&stravaSync.msg&&(
             <div style={{fontSize:".68rem",color:"var(--gn)",background:"var(--gn2)",padding:"2px 8px",borderRadius:20,fontWeight:600}}>{stravaSync.msg}</div>
+          )}
+          {stravaAuth&&!stravaSync.loading&&(
+            <button className="hdr-btn" onClick={()=>doStravaSync(false)} aria-label="Sync from Strava" title="Sync from Strava" style={{fontSize:".9rem"}}>🔄</button>
           )}
           <button className="hdr-btn" onClick={()=>setTheme(t=>t==='dark'?'light':'dark')} aria-label="Toggle theme">{theme==='dark'?'☀️':'🌙'}</button>
           <button className="hdr-btn" onClick={openSettings} aria-label="Settings">⚙️</button>
