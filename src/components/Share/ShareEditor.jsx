@@ -48,12 +48,12 @@ function EditorToggle({ label, value, onChange }) {
   return (
     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
       <span style={{ fontSize:'.76rem', color:'rgba(255,255,255,.62)' }}>{label}</span>
-      <div style={{ width:36, height:20, borderRadius:10, background:value?'#f97316':'rgba(255,255,255,.12)',
-        position:'relative', cursor:'pointer', transition:'background .18s', flexShrink:0 }}
-        onClick={() => onChange(!value)}>
+      <button role="switch" aria-checked={value} aria-label={label} onClick={() => onChange(!value)}
+        style={{ width:36, height:20, borderRadius:10, background:value?'#f97316':'rgba(255,255,255,.12)',
+        position:'relative', cursor:'pointer', transition:'background .18s', flexShrink:0, border:'none', padding:0 }}>
         <div style={{ position:'absolute', top:2, left:value?18:2, width:16, height:16, borderRadius:'50%',
           background:'#fff', transition:'left .18s', boxShadow:'0 1px 4px rgba(0,0,0,.35)' }}/>
-      </div>
+      </button>
     </div>
   );
 }
@@ -64,8 +64,8 @@ function SwatchRow({ label, value, onChange, presets }) {
       {label && <div style={{ fontSize:'.68rem', color:'rgba(255,255,255,.4)', letterSpacing:'.08em', marginBottom:8 }}>{label}</div>}
       <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
         {presets.map(c => (
-          <div key={c} onClick={() => onChange(c)} style={{
-            width:22, height:22, borderRadius:'50%', background:c, cursor:'pointer', flexShrink:0,
+          <button key={c} onClick={() => onChange(c)} aria-label={`Color ${c}`} aria-pressed={c === value} style={{
+            width:22, height:22, borderRadius:'50%', background:c, cursor:'pointer', flexShrink:0, padding:0,
             border: c === value ? '2.5px solid #fff' : '2px solid rgba(255,255,255,.1)',
             boxShadow: c === value ? '0 0 0 2px #f97316' : 'none', transition:'box-shadow .15s' }}/>
         ))}

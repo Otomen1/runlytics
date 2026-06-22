@@ -1,13 +1,16 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { fmtKm, fmtPace, fmtDateS, fmtRaceTime } from '../../utils/formatters.js';
+import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 
 export function PRDetailModal({entry,onClose,onOpenRun}){
+  const containerRef = useRef(null);
+  useFocusTrap(containerRef, !!entry);
   if(!entry)return null;
   const{cat,top3,history}=entry;
   const medals=["🥇","🥈","🥉"];
   return(
     <div className="fade-overlay" style={{position:"fixed",inset:0,zIndex:260,background:"rgba(0,0,0,.8)",display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div className="glass sheet" style={{width:"100%",maxWidth:430,borderRadius:"22px 22px 0 0",padding:"20px 18px",paddingBottom:"max(40px,calc(env(safe-area-inset-bottom)+20px))",border:"1px solid var(--bd)",maxHeight:"80vh",overflowY:"auto"}}>
+      <div ref={containerRef} className="glass sheet" style={{width:"100%",maxWidth:430,borderRadius:"22px 22px 0 0",padding:"20px 18px",paddingBottom:"max(40px,calc(env(safe-area-inset-bottom)+20px))",border:"1px solid var(--bd)",maxHeight:"80vh",overflowY:"auto"}}>
         <div style={{width:36,height:4,borderRadius:2,background:"var(--bd2)",margin:"0 auto 14px"}}/>
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
           <span style={{fontSize:"1.4rem"}}>{cat.icon}</span>
@@ -17,9 +20,9 @@ export function PRDetailModal({entry,onClose,onOpenRun}){
         {(!top3||top3.length===0)
           ?<div style={{textAlign:"center",padding:"24px 0",color:"var(--tx2)"}}>No records yet</div>
           :top3.map((r,i)=>(
-            <div key={r.id} className="tap"
-              style={{borderRadius:12,marginBottom:10,padding:"12px 14px",cursor:"pointer",border:"1px solid "+(i===0?cat.color+"50":"var(--bd)"),background:i===0?cat.color+"08":"var(--s2)"}}
-              onClick={()=>{onClose();onOpenRun(r.id);}}>
+            <button key={r.id} className="tap"
+              style={{display:'block',width:'100%',textAlign:'left',background:i===0?cat.color+"08":"var(--s2)",borderRadius:12,marginBottom:10,padding:"12px 14px",cursor:"pointer",border:"1px solid "+(i===0?cat.color+"50":"var(--bd)")}}
+              onClick={()=>{onClose();onOpenRun(r.id);}} aria-label={`View ${r.name}`}>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <span style={{fontSize:"1.3rem"}}>{medals[i]||"🏅"}</span>
                 <div style={{flex:1,minWidth:0}}>
@@ -32,7 +35,7 @@ export function PRDetailModal({entry,onClose,onOpenRun}){
                 </div>
                 <span style={{color:"var(--tx3)",fontSize:".9rem",marginLeft:4}}>›</span>
               </div>
-            </div>
+            </button>
           ))
         }
         <PaceTrend history={history} color={cat.color}/>

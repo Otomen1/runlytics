@@ -9,6 +9,7 @@ import {
 import { loadStravaAuth, saveStravaAuth, clearStravaAuth, getStravaToken, mapStravaActivity } from './db/strava.js';
 
 // ── Utils ────────────────────────────────────────────────────────────────────
+import { lsGetV } from './utils/storage.js';
 import { migrateActivity } from './utils/activity.js';
 import { buildAnalytics, computeTierProgress } from './utils/analytics.js';
 import { computeEarnedBadges } from './constants/achievements.js';
@@ -17,7 +18,7 @@ import { checkAndNotify } from './utils/notifications.js';
 // ── Constants ────────────────────────────────────────────────────────────────
 import {
   GOALS_KEY, HR_KEY, PROFILE_KEY, BADGES_KEY,
-  TAB_KEY, ONBOARDING_KEY, MILESTONES_KEY, THEME_KEY, TIERS_KEY, PLAN_KEY,
+  TAB_KEY, ONBOARDING_KEY, MILESTONES_KEY, THEME_KEY, TIERS_KEY, PLAN_KEY, SHOES_KEY,
 } from './constants/keys.js';
 import { TABS } from './constants/activityTypes.js';
 import {
@@ -43,6 +44,7 @@ import { SettingsPanel } from './components/Modals/SettingsPanel.jsx';
 import { PRDetailModal } from './components/Modals/PRDetailModal.jsx';
 import { DebugPanel }    from './components/Modals/DebugPanel.jsx';
 import { Onboarding }   from './components/Modals/Onboarding.jsx';
+import { LogRunModal }  from './components/Modals/LogRunModal.jsx';
 // Heavy modals — lazy-loaded on first use to keep initial bundle smaller
 const ShareModal     = lazy(()=>import('./components/Share/ShareModal.jsx').then(m=>({default:m.ShareModal})));
 const ShareEditor    = lazy(()=>import('./components/Share/ShareEditor.jsx').then(m=>({default:m.ShareEditor})));
@@ -59,12 +61,12 @@ function lsSet(key,val){
   catch(e){if(_onStorageError&&(e.name==='QuotaExceededError'||e.code===22))_onStorageError('Settings storage full — some preferences may not persist.');}
 }
 function lsGet(key,fallback){try{return JSON.parse(localStorage.getItem(key)||'null')??fallback;}catch{return fallback;}}
-function loadGoals()    { return lsGet(GOALS_KEY,{weekly:40,monthly:160}); }
-function saveGoals(g)   { lsSet(GOALS_KEY,g); }
-function loadHRProfile(){ return lsGet(HR_KEY,{age:30,overrideMAF:null,modifier:0}); }
-function saveHRProfile(p){ lsSet(HR_KEY,p); }
-function loadProfile()  { return lsGet(PROFILE_KEY,{name:'Runner'}); }
-function saveProfile(p) { lsSet(PROFILE_KEY,p); }
+function loadGoals()    { return lsGetV(GOALS_KEY,{weekly:40,monthly:160}); }
+function saveGoals(g)   { lsSet(GOALS_KEY,{__v:1,data:g}); }
+function loadHRProfile(){ return lsGetV(HR_KEY,{age:30,overrideMAF:null,modifier:0}); }
+function saveHRProfile(p){ lsSet(HR_KEY,{__v:1,data:p}); }
+function loadProfile()  { return lsGetV(PROFILE_KEY,{name:'Runner'}); }
+function saveProfile(p) { lsSet(PROFILE_KEY,{__v:1,data:p}); }
 function loadSeenBadges(){ try{return new Set(JSON.parse(localStorage.getItem(BADGES_KEY)||'[]'));}catch{return new Set();} }
 function saveSeenBadges(ids){ lsSet(BADGES_KEY,[...ids]); }
 function loadTheme(){ try{return localStorage.getItem(THEME_KEY)||'dark';}catch{return 'dark';} }
@@ -126,7 +128,8 @@ const App=()=>{
   const[hasUnseen,setHasUnseen]=useState(false);
   const[showDebug,setShowDebug]=useState(false);
   const[showPlanBuilder,setShowPlanBuilder]=useState(false);
-  const[plan,setPlan]=useState(()=>{try{return JSON.parse(localStorage.getItem(PLAN_KEY)||'null');}catch{return null;}});
+  const[showLogRun,setShowLogRun]=useState(false);
+  const[plan,setPlan]=useState(()=>lsGetV(PLAN_KEY,null));
   const[theme,setTheme]=useState(loadTheme);
   const[toast,setToast]=useState(null);
   const toastTimerRef=useRef(null);
@@ -162,6 +165,7 @@ const App=()=>{
     {get:()=>showYearReview, set:()=>setShowYearReview(false)},
     {get:()=>showShoes,      set:()=>setShowShoes(false)},
     {get:()=>showUpload,     set:()=>setShowUpload(false)},
+    {get:()=>showLogRun,     set:()=>setShowLogRun(false)},
   ];
 
   const closeTopModal=useCallback(()=>{
@@ -254,6 +258,7 @@ const App=()=>{
   const openYearReview=useCallback(()=>{history.pushState({_rl:"yr"},"");setShowYearReview(true);},[]);
   const openShoes=useCallback(()=>{history.pushState({_rl:"sh"},"");setShowShoes(true);},[]);
   const openUpload=useCallback(()=>{history.pushState({_rl:"u"},"");setShowUpload(true);},[]);
+  const openLogRun=useCallback(()=>{history.pushState({_rl:"lr"},"");setShowLogRun(true);},[]);
 
   const undoDelete=useCallback(()=>{
     if(!pendingDeleteRef.current)return;
@@ -470,8 +475,9 @@ const App=()=>{
     <div style={{maxWidth:480,margin:"0 auto",minHeight:"100vh",display:"flex",flexDirection:"column",background:"var(--bg)"}}>
       <Styles/>
       <div style={{padding:"max(14px,calc(env(safe-area-inset-top)+8px)) 16px 10px",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0,borderBottom:"1px solid var(--bd)",position:"sticky",top:0,zIndex:10,background:"var(--bg)"}}>
-        <div style={{fontWeight:800,fontSize:"1.05rem",letterSpacing:".06em",color:"var(--or)",cursor:"pointer",userSelect:"none"}}
-          onClick={()=>{if(!import.meta.env.DEV)return;debugTapRef.current++;if(debugTapRef.current>=5){setShowDebug(true);debugTapRef.current=0;}setTimeout(()=>{debugTapRef.current=0;},1500);}}>RUNLYTICS</div>
+        <button style={{fontWeight:800,fontSize:"1.05rem",letterSpacing:".06em",color:"var(--or)",cursor:"pointer",userSelect:"none",background:"none",border:"none",padding:0}}
+          aria-label="Runlytics home"
+          onClick={()=>{if(!import.meta.env.DEV)return;debugTapRef.current++;if(debugTapRef.current>=5){setShowDebug(true);debugTapRef.current=0;}setTimeout(()=>{debugTapRef.current=0;},1500);}}>RUNLYTICS</button>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           {stravaSync.loading&&<div className="spinner"/>}
           {stravaAuth&&!stravaSync.loading&&stravaSync.msg&&(
@@ -534,7 +540,7 @@ const App=()=>{
           <div key={tab} className="tab-in"
             style={{transform:`translateY(${pullY}px)`,transition:pullReleasing?"transform .25s ease":"none"}}
             onTransitionEnd={()=>{if(pullReleasing)setPullReleasing(false);}}>
-            {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} plan={plan} onSelectAct={openDetail} onUpload={openUpload} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings} onOpenPlan={()=>setShowPlanBuilder(true)} onOpenSettings={openSettings}/>}
+            {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} plan={plan} onSelectAct={openDetail} onUpload={openUpload} onLogRun={openLogRun} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings} onOpenPlan={()=>setShowPlanBuilder(true)} onOpenSettings={openSettings}/>}
             {tab==="stats"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><StatsTab acts={acts} analytics={analytics} hrProfile={hrProfile} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/></Suspense>}
             {tab==="hr"&&<MoreTab acts={acts} hrProfile={hrProfile} plan={plan} onEditHR={openSettings} onViewMonthly={openMonthly} onViewYearReview={openYearReview} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
             {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail} onOpenWrapped={setWrappedMonth}/>}
@@ -557,6 +563,7 @@ const App=()=>{
       {showEditor&&editorAct&&<Suspense fallback={null}><ShareEditor act={editorAct} onClose={back}/></Suspense>}
       {prDetail&&<PRDetailModal entry={prDetail} onClose={back}
         onOpenRun={id=>{setPrDetail(null);const found=acts.find(a=>a.id===id);if(found)openDetail(found);}}/>}
+      {showLogRun&&<LogRunModal shoes={lsGetV(SHOES_KEY,[])} onAdd={newActs=>{newActs.forEach(a=>addAct(a));back();}} onClose={back}/>}
       {showUpload&&<Upload acts={acts} onAdd={newActs=>{newActs.forEach(a=>addAct(a));back();}}
         onClearAll={()=>{
           setActsRaw([]);

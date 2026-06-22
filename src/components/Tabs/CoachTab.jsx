@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { FITNESS_TEST_KEY } from '../../constants/keys.js';
+import { lsGetV, lsSetV } from '../../utils/storage.js';
 import { weekOf, fmtKm, fmtPace } from '../../utils/formatters.js';
 import { getPlanWeek, getPlanWeekNumber, getPlanAdherence } from '../../utils/trainingPlan.js';
 import { computeFitnessProfile, estimateVO2Max } from '../../utils/fitnessProfile.js';
@@ -51,7 +52,7 @@ export function CoachTab({ acts, analytics, hrProfile, plan }) {
   const [showFitnessTest, setShowFitnessTest] = useState(false);
   const [testInput, setTestInput] = useState({ distKm: '', timeMin: '' });
   const [testResult, setTestResult] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(FITNESS_TEST_KEY) || 'null'); } catch { return null; }
+    return lsGetV(FITNESS_TEST_KEY, null);
   });
 
   const weeksTotal     = plan?.weeks?.length || 0;
@@ -88,11 +89,12 @@ export function CoachTab({ acts, analytics, hrProfile, plan }) {
     };
     const result = { dist, timeSec, paceSecKm, vo2, raceTimes, ts: Date.now() };
     setTestResult(result);
-    try { localStorage.setItem(FITNESS_TEST_KEY, JSON.stringify(result)); } catch {}
+    lsSetV(FITNESS_TEST_KEY, result);
   }
 
   return (
     <div style={{ padding: '18px 16px 100px' }}>
+      <h1 className="sr-only">Coach</h1>
 
       {/* No plan state */}
       {!plan && (

@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ONBOARDING_KEY } from '../../constants/keys.js';
+import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 
 export function Onboarding({ profile, goals, onComplete, onUpload, onStravaConnect, isOnline }) {
+  const containerRef = useRef(null);
+  useFocusTrap(containerRef);
   const [step, setStep] = useState(1);
   const [name, setName] = useState(profile?.name === 'Runner' ? '' : (profile?.name || ''));
   const [weeklyGoal, setWeeklyGoal] = useState(goals?.weekly || 40);
@@ -14,7 +17,7 @@ export function Onboarding({ profile, goals, onComplete, onUpload, onStravaConne
   };
 
   return (
-    <div style={{position:'fixed',inset:0,zIndex:300,background:'var(--bg)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'24px 20px'}}>
+    <div ref={containerRef} style={{position:'fixed',inset:0,zIndex:300,background:'var(--bg)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'24px 20px'}}>
       <div style={{display:'flex',gap:6,marginBottom:40}}>
         {[1,2,3].map(s=>(
           <div key={s} style={{height:6,borderRadius:3,background:s<=step?'var(--or)':'var(--bd)',width:s===step?24:7,transition:'all .3s'}}/>

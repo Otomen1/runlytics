@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 import { fmtKm, fmtDur, fmtPace, fmtDateS, monthOf } from '../../utils/formatters.js';
 import { getPhotos } from '../../db/indexedDB.js';
 
@@ -47,6 +48,8 @@ function computeWrapped(acts) {
 }
 
 export function MonthlyReport({ acts, onClose }) {
+  const containerRef = useRef(null);
+  useFocusTrap(containerRef);
   // Build month list
   const months = useMemo(() => {
     const map = {};
@@ -86,7 +89,7 @@ export function MonthlyReport({ acts, onClose }) {
   };
 
   if (!months.length) return (
-    <div style={shell}>
+    <div ref={containerRef} style={shell}>
       <Header onClose={onClose} title="Monthly Wrapped"/>
       <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12,color:'var(--tx2)'}}>
         <div style={{fontSize:'2.8rem'}}>📅</div>
@@ -97,7 +100,7 @@ export function MonthlyReport({ acts, onClose }) {
   );
 
   return (
-    <div style={shell}>
+    <div ref={containerRef} style={shell}>
       <Header onClose={onClose} title="Monthly Wrapped"/>
 
       {/* Month selector */}

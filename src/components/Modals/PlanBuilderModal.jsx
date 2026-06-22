@@ -1,6 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { PLAN_KEY } from '../../constants/keys.js';
+import { lsGetV, lsSetV } from '../../utils/storage.js';
 import { generatePlan, detectBaseKm, detectPeakBaseKm, getPlanWeekNumber, getWeekDays } from '../../utils/trainingPlan.js';
+import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 import { weekOf, fmtKm } from '../../utils/formatters.js';
 
 const RACES = [
@@ -37,8 +39,10 @@ function fmtRaceDate(str) {
 }
 
 export function PlanBuilderModal({ acts, analytics, onClose, onPlanChange }) {
+  const containerRef = useRef(null);
+  useFocusTrap(containerRef);
   const existingPlan = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem(PLAN_KEY) || 'null'); } catch { return null; }
+    return lsGetV(PLAN_KEY, null);
   }, []);
 
   const peakKm = useMemo(() => detectPeakBaseKm(analytics?.weeklyKm || []), [analytics]);
@@ -57,7 +61,7 @@ export function PlanBuilderModal({ acts, analytics, onClose, onPlanChange }) {
 
   function handleGenerate() {
     const p = generatePlan(raceType, raceDate, baseKm);
-    localStorage.setItem(PLAN_KEY, JSON.stringify(p));
+    lsSetV(PLAN_KEY, p);
     setPlan(p);
     onPlanChange?.(p);
     setView('existing');
@@ -78,7 +82,7 @@ export function PlanBuilderModal({ acts, analytics, onClose, onPlanChange }) {
 
   return (
     <div style={{position:'fixed',inset:0,zIndex:260,background:'rgba(0,0,0,.55)',display:'flex',flexDirection:'column',justifyContent:'flex-end'}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div style={{background:'var(--bg)',borderRadius:'20px 20px 0 0',maxHeight:'88vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div ref={containerRef} style={{background:'var(--bg)',borderRadius:'20px 20px 0 0',maxHeight:'88vh',display:'flex',flexDirection:'column',overflow:'hidden'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 20px',borderBottom:'1px solid var(--bd)',flexShrink:0}}>
           <button className="btn b-gh" style={{padding:'6px 12px',fontSize:'.8rem'}} onClick={onClose}>✕ Close</button>
           <span style={{fontSize:'.82rem',fontWeight:700,color:'var(--or)'}}>

@@ -8,6 +8,7 @@ export function AchievementsTab({earnedBadges,acts,analytics,tierProgress,newTie
   const pct=Math.round(earned.length/BADGE_DEFS.length*100);
   return(
     <div style={{padding:"4px 0 40px"}}>
+      <h1 className="sr-only">Achievements</h1>
       <div className="a0" style={{display:"flex",alignItems:"center",gap:14,marginBottom:18}}>
         <Ring pct={pct/100} size={62} color="var(--or)">
           <span style={{fontSize:".56rem",fontWeight:700,color:"var(--or)"}}>{pct}%</span>
@@ -28,7 +29,7 @@ export function AchievementsTab({earnedBadges,acts,analytics,tierProgress,newTie
           const c=tp.current?tp.current.color:"#6b7280";
           const isNew=newTiers&&newTiers.includes(tp.id);
           return(
-            <div key={tp.id} className="card2 tap" style={{marginBottom:9,overflow:"hidden",borderColor:tp.current?c+"30":"var(--bd)",background:tp.current?c+"06":"var(--s2)",cursor:"pointer"}} onClick={()=>setExp(isExp?null:tp.id)}>
+            <button key={tp.id} className="card2 tap" style={{marginBottom:9,overflow:"hidden",borderColor:tp.current?c+"30":"var(--bd)",background:tp.current?c+"06":"var(--s2)",cursor:"pointer",width:"100%",textAlign:"left"}} onClick={()=>setExp(isExp?null:tp.id)} aria-expanded={isExp}>
               <div style={{padding:"12px 14px"}}>
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   <span style={{fontSize:"1.3rem",flexShrink:0}}>{tp.badge.icon}</span>
@@ -71,7 +72,7 @@ export function AchievementsTab({earnedBadges,acts,analytics,tierProgress,newTie
                   </div>
                 </div>
               )}
-            </div>
+            </button>
           );
         })}
       </div>

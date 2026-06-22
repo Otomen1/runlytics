@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { fmtKm, fmtDur, fmtPace, fmtDateS } from '../../utils/formatters.js';
+import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 import { computeYearWrapped } from '../../utils/analytics.js';
 
 const MOODS_ORDER = ['strong','great','good','normal','tough'];
@@ -13,6 +14,8 @@ const MOODS_MAP = {
 const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 export function YearInReview({ acts, onClose }) {
+  const containerRef = useRef(null);
+  useFocusTrap(containerRef);
   const years = useMemo(() => {
     const yrs = new Set(acts.map(a => a.date && a.date.slice(0,4)).filter(Boolean));
     return [...yrs].sort((a,b) => b - a);
@@ -24,7 +27,7 @@ export function YearInReview({ acts, onClose }) {
   const prevWrapped = useMemo(() => computeYearWrapped(acts, prevYear), [acts, prevYear]);
 
   if (!years.length) return (
-    <div style={shell}>
+    <div ref={containerRef} style={shell}>
       <Header onClose={onClose} title="Year in Review"/>
       <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:12,color:'var(--tx2)'}}>
         <div style={{fontSize:'2.8rem'}}>📅</div>
@@ -35,7 +38,7 @@ export function YearInReview({ acts, onClose }) {
   );
 
   return (
-    <div style={shell}>
+    <div ref={containerRef} style={shell}>
       <Header onClose={onClose} title="Year in Review"/>
 
       {/* Year selector */}

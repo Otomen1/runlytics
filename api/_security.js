@@ -5,32 +5,61 @@ export function log(event, extra = {}) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), event, ...extra }));
 }
 
-// In-memory rate limiter (resets per serverless function instance)
+// In-memory fallback rate limiter (used when KV is unavailable)
 const rateLimitMap = new Map();
 const WINDOW_MS = 60_000;
 const MAX_REQUESTS = 20;
 
-export function rateLimit(req, res) {
+function getClientIp(req) {
   // On Vercel, the real client IP is the LAST entry added by Vercel's edge in
   // x-forwarded-for — not the first, which is client-supplied and spoofable.
   const forwarded = req.headers["x-forwarded-for"] || "";
   const ips = forwarded.split(",").map(s => s.trim()).filter(Boolean);
-  const ip = ips[ips.length - 1] || req.socket?.remoteAddress || "unknown";
+  return ips[ips.length - 1] || req.socket?.remoteAddress || "unknown";
+}
 
-  const now = Date.now();
-  const entry = rateLimitMap.get(ip) || { count: 0, resetAt: now + WINDOW_MS };
+// Persistent rate limiter using Vercel KV (atomic increment).
+// Falls back to in-memory limiter if KV is not provisioned.
+// PREREQUISITE: Provision a Vercel KV store in the Vercel dashboard and link it
+// to the project. The env vars KV_REST_API_URL and KV_REST_API_TOKEN are
+// auto-injected by Vercel once linked.
+export async function rateLimit(req, res) {
+  const ip = getClientIp(req);
+  const windowSec = Math.floor(WINDOW_MS / 1000);
+  const windowSlot = Math.floor(Date.now() / WINDOW_MS);
+  const key = `rl:${ip}:${windowSlot}`;
 
-  if (now > entry.resetAt) {
-    entry.count = 0;
-    entry.resetAt = now + WINDOW_MS;
+  // Try Vercel KV first
+  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    try {
+      const { kv } = await import('@vercel/kv');
+      const count = await kv.incr(key);
+      if (count === 1) await kv.expire(key, windowSec + 5); // +5s grace window
+      if (count > MAX_REQUESTS) {
+        log('rate_limit_exceeded', { ip, count, store: 'kv' });
+        res.setHeader('Retry-After', String(windowSec));
+        res.setHeader('X-RateLimit-Limit', String(MAX_REQUESTS));
+        res.setHeader('X-RateLimit-Remaining', '0');
+        res.status(429).json({ error: "Too many requests, please try again later." });
+        return false;
+      }
+      return true;
+    } catch (e) {
+      // KV unavailable — fall through to in-memory limiter
+      log('rate_limit_kv_error', { ip, error: e.message });
+    }
   }
 
+  // In-memory fallback (per-instance; resets on cold start)
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip) || { count: 0, resetAt: now + WINDOW_MS };
+  if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + WINDOW_MS; }
   entry.count++;
   rateLimitMap.set(ip, entry);
 
   if (entry.count > MAX_REQUESTS) {
     const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
-    log('rate_limit_exceeded', { ip, count: entry.count, retryAfter });
+    log('rate_limit_exceeded', { ip, count: entry.count, retryAfter, store: 'memory' });
     res.setHeader('Retry-After', String(retryAfter));
     res.setHeader('X-RateLimit-Limit', String(MAX_REQUESTS));
     res.setHeader('X-RateLimit-Remaining', '0');
@@ -38,9 +67,6 @@ export function rateLimit(req, res) {
     res.status(429).json({ error: "Too many requests, please try again later." });
     return false;
   }
-  // Note: this limiter is per-instance (in-memory). On Vercel, multiple instances may run
-  // concurrently — each has its own counter. This provides rate-limiting best-effort;
-  // for strict distributed limiting, a Redis-backed solution would be needed.
   return true;
 }
 

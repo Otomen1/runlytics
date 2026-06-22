@@ -1,14 +1,18 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { SHOES_KEY } from '../../constants/keys.js';
+import { lsGetV, lsSetV } from '../../utils/storage.js';
 import { DEFAULT_SHOE_MAX_KM, SHOE_WARN_THRESHOLD } from '../../constants/limits.js';
 import { fmtDateS } from '../../utils/formatters.js';
+import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 
 const COLORS = ['#f97316','#22c55e','#3b82f6','#8b5cf6','#ef4444','#eab308','#06b6d4','#ec4899'];
 
-function loadShoes() { try { return JSON.parse(localStorage.getItem(SHOES_KEY)||'[]'); } catch { return []; } }
-function saveShoes(s) { try { localStorage.setItem(SHOES_KEY, JSON.stringify(s)); } catch {} }
+function loadShoes() { return lsGetV(SHOES_KEY, [], raw => Array.isArray(raw) ? raw : []); }
+function saveShoes(s) { lsSetV(SHOES_KEY, s); }
 
 export function ShoeTracker({ acts, onClose }) {
+  const containerRef = useRef(null);
+  useFocusTrap(containerRef);
   const [shoes, setShoes] = useState(loadShoes);
   const [view, setView] = useState('list'); // 'list' | 'new' | shoe.id
 
@@ -32,7 +36,7 @@ export function ShoeTracker({ acts, onClose }) {
 
   if (view !== 'list') {
     return (
-      <div style={shell}>
+      <div ref={containerRef} style={shell}>
         <div className="glass" style={{padding:'14px 18px',borderBottom:'1px solid var(--bd)',display:'flex',alignItems:'center',gap:12,flexShrink:0}}>
           <button className="tap" style={{background:'none',border:'none',color:'var(--tx2)',fontSize:'1.1rem',cursor:'pointer'}} onClick={() => setView('list')}>‹</button>
           <div className="screen-title">{view==='new'?'Add Shoe':'Edit Shoe'}</div>
@@ -58,7 +62,7 @@ export function ShoeTracker({ acts, onClose }) {
   const retired = shoes.filter(s => s.active === false);
 
   return (
-    <div style={shell}>
+    <div ref={containerRef} style={shell}>
       <div className="glass" style={{padding:'14px 18px',borderBottom:'1px solid var(--bd)',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
         <div className="screen-title">👟 Shoe Tracker</div>
         <div style={{display:'flex',gap:8}}>
@@ -83,7 +87,7 @@ export function ShoeTracker({ acts, onClose }) {
           const warn = pct >= SHOE_WARN_THRESHOLD;
           const last = lastUsed[shoe.id];
           return (
-            <div key={shoe.id} className="card tap" style={{padding:16,cursor:'pointer',borderLeft:`4px solid ${shoe.color||'var(--or)'}`}} onClick={() => setView(shoe.id)}>
+            <button key={shoe.id} className="card tap" style={{padding:16,cursor:'pointer',borderLeft:`4px solid ${shoe.color||'var(--or)'}`,width:'100%',textAlign:'left',background:'none',border:`1px solid var(--bd)`,borderLeft:`4px solid ${shoe.color||'var(--or)'}`}} onClick={() => setView(shoe.id)} aria-label={`Edit ${shoe.name}`}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
                 <div>
                   <div style={{fontWeight:700,fontSize:'.92rem',marginBottom:2}}>{shoe.name}</div>
@@ -103,7 +107,7 @@ export function ShoeTracker({ acts, onClose }) {
                   : <span style={{fontSize:'.7rem',color:'var(--tx3)'}}>{Math.round((shoe.maxKm||DEFAULT_SHOE_MAX_KM)-km)} km remaining</span>}
                 {last && <span style={{fontSize:'.68rem',color:'var(--tx3)'}}>Last: {fmtDateS(last)}</span>}
               </div>
-            </div>
+            </button>
           );
         })}
 
@@ -111,7 +115,7 @@ export function ShoeTracker({ acts, onClose }) {
           <>
             <div style={{fontSize:'.72rem',fontWeight:700,color:'var(--tx3)',letterSpacing:'.06em',textTransform:'uppercase',marginTop:8,padding:'0 2px'}}>Retired</div>
             {retired.map(shoe => (
-              <div key={shoe.id} className="card tap" style={{padding:14,opacity:.55,cursor:'pointer'}} onClick={() => setView(shoe.id)}>
+              <button key={shoe.id} className="card tap" style={{padding:14,opacity:.55,cursor:'pointer',width:'100%',textAlign:'left',background:'none',border:'1px solid var(--bd)'}} onClick={() => setView(shoe.id)} aria-label={`Edit retired shoe ${shoe.name}`}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div>
                     <div style={{fontWeight:600,fontSize:'.88rem'}}>{shoe.name}</div>
@@ -119,7 +123,7 @@ export function ShoeTracker({ acts, onClose }) {
                   </div>
                   <span style={{fontSize:'.72rem',color:'var(--tx3)'}}>Retired</span>
                 </div>
-              </div>
+              </button>
             ))}
           </>
         )}
@@ -153,8 +157,8 @@ function ShoeForm({ shoe, onSave, onRetire, onDelete, onCancel }) {
         <label style={{fontSize:'.76rem',fontWeight:600,display:'block',marginBottom:10}}>Colour</label>
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
           {COLORS.map(c => (
-            <div key={c} onClick={() => setColor(c)}
-              style={{width:28,height:28,borderRadius:'50%',background:c,cursor:'pointer',border:color===c?`3px solid #fff`:'3px solid transparent',boxShadow:color===c?`0 0 0 2px ${c}`:'none',transition:'all .15s'}}/>
+            <button key={c} onClick={() => setColor(c)} aria-label={`Color ${c}`} aria-pressed={color===c}
+              style={{width:28,height:28,borderRadius:'50%',background:c,cursor:'pointer',border:color===c?`3px solid #fff`:'3px solid transparent',boxShadow:color===c?`0 0 0 2px ${c}`:'none',transition:'all .15s',padding:0}}/>
           ))}
         </div>
       </div>

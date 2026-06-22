@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { addPhoto, getPhotos, deletePhoto } from '../../db/indexedDB.js';
 import { SHOES_KEY } from '../../constants/keys.js';
+import { lsGetV } from '../../utils/storage.js';
+import { classifyRun } from '../../utils/activity.js';
 
 const MOODS = [
   { key: 'great',  emoji: '😀', label: 'Great'  },
@@ -43,21 +45,41 @@ function fmtGoalTime(sec) {
   return `${m}:${String(s).padStart(2,'0')}`;
 }
 
+const ACTIVITY_TYPES = ['Run','Walk','Hike','TrailRun','VirtualRun'];
+const RUN_CLASSES = ['easy','long','workout'];
+
+function parseDurSec(str) {
+  const p = str.trim().split(':').map(Number);
+  if (p.some(isNaN)) return 0;
+  if (p.length === 3) return p[0]*3600 + p[1]*60 + p[2];
+  if (p.length === 2) return p[0]*60 + p[1];
+  return p[0] || 0;
+}
+
+function fmtHMS(sec) {
+  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+    : `${m}:${String(s).padStart(2,'0')}`;
+}
+
 export function JournalTab({ act, onPatch }) {
   const [photos, setPhotos] = useState([]);
   const [thumbUrls, setThumbUrls] = useState([]);
   const [lightbox, setLightbox] = useState(null);
   const [lightboxUrl, setLightboxUrl] = useState(null);
   const [goalInput, setGoalInput] = useState(() => fmtGoalTime(act.raceGoalSec));
+  const [nameInput, setNameInput] = useState(act.name || '');
+  const [distInput, setDistInput] = useState(() => act.source==='manual'?(act.distanceKm||'').toString():'');
+  const [durInput, setDurInput]   = useState(() => act.source==='manual'&&act.movingTimeSec?fmtHMS(act.movingTimeSec):'');
   const fileInputRef   = useRef(null);
   const debounceRef    = useRef(null);
   const pendingNotes   = useRef(null);
+  const nameDebRef     = useRef(null);
   const onPatchRef     = useRef(onPatch);
   useEffect(() => { onPatchRef.current = onPatch; }, [onPatch]);
 
-  const shoes = useMemo(() => {
-    try { return JSON.parse(localStorage.getItem(SHOES_KEY) || '[]'); } catch { return []; }
-  }, []);
+  const shoes = useMemo(() => lsGetV(SHOES_KEY, []), []);
   const activeShoes = shoes.filter(s => s.active !== false);
 
   useEffect(() => {
@@ -94,6 +116,25 @@ export function JournalTab({ act, onPatch }) {
   const handleGoalBlur = () => {
     const sec = parseGoalTime(goalInput);
     onPatch({ raceGoalSec: sec });
+  };
+
+  const handleNameChange = e => {
+    const name = e.target.value;
+    setNameInput(name);
+    if (nameDebRef.current) clearTimeout(nameDebRef.current);
+    nameDebRef.current = setTimeout(() => onPatch({ name: name.slice(0,128) }), 600);
+  };
+
+  const handleManualDistDur = () => {
+    const distKm = parseFloat(distInput) || 0;
+    const movingTimeSec = parseDurSec(durInput);
+    if (distKm <= 0 || movingTimeSec <= 0) return;
+    const avgPaceSecKm = parseFloat((movingTimeSec / distKm).toFixed(1));
+    const trainingLoad = act.avgHR
+      ? Math.round((movingTimeSec/60)*(act.avgHR/100)*1.5)
+      : Math.round(distKm*8);
+    onPatch({ distanceKm: parseFloat(distKm.toFixed(3)), movingTimeSec, avgPaceSecKm, trainingLoad,
+              runClass: classifyRun(distKm, avgPaceSecKm) });
   };
 
   const handleFileSelect = async e => {
@@ -137,8 +178,58 @@ export function JournalTab({ act, onPatch }) {
     transition: 'all .12s',
   });
 
+  const inpStyle = { width:'100%', boxSizing:'border-box', padding:'9px 11px', borderRadius:9, border:'1px solid var(--bd)', background:'var(--bg)', color:'var(--tx)', fontFamily:'inherit', fontSize:'.85rem', outline:'none' };
+  const secHdr = { fontSize:'.72rem', fontWeight:700, color:'var(--tx2)', marginBottom:8, letterSpacing:'.05em', textTransform:'uppercase' };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+      {/* Activity details edit */}
+      <div className="card" style={{ padding: 14 }}>
+        <div style={secHdr}>Activity</div>
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          {/* Name */}
+          <input style={inpStyle} type="text" placeholder="Activity name" maxLength={128}
+            value={nameInput} onChange={handleNameChange} aria-label="Activity name" />
+          {/* Type */}
+          <select style={inpStyle} value={act.type||'Run'} onChange={e=>onPatch({type:e.target.value})}
+            aria-label="Activity type">
+            {ACTIVITY_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+          </select>
+          {/* Run class */}
+          <div>
+            <div style={{fontSize:'.7rem',color:'var(--tx3)',marginBottom:6}}>Run type</div>
+            <div style={{display:'flex',gap:6}}>
+              {RUN_CLASSES.map(rc=>(
+                <button key={rc} onClick={()=>onPatch({runClass:rc})} aria-pressed={act.runClass===rc}
+                  style={{...pill(act.runClass===rc),flex:1,textTransform:'capitalize'}}>
+                  {rc}
+                </button>
+              ))}
+              <button onClick={()=>onPatch({runClass:classifyRun(act.distanceKm,act.avgPaceSecKm)})}
+                aria-pressed={false}
+                style={{...pill(false,'var(--tx3)'),flex:1}}>auto</button>
+            </div>
+          </div>
+          {/* Distance + Duration (manual runs only) */}
+          {act.source==='manual'&&(
+            <div style={{display:'flex',gap:8}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:'.7rem',color:'var(--tx3)',marginBottom:4}}>Distance (km)</div>
+                <input style={inpStyle} type="number" min="0" step="0.1"
+                  value={distInput} onChange={e=>setDistInput(e.target.value)}
+                  onBlur={handleManualDistDur} aria-label="Distance in km" />
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:'.7rem',color:'var(--tx3)',marginBottom:4}}>Duration</div>
+                <input style={inpStyle} type="text" placeholder="MM:SS"
+                  value={durInput} onChange={e=>setDurInput(e.target.value)}
+                  onBlur={handleManualDistDur} aria-label="Duration" />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Mood */}
       <div className="card" style={{ padding: 14 }}>

@@ -38,8 +38,8 @@ function MemoryCard({ act, onSelect }) {
   const thumb = useThumb(act.id, act.photoCount);
   const mood = act.mood ? MOODS_MAP[act.mood] : null;
   return (
-    <div className="card" onClick={() => onSelect(act)}
-      style={{padding:'12px',display:'flex',alignItems:'center',gap:12,cursor:'pointer',marginBottom:8}}>
+    <button className="card" onClick={() => onSelect(act)}
+      style={{padding:'12px',display:'flex',alignItems:'center',gap:12,cursor:'pointer',marginBottom:8,width:'100%',textAlign:'left',background:'none',border:'1px solid var(--bd)'}} aria-label={`Open ${act.name}`}>
       {thumb ? (
         <img src={thumb} alt="" style={{width:52,height:52,borderRadius:10,objectFit:'cover',flexShrink:0}} loading="lazy"/>
       ) : (
@@ -60,7 +60,7 @@ function MemoryCard({ act, onSelect }) {
         )}
       </div>
       <div style={{fontSize:'1rem',color:'var(--tx3)',flexShrink:0}}>›</div>
-    </div>
+    </button>
   );
 }
 
@@ -81,7 +81,7 @@ function HighlightCard({ icon, label, act, onSelect }) {
   const isMem = label === 'Favorite Memory';
 
   return (
-    <div onClick={() => onSelect(act)} style={{
+    <button onClick={() => onSelect(act)} aria-label={`Open ${act.name}`} style={{
       cursor:'pointer', flexShrink:0, width:155, display:'flex', flexDirection:'column',
       borderRadius:'var(--r-lg)', background:'var(--s2)', border:'1px solid var(--bd)',
       borderLeft:`3px solid ${color}`, overflow:'hidden',
@@ -120,7 +120,7 @@ function HighlightCard({ icon, label, act, onSelect }) {
           <div style={{fontSize:'.62rem',color:'var(--tx2)',marginTop:2}}>{fmtKm(act.distanceKm)} km · {fmtDate(act.date)}</div>
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -137,7 +137,7 @@ function MonthCard({ acts, ym, onOpen }) {
     ? Math.max(...data.weeklyBreakdown.map(w => w.km))
     : 0;
   return (
-    <div onClick={onOpen} style={{cursor:'pointer',width:130,height:175,flexShrink:0,padding:'14px 12px',display:'flex',flexDirection:'column',justifyContent:'space-between',borderRadius:'var(--r-lg)',background:'var(--s2)',border:'1px solid var(--bd)'}}>
+    <button onClick={onOpen} aria-label={`Open ${mon} ${year} monthly summary`} style={{cursor:'pointer',width:130,height:175,flexShrink:0,padding:'14px 12px',display:'flex',flexDirection:'column',justifyContent:'space-between',borderRadius:'var(--r-lg)',background:'var(--s2)',border:'1px solid var(--bd)'}}>
 
       {/* Top: month + mood */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
@@ -167,7 +167,7 @@ function MonthCard({ acts, ym, onOpen }) {
           })}
         </div>
       )}
-    </div>
+    </button>
   );
 }
 
@@ -208,6 +208,7 @@ export function MemoriesTab({ acts, onSelectAct, onOpenWrapped }) {
 
   return (
     <div style={{padding:'18px 16px 100px'}}>
+      <h1 className="sr-only">Memories</h1>
 
       {/* Search + Mood filters */}
       {allMemories.length > 0 && (

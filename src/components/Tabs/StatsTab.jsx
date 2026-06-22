@@ -122,6 +122,7 @@ export function StatsTab({acts,analytics,hrProfile,onViewAll,onViewMonthly,onOpe
 
   return(
     <div style={{padding:"10px 0 32px"}}>
+      <h1 className="sr-only">Statistics</h1>
       <div className="a0" style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:18}}>
         {[{l:"Total km",v:parseFloat(totalKm.toFixed(0)).toLocaleString(),c:"var(--or)"},{l:"Runs",v:runs.length,c:"var(--bl)"},{l:"Time",v:fmtDur(runs.reduce((s,a)=>s+a.movingTimeSec,0)),c:"var(--gn)"}].map(s=>(
           <div key={s.l} className="card2" style={{padding:"14px 10px",textAlign:"center"}}>

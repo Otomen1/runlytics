@@ -80,6 +80,7 @@ export function MoreTab({acts,hrProfile,plan,onEditHR,onViewMonthly,onViewYearRe
   },[last5,mafHR]);
   return(
     <div style={{padding:"4px 0 32px"}}>
+      <h1 className="sr-only">More</h1>
       {/* Training Plan card */}
       <div className="card a0" style={{padding:16,marginBottom:14}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:plan?14:0}}>

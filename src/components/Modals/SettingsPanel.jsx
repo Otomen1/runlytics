@@ -1,14 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 import { getMafZones } from '../../utils/analytics.js';
 import { fmtDur, fmtPace } from '../../utils/formatters.js';
 import { notifSupported, notifPermission, notifEnabled, setNotifEnabled, requestNotifPermission } from '../../utils/notifications.js';
 import { SHOES_KEY, PLAN_KEY } from '../../constants/keys.js';
+import { lsGetV, lsSetV } from '../../utils/storage.js';
 
 function lsGet(key){try{return JSON.parse(localStorage.getItem(key)||'null');}catch{return null;}}
 function lsSet(key,val){try{localStorage.setItem(key,JSON.stringify(val));}catch(e){}}
 
 export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR,onSaveProfile,onClearAll,onImport,onClose,stravaAuth,stravaSync,isOnline,onStravaConnect,onStravaSync,onStravaDisconnect}){
   const[view,setView]=useState("main");
+  const containerRef = useRef(null);
+  useFocusTrap(containerRef);
   // Close on Escape regardless of which child has focus (inputs, textareas, etc.)
   useEffect(()=>{
     const h=(e)=>{if(e.key==='Escape'){e.stopPropagation();onClose();}};
@@ -35,7 +39,7 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
   const backBtn=<button className="tap" style={{background:"none",border:"none",color:"var(--tx2)",fontSize:"1.1rem"}} onClick={()=>setView("main")}>‹</button>;
   return(
     <div role="presentation" className="fade-overlay" style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center",background:"rgba(0,0,0,.6)"}} onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div role="dialog" aria-modal="true" aria-label="Settings" className="glass sheet" style={{width:"100%",maxWidth:430,borderRadius:"22px 22px 0 0",padding:"22px 20px",paddingBottom:"max(40px,calc(env(safe-area-inset-bottom)+20px))",maxHeight:"92vh",overflowY:"auto",border:"1px solid var(--bd)"}}>
+      <div role="dialog" aria-modal="true" aria-label="Settings" className="glass sheet" ref={containerRef} style={{width:"100%",maxWidth:430,borderRadius:"22px 22px 0 0",padding:"22px 20px",paddingBottom:"max(40px,calc(env(safe-area-inset-bottom)+20px))",maxHeight:"92vh",overflowY:"auto",border:"1px solid var(--bd)"}}>
         <div style={{width:36,height:4,borderRadius:2,background:"var(--bd2)",margin:"0 auto 18px"}}/>
         {view==="main"&&(
           <div>
@@ -44,11 +48,11 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
               <button className="btn b-gh" style={{padding:"6px 13px",fontSize:".8rem"}} onClick={onClose}>Done</button>
             </div>
             {[{icon:"👤",label:"Profile",v:"profile"},{icon:"❤️",label:"MAF HR",v:"hr"},{icon:"🎯",label:"Goals",v:"goals"},{icon:"🔔",label:"Notifications",v:"notifications"},{icon:"🟠",label:"Strava Sync",v:"strava"},{icon:"💾",label:"Export & Backup",v:"export"}].map(item=>(
-              <div key={item.v} className="tap card2" style={{padding:"14px 15px",marginBottom:10,display:"flex",alignItems:"center",gap:14,borderRadius:12,cursor:"pointer"}} onClick={()=>setView(item.v)}>
+              <button key={item.v} className="tap card2" style={{padding:"14px 15px",marginBottom:10,display:"flex",alignItems:"center",gap:14,borderRadius:12,cursor:"pointer",width:"100%",textAlign:"left",background:"none",border:"1px solid var(--bd)"}} onClick={()=>setView(item.v)}>
                 <div style={{width:36,height:36,borderRadius:10,background:"var(--s3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.1rem"}}>{item.icon}</div>
                 <div style={{flex:1,fontWeight:500,fontSize:".88rem"}}>{item.label}</div>
                 <span style={{color:"var(--tx3)"}}>›</span>
-              </div>
+              </button>
             ))}
             <div className="card2" style={{padding:14,marginBottom:10,borderRadius:12}}>
               {[["Activities",String(acts.length)],["Storage",Math.round(JSON.stringify(acts).length/1024)+" KB"]].map(([l,v])=>(
@@ -145,7 +149,7 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
                 version:2,
                 exportedAt:new Date().toISOString(),
                 activities:acts,
-                settings:{goals,hrProfile,profile,shoes:lsGet(SHOES_KEY),plan:lsGet(PLAN_KEY)},
+                settings:{goals,hrProfile,profile,shoes:lsGetV(SHOES_KEY,[]),plan:lsGetV(PLAN_KEY,null)},
               };
               const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
               const url=URL.createObjectURL(blob);
@@ -207,8 +211,8 @@ export function SettingsPanel({acts,goals,hrProfile,profile,onSaveGoals,onSaveHR
                       if(settings.goals&&typeof settings.goals==='object'){onSaveGoals(settings.goals);}
                       if(settings.hrProfile&&typeof settings.hrProfile==='object'){onSaveHR(settings.hrProfile);}
                       if(settings.profile&&typeof settings.profile==='object'){onSaveProfile(settings.profile);}
-                      if(settings.shoes)lsSet(SHOES_KEY,settings.shoes);
-                      if(settings.plan)lsSet(PLAN_KEY,settings.plan);
+                      if(settings.shoes)lsSetV(SHOES_KEY,settings.shoes);
+                      if(settings.plan)lsSetV(PLAN_KEY,settings.plan);
                     }
                     const settingsRestored=settings?", settings restored":"";
                     setImportMsg(`✓ Import started — ${actList.length} activities processed${settingsRestored}`);

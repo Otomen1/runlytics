@@ -24,7 +24,7 @@ const MOODS_MAP = {
 };
 
 
-export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct,onUpload,onViewAll,onViewMonthly,onEditGoals,onOpenPlan,onOpenSettings}){
+export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct,onUpload,onLogRun,onViewAll,onViewMonthly,onEditGoals,onOpenPlan,onOpenSettings}){
   const lastRun=acts.length?acts.reduce((b,a)=>a.dateTs>b.dateTs?a:b):null;
   const mafHR=getMafHR(hrProfile);
   const racePRs=useMemo(()=>computeRacePRs(acts),[acts]);
@@ -93,6 +93,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
     };
   }, [memories]);
   return(<div style={{padding:"10px 0 32px"}}>
+    <h1 className="sr-only">Home</h1>
     <div className="a0" style={{marginBottom:20}}>
       <div className="sl" style={{marginBottom:4}}>{greet()}</div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
@@ -221,7 +222,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
       </button>
     )}
     {lastRun&&(
-      <div className="card a2" style={{marginBottom:14,overflow:"hidden",cursor:"pointer"}} onClick={()=>onSelectAct(lastRun)}>
+      <button className="card a2" style={{marginBottom:14,overflow:"hidden",cursor:"pointer",width:"100%",textAlign:"left",background:"none",border:"1px solid var(--bd)",padding:0}} onClick={()=>onSelectAct(lastRun)} aria-label={`Open ${lastRun.name}`}>
         {/* Top accent bar */}
         <div style={{height:3,background:`linear-gradient(90deg,${ACT_CLR[lastRun.type]||"var(--or)"},transparent)`}}/>
         <div style={{padding:"16px 18px 18px"}}>
@@ -246,7 +247,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
             ))}
           </div>
         </div>
-      </div>
+      </button>
     )}
     {!lastRun&&(
       <div className="card a2" style={{padding:28,textAlign:"center",marginBottom:14,borderStyle:"dashed"}}>
@@ -255,6 +256,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
         <div style={{fontSize:".8rem",color:"var(--tx2)",marginBottom:18,lineHeight:1.6}}>Upload a GPX file from your watch, or sync directly from Strava.</div>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
           <button className="btn b-or" style={{padding:"11px 24px"}} onClick={onUpload}>📁 Upload GPX</button>
+          <button className="btn b-gh" style={{padding:"11px 24px"}} onClick={onLogRun}>+ Log Run</button>
           <button className="btn b-gh" style={{padding:"11px 24px"}} onClick={onOpenSettings}>🟠 Connect Strava</button>
         </div>
       </div>
@@ -319,8 +321,8 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
           {memories.map(a => {
             const mood = a.mood ? MOODS_MAP[a.mood] : null;
             return (
-              <div key={a.id} className="card" onClick={()=>onSelectAct(a)}
-                style={{padding:'10px 12px',display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
+              <button key={a.id} className="card" onClick={()=>onSelectAct(a)}
+                style={{padding:'10px 12px',display:'flex',alignItems:'center',gap:10,cursor:'pointer',width:'100%',textAlign:'left',background:'none',border:'1px solid var(--bd)'}} aria-label={`Open ${a.name}`}>
                 {thumbMap[a.id] ? (
                   <img src={thumbMap[a.id]} alt="" style={{width:44,height:44,borderRadius:8,objectFit:'cover',flexShrink:0}}/>
                 ) : (
@@ -334,18 +336,17 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
                   </div>
                   <div style={{fontSize:'.7rem',color:'var(--tx2)',marginTop:2}}>{fmtDate(a.date)}</div>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
       </div>
     )}
-    {acts.length>0&&(
-      <div style={{display:"flex",gap:10}}>
-        <button className="btn b-gh" style={{flex:1,padding:"12px"}} onClick={onViewAll}>🏃 All Runs</button>
-        <button className="btn b-gh" style={{flex:1,padding:"12px"}} onClick={onViewMonthly}>📅 Monthly</button>
-      </div>
-    )}
+    <div style={{display:"flex",gap:10,marginTop:acts.length>0?0:10}}>
+      {acts.length>0&&<button className="btn b-gh" style={{flex:1,padding:"12px"}} onClick={onViewAll}>🏃 All Runs</button>}
+      <button className="btn b-or" style={{flex:1,padding:"12px"}} onClick={onLogRun}>+ Log Run</button>
+      {acts.length>0&&<button className="btn b-gh" style={{flex:1,padding:"12px"}} onClick={onViewMonthly}>📅 Monthly</button>}
+    </div>
   </div>);
 }
 

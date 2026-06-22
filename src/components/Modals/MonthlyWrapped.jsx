@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useFocusTrap } from '../../hooks/useFocusTrap.js';
 import { computeWrapped, computeWrappedCoach, generateWrappedImage } from '../../utils/wrapped.js';
 import { fmtKm, fmtPace, fmtDate, fmtDur } from '../../utils/formatters.js';
 import { getPhotos } from '../../db/indexedDB.js';
@@ -34,6 +35,8 @@ export function MonthlyWrapped({ acts, yearMonth, plan, analytics, onClose, onSe
   const urlRef        = useRef(null);
   const touchStartX   = useRef(null);
   const slidesCountRef = useRef(0);
+  const containerRef  = useRef(null);
+  useFocusTrap(containerRef);
 
   const prevMonthKm = useMemo(() => {
     const [y, m] = yearMonth.split('-').map(Number);
@@ -400,7 +403,7 @@ export function MonthlyWrapped({ acts, yearMonth, plan, analytics, onClose, onSe
 
   return (
     <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={sheet}>
+      <div ref={containerRef} style={sheet}>
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 20px', borderBottom: '1px solid var(--bd)', flexShrink: 0 }}>
@@ -408,7 +411,7 @@ export function MonthlyWrapped({ acts, yearMonth, plan, analytics, onClose, onSe
           <div style={{ fontSize: '.78rem', fontWeight: 700, color: 'var(--tx2)' }}>Monthly Wrapped</div>
           <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
             {slides.map((_, i) => (
-              <div key={i} onClick={() => setSlide(i)} style={{ width: i === slide ? 20 : 6, height: 6, borderRadius: 3, background: i === slide ? 'var(--or)' : 'var(--bd)', cursor: 'pointer', transition: 'width .2s' }}/>
+              <button key={i} onClick={() => setSlide(i)} aria-label={`Slide ${i+1}`} aria-current={i===slide?'true':undefined} style={{ width: i === slide ? 20 : 6, height: 6, borderRadius: 3, background: i === slide ? 'var(--or)' : 'var(--bd)', cursor: 'pointer', transition: 'width .2s', padding: 0, border: 'none' }}/>
             ))}
           </div>
         </div>
