@@ -2,7 +2,7 @@
 // Exchanges Strava auth code for access + refresh tokens.
 // Runs server-side on Vercel so client_secret is never exposed.
 
-import { rateLimit, setCors } from './_security.js';
+import { rateLimit, setCors, log } from './_security.js';
 
 export default async function handler(req, res) {
   setCors(req, res, "POST, OPTIONS");
@@ -30,6 +30,7 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (data.errors || data.message === "Bad Request" || !data.access_token) {
+      log('strava_token_exchange_failed', { stravaStatus: response.status });
       return res.status(400).json({ error: "Authorization failed. Please try connecting again." });
     }
 
@@ -46,7 +47,7 @@ export default async function handler(req, res) {
       athlete: { id: data.athlete?.id || null, firstname, lastname, profile },
     });
   } catch (e) {
-    console.error("[strava-token] error:", e.message);
+    log('strava_token_error', { error: e.message });
     res.status(500).json({ error: "Token exchange failed. Please try again." });
   }
 }

@@ -2,7 +2,7 @@
 // Refreshes an expired Strava access token using the stored refresh_token.
 // Runs server-side so client_secret stays safe.
 
-import { rateLimit, setCors } from './_security.js';
+import { rateLimit, setCors, log } from './_security.js';
 
 export default async function handler(req, res) {
   setCors(req, res, "POST, OPTIONS");
@@ -51,6 +51,7 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     if (!data.access_token || !data.refresh_token || !data.expires_at) {
+      log('strava_refresh_failed', { stravaStatus: response.status });
       return res.status(401).json({ error: "Token refresh failed. Please reconnect Strava." });
     }
 
@@ -60,7 +61,7 @@ export default async function handler(req, res) {
       expires_at:    data.expires_at,
     });
   } catch (e) {
-    console.error("[strava-refresh] error:", e.message);
+    log('strava_refresh_error', { error: e.message });
     res.status(500).json({ error: "Token refresh failed. Please try again." });
   }
 }

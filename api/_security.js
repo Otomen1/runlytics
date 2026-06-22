@@ -1,5 +1,10 @@
 // Shared security helpers for Vercel API routes
 
+// Structured JSON logger — output goes to Vercel function logs
+export function log(event, extra = {}) {
+  console.log(JSON.stringify({ ts: new Date().toISOString(), event, ...extra }));
+}
+
 // In-memory rate limiter (resets per serverless function instance)
 const rateLimitMap = new Map();
 const WINDOW_MS = 60_000;
@@ -25,6 +30,7 @@ export function rateLimit(req, res) {
 
   if (entry.count > MAX_REQUESTS) {
     const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
+    log('rate_limit_exceeded', { ip, count: entry.count, retryAfter });
     res.setHeader('Retry-After', String(retryAfter));
     res.setHeader('X-RateLimit-Limit', String(MAX_REQUESTS));
     res.setHeader('X-RateLimit-Remaining', '0');
