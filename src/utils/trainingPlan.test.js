@@ -196,9 +196,19 @@ describe('getTodayWorkout', () => {
   // Day indices: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
   // Slot assignments from getWeekDays: long→Sat(5), workout→Tue(1), easy fills Wed(2)→Fri(4)→Sun(6)→Mon(0)
 
-  it('returns null on a rest day', () => {
-    const pw = planWeekStub({ easy: 1, long: 1, workout: 1 }); // Mon=rest
-    expect(getTodayWorkout(pw, [], 330, 150, 0, 0)).toBeNull();
+  it('returns next upcoming workout on a rest day with dayLabel set', () => {
+    // Mon (idx 0) is rest; next non-rest is Tue (idx 1) = workout slot
+    const pw = planWeekStub({ easy: 1, long: 1, workout: 1 });
+    const result = getTodayWorkout(pw, [], 330, 150, 0, 0);
+    expect(result).not.toBeNull();
+    expect(result.type).toBe('workout');
+    expect(result.dayLabel).toBe('Tomorrow');
+  });
+
+  it('returns null when rest day and no more workouts left in week', () => {
+    // Sun (idx 6) is rest with easy:0,long:0,workout:0 — nothing scheduled
+    const pw = planWeekStub({ easy: 0, long: 0, workout: 0 });
+    expect(getTodayWorkout(pw, [], 330, 150, 0, 6)).toBeNull();
   });
 
   it('returns done:true when all run types completed', () => {

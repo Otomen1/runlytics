@@ -184,7 +184,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
           <div style={{display:'flex',alignItems:'center',gap:7}}>
             <span style={{fontSize:'1.1rem'}}>{todayWorkout.icon}</span>
-            <span style={{fontSize:'.65rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.06em',textTransform:'uppercase'}}>Today's Workout</span>
+            <span style={{fontSize:'.65rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.06em',textTransform:'uppercase'}}>{todayWorkout.dayLabel?`Next · ${todayWorkout.dayLabel}`:"Today's Workout"}</span>
           </div>
           <span style={{fontSize:'.6rem',fontWeight:700,color:'var(--or)',padding:'2px 9px',borderRadius:20,background:'rgba(249,115,22,.1)',textTransform:'capitalize'}}>
             {todayWorkout.phase} · W{planWeekNum}/{plan.weeks.length}

@@ -228,11 +228,24 @@ const TIPS = [
 export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 0, todayDayIdx = null) {
   if (!planWeek) return null;
 
-  // Check what today's slot is in the schedule — if it's a rest day, return null
+  // Check what today's slot is in the schedule
   const days = getWeekDays(planWeek);
   const idx = todayDayIdx !== null ? todayDayIdx : (new Date().getDay() + 6) % 7;
   const todayDay = days[idx];
-  if (!todayDay || todayDay.type === 'rest') return null;
+
+  // On rest days, find the next upcoming workout day later this week
+  let upcomingDay = null;
+  let dayLabel = null;
+  if (!todayDay || todayDay.type === 'rest') {
+    for (let i = idx + 1; i < 7; i++) {
+      if (days[i]?.type !== 'rest') {
+        upcomingDay = days[i];
+        dayLabel = i === idx + 1 ? 'Tomorrow' : days[i].day;
+        break;
+      }
+    }
+    if (!upcomingDay) return null; // No more workouts this week
+  }
 
   const done = { easy: 0, long: 0, workout: 0 };
   weekActs.forEach(a => {
@@ -247,18 +260,18 @@ export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 
   const totalRemaining = remaining.easy + remaining.long + remaining.workout;
   if (!totalRemaining) return { done: true };
 
-  // Use today's assigned type; resolve to 'mp' for marathon build quality sessions,
-  // and fall back to 'easy' when fatigued
+  // Use today's (or next upcoming) assigned type
+  const sourceDay = upcomingDay ?? todayDay;
   const isMarathonBuild = planWeek.raceType === 'Marathon' && planWeek.phase === 'build';
-  const rawType = todayDay.type; // 'easy' | 'long' | 'workout'
+  const rawType = sourceDay.type; // 'easy' | 'long' | 'workout'
   const type = (form < -8 && rawType !== 'long')
     ? 'easy'
     : rawType === 'workout'
       ? (isMarathonBuild ? 'mp' : 'workout')
       : rawType;
 
-  // Use today's specific distance from the schedule
-  const distanceKm = todayDay.targetKm;
+  // Distance from the schedule day
+  const distanceKm = sourceDay.targetKm;
 
   let paceMin = null, paceMax = null, paceNote = null;
   if (avgPaceSecKm) {
@@ -302,6 +315,7 @@ export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 
     paceNote,
     tip,
     phase: planWeek.phase,
+    dayLabel,
   };
 }
 
