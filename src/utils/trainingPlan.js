@@ -225,8 +225,14 @@ const TIPS = [
   { minForm: -Infinity, tip: "Fatigue is high — light jog or rest." },
 ];
 
-export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 0) {
+export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 0, todayDayIdx = null) {
   if (!planWeek) return null;
+
+  // Check what today's slot is in the schedule — if it's a rest day, return null
+  const days = getWeekDays(planWeek);
+  const idx = todayDayIdx !== null ? todayDayIdx : (new Date().getDay() + 6) % 7;
+  const todayDay = days[idx];
+  if (!todayDay || todayDay.type === 'rest') return null;
 
   const done = { easy: 0, long: 0, workout: 0 };
   weekActs.forEach(a => {
@@ -241,26 +247,18 @@ export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 
   const totalRemaining = remaining.easy + remaining.long + remaining.workout;
   if (!totalRemaining) return { done: true };
 
-  // Resolve to 'mp' for marathon build quality sessions
+  // Use today's assigned type; resolve to 'mp' for marathon build quality sessions,
+  // and fall back to 'easy' when fatigued
   const isMarathonBuild = planWeek.raceType === 'Marathon' && planWeek.phase === 'build';
-  const type = (form < -8 || (!remaining.workout && !remaining.long))
+  const rawType = todayDay.type; // 'easy' | 'long' | 'workout'
+  const type = (form < -8 && rawType !== 'long')
     ? 'easy'
-    : remaining.workout > 0
+    : rawType === 'workout'
       ? (isMarathonBuild ? 'mp' : 'workout')
-    : remaining.long > 0 ? 'long'
-    : 'easy';
+      : rawType;
 
-  const longMin = LONG_RUN_MIN[planWeek.raceType] || 10;
-  const weekKm = weekActs.reduce((s, a) => s + a.distanceKm, 0);
-  const kmLeft = Math.max(0, planWeek.targetKm - weekKm);
-  let distanceKm;
-  if (type === 'long') {
-    distanceKm = parseFloat(Math.max(longMin, Math.min(35, planWeek.targetKm * 0.30)).toFixed(1));
-  } else if (type === 'workout' || type === 'mp') {
-    distanceKm = parseFloat(Math.max(6, Math.min(16, planWeek.targetKm * 0.18)).toFixed(1));
-  } else {
-    distanceKm = parseFloat(Math.max(5, Math.min(18, kmLeft / Math.max(1, totalRemaining))).toFixed(1));
-  }
+  // Use today's specific distance from the schedule
+  const distanceKm = todayDay.targetKm;
 
   let paceMin = null, paceMax = null, paceNote = null;
   if (avgPaceSecKm) {

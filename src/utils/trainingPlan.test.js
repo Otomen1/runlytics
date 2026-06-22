@@ -193,6 +193,14 @@ describe('getTodayWorkout', () => {
     expect(getTodayWorkout(null, [], null, 150, 0)).toBeNull();
   });
 
+  // Day indices: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
+  // Slot assignments from getWeekDays: long→Sat(5), workout→Tue(1), easy fills Wed(2)→Fri(4)→Sun(6)→Mon(0)
+
+  it('returns null on a rest day', () => {
+    const pw = planWeekStub({ easy: 1, long: 1, workout: 1 }); // Mon=rest
+    expect(getTodayWorkout(pw, [], 330, 150, 0, 0)).toBeNull();
+  });
+
   it('returns done:true when all run types completed', () => {
     const pw = planWeekStub({ easy: 1, long: 1, workout: 1 });
     const weekActs = [
@@ -200,58 +208,58 @@ describe('getTodayWorkout', () => {
       { distanceKm: 16, runClass: 'long' },
       { distanceKm: 10, runClass: 'workout' },
     ];
-    const result = getTodayWorkout(pw, weekActs, 330, 150, 2);
+    const result = getTodayWorkout(pw, weekActs, 330, 150, 2, 2); // Wed = easy slot
     expect(result.done).toBe(true);
   });
 
-  it('prioritises workout over long and easy', () => {
+  it('shows workout on the scheduled workout day (Tue)', () => {
     const pw = planWeekStub({ easy: 2, long: 1, workout: 1 });
-    const result = getTodayWorkout(pw, [], 330, 150, 2);
+    const result = getTodayWorkout(pw, [], 330, 150, 2, 1); // Tue = workout slot
     expect(result.type).toBe('workout');
   });
 
-  it('falls back to long when workout is done', () => {
+  it('shows long run on the scheduled long run day (Sat)', () => {
     const pw = planWeekStub({ easy: 2, long: 1, workout: 1 });
     const weekActs = [{ distanceKm: 10, runClass: 'workout' }];
-    const result = getTodayWorkout(pw, weekActs, 330, 150, 2);
+    const result = getTodayWorkout(pw, weekActs, 330, 150, 2, 5); // Sat = long slot
     expect(result.type).toBe('long');
   });
 
-  it('returns easy when only easy remains', () => {
+  it('shows easy run on an easy day (Wed)', () => {
     const pw = planWeekStub({ easy: 2, long: 1, workout: 1 });
     const weekActs = [
       { distanceKm: 10, runClass: 'workout' },
       { distanceKm: 16, runClass: 'long' },
     ];
-    const result = getTodayWorkout(pw, weekActs, 330, 150, 2);
+    const result = getTodayWorkout(pw, weekActs, 330, 150, 2, 2); // Wed = easy slot
     expect(result.type).toBe('easy');
   });
 
-  it('overrides to easy when fatigued (form < -8)', () => {
+  it('overrides to easy when fatigued (form < -8) on a workout day', () => {
     const pw = planWeekStub({ easy: 1, long: 1, workout: 1 });
-    const result = getTodayWorkout(pw, [], 330, 150, -10);
+    const result = getTodayWorkout(pw, [], 330, 150, -10, 1); // Tue = workout slot
     expect(result.type).toBe('easy');
   });
 
   it('includes paceNote when no avgPaceSecKm given', () => {
     const pw = planWeekStub({ easy: 2, long: 0, workout: 0 });
-    const result = getTodayWorkout(pw, [], null, 150, 0);
+    const result = getTodayWorkout(pw, [], null, 150, 0, 2); // Wed = easy slot
     expect(result.paceNote).toBeTruthy();
     expect(result.paceMin).toBeNull();
   });
 
   it('computes pace range when avgPaceSecKm provided', () => {
     const pw = planWeekStub({ easy: 2, long: 0, workout: 0 });
-    const result = getTodayWorkout(pw, [], 330, 150, 0);
+    const result = getTodayWorkout(pw, [], 330, 150, 0, 2); // Wed = easy slot
     expect(result.paceMin).toBeGreaterThan(330);
     expect(result.paceMax).toBeGreaterThan(result.paceMin);
   });
 
   it('distanceKm is within sensible bounds for each type', () => {
     const pw = planWeekStub({ targetKm: 50, easy: 3, long: 1, workout: 1 });
-    const easy    = getTodayWorkout({ ...pw, easy: 1, long: 0, workout: 0 }, [], null, null, 0);
-    const long    = getTodayWorkout({ ...pw, easy: 0, long: 1, workout: 0 }, [], null, null, 0);
-    const workout = getTodayWorkout({ ...pw, easy: 0, long: 0, workout: 1 }, [], null, null, 0);
+    const easy    = getTodayWorkout({ ...pw, easy: 1, long: 0, workout: 0 }, [], null, null, 0, 2); // Wed = easy
+    const long    = getTodayWorkout({ ...pw, easy: 0, long: 1, workout: 0 }, [], null, null, 0, 5); // Sat = long
+    const workout = getTodayWorkout({ ...pw, easy: 0, long: 0, workout: 1 }, [], null, null, 0, 1); // Tue = workout
     expect(easy.distanceKm).toBeGreaterThanOrEqual(5);
     expect(easy.distanceKm).toBeLessThanOrEqual(18);
     expect(long.distanceKm).toBeGreaterThanOrEqual(10);
