@@ -205,10 +205,21 @@ describe('getTodayWorkout', () => {
     expect(result.dayLabel).toBe('Tomorrow');
   });
 
-  it('returns null when rest day and no more workouts left in week', () => {
-    // Sun (idx 6) is rest with easy:0,long:0,workout:0 — nothing scheduled
+  it('looks into next week when no workouts remain this week', () => {
+    // Sun (idx 6) is rest; no workouts this week — but next week has easy+long+workout
     const pw = planWeekStub({ easy: 0, long: 0, workout: 0 });
-    expect(getTodayWorkout(pw, [], 330, 150, 0, 6)).toBeNull();
+    const nextPw = planWeekStub({ easy: 2, long: 1, workout: 1, week: '2026-06-08' }); // pw.week + 7d
+    const plan = { weeks: [pw, nextPw] };
+    const result = getTodayWorkout(pw, [], 330, 150, 0, 6, plan);
+    expect(result).not.toBeNull();
+    // Next week: no workout(s) until Tue (idx 1) — first non-rest day
+    expect(result.type).toBe('workout');
+    expect(result.dayLabel).toBe('Tue');
+  });
+
+  it('returns null when rest day, no more workouts this week, and no next week in plan', () => {
+    const pw = planWeekStub({ easy: 0, long: 0, workout: 0 });
+    expect(getTodayWorkout(pw, [], 330, 150, 0, 6, null)).toBeNull();
   });
 
   it('returns done:true when all run types completed', () => {

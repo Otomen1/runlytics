@@ -225,7 +225,7 @@ const TIPS = [
   { minForm: -Infinity, tip: "Fatigue is high — light jog or rest." },
 ];
 
-export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 0, todayDayIdx = null) {
+export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 0, todayDayIdx = null, plan = null) {
   if (!planWeek) return null;
 
   // Check what today's slot is in the schedule
@@ -236,6 +236,7 @@ export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 
   // On rest days, find the next upcoming workout day later this week
   let upcomingDay = null;
   let dayLabel = null;
+  let activePlanWeek = planWeek;
   if (!todayDay || todayDay.type === 'rest') {
     for (let i = idx + 1; i < 7; i++) {
       if (days[i]?.type !== 'rest') {
@@ -244,7 +245,25 @@ export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 
         break;
       }
     }
-    if (!upcomingDay) return null; // No more workouts this week
+    // Nothing left this week — look into next week's plan
+    if (!upcomingDay && plan) {
+      const [y, m, d] = planWeek.week.split('-').map(Number);
+      const nextMonday = new Date(y, m - 1, d + 7);
+      const nextKey = `${nextMonday.getFullYear()}-${String(nextMonday.getMonth()+1).padStart(2,'0')}-${String(nextMonday.getDate()).padStart(2,'0')}`;
+      const nextPlanWeek = getPlanWeek(plan, nextKey);
+      if (nextPlanWeek) {
+        const nextDays = getWeekDays(nextPlanWeek);
+        for (let i = 0; i < 7; i++) {
+          if (nextDays[i]?.type !== 'rest') {
+            upcomingDay = nextDays[i];
+            dayLabel = nextDays[i].day;
+            activePlanWeek = nextPlanWeek;
+            break;
+          }
+        }
+      }
+    }
+    if (!upcomingDay) return null;
   }
 
   const done = { easy: 0, long: 0, workout: 0 };
@@ -257,12 +276,13 @@ export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 
     long:    Math.max(0, planWeek.long    - done.long),
     workout: Math.max(0, planWeek.workout - done.workout),
   };
+  // Only check "all done" for the current week (not if we're looking into next week)
   const totalRemaining = remaining.easy + remaining.long + remaining.workout;
-  if (!totalRemaining) return { done: true };
+  if (!totalRemaining && !upcomingDay) return { done: true };
 
   // Use today's (or next upcoming) assigned type
   const sourceDay = upcomingDay ?? todayDay;
-  const isMarathonBuild = planWeek.raceType === 'Marathon' && planWeek.phase === 'build';
+  const isMarathonBuild = activePlanWeek.raceType === 'Marathon' && activePlanWeek.phase === 'build';
   const rawType = sourceDay.type; // 'easy' | 'long' | 'workout'
   const type = (form < -8 && rawType !== 'long')
     ? 'easy'
@@ -314,7 +334,7 @@ export function getTodayWorkout(planWeek, weekActs, avgPaceSecKm, mafHR, form = 
     paceMax,
     paceNote,
     tip,
-    phase: planWeek.phase,
+    phase: activePlanWeek.phase,
     dayLabel,
   };
 }

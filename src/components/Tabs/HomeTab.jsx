@@ -69,7 +69,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
   const todayWorkout = useMemo(() => {
     if (!planWeek) return null;
     const weekActs = acts.filter(a => weekOf(a.dateTs) === todayWeek);
-    return getTodayWorkout(planWeek, weekActs, thisPaceAvg, mafHR, condition?.form ?? 0);
+    return getTodayWorkout(planWeek, weekActs, thisPaceAvg, mafHR, condition?.form ?? 0, null, plan);
   }, [planWeek, acts, todayWeek, thisPaceAvg, mafHR, condition]);
   const [thumbMap, setThumbMap] = useState({});
   useEffect(() => {
