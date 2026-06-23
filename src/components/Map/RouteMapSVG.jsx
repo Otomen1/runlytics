@@ -48,6 +48,8 @@ const dotStyle = (bg) => ({
 
 export function RouteMapSVG({ route, act }) {
   const [popup, setPopup] = useState(null);
+  const [mapError, setMapError] = useState(null);
+  const [mapReady, setMapReady] = useState(false);
 
   const geo = useMemo(() => {
     if (!route || route.length < 2) return null;
@@ -140,6 +142,17 @@ export function RouteMapSVG({ route, act }) {
   return (
     <div>
       <div style={{ borderRadius: hasSec ? '12px 12px 0 0' : 12, overflow: 'hidden', border: '1px solid #b8b0a4', boxShadow: '0 2px 14px rgba(0,0,0,.2)', position: 'relative' }}>
+        {!mapReady && !mapError && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--s2)', color: 'var(--tx3)', fontSize: '.75rem' }}>
+            Loading map…
+          </div>
+        )}
+        {mapError && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 5, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'rgba(0,0,0,.75)', color: '#fff', fontSize: '.72rem', padding: '0 16px', textAlign: 'center' }}>
+            <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+            Map failed to load — {mapError}
+          </div>
+        )}
         <Map
           initialViewState={{ bounds, fitBoundsOptions: { padding: 28 } }}
           style={{ height: 280 }}
@@ -147,6 +160,8 @@ export function RouteMapSVG({ route, act }) {
           scrollZoom={false}
           onMouseMove={onMouseMove}
           onMouseLeave={onMouseLeave}
+          onLoad={() => setMapReady(true)}
+          onError={(e) => { setMapError(e.error?.message ?? 'unknown error'); console.error('[MapLibre]', e); }}
         >
           <Source id="route" type="geojson" data={geojson}>
             <Layer {...glowLayer} />
