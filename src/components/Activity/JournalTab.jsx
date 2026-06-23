@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { addPhoto, getPhotos, deletePhoto } from '../../db/indexedDB.js';
 import { SHOES_KEY } from '../../constants/keys.js';
 import { lsGetV } from '../../utils/storage.js';
-import { classifyRun } from '../../utils/activity.js';
+import { classifyRun, calcTrainingLoad } from '../../utils/activity.js';
 import { parseDurSec, fmtDur } from '../../utils/formatters.js';
 
 const MOODS = [
@@ -116,9 +116,7 @@ export function JournalTab({ act, onPatch }) {
     const movingTimeSec = parseDurSec(durInput);
     if (distKm <= 0 || movingTimeSec <= 0) return;
     const avgPaceSecKm = parseFloat((movingTimeSec / distKm).toFixed(1));
-    const trainingLoad = act.avgHR
-      ? Math.round((movingTimeSec/60)*(act.avgHR/100)*1.5)
-      : Math.round(distKm*8);
+    const trainingLoad = calcTrainingLoad(movingTimeSec, act.avgHR, distKm);
     onPatch({ distanceKm: parseFloat(distKm.toFixed(3)), movingTimeSec, avgPaceSecKm, trainingLoad,
               runClass: classifyRun(distKm, avgPaceSecKm) });
   };

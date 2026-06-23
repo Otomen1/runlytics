@@ -3,7 +3,8 @@ import { FITNESS_TEST_KEY } from '../../constants/keys.js';
 import { lsGetV, lsSetV } from '../../utils/storage.js';
 import { weekOf, fmtKm, fmtPace } from '../../utils/formatters.js';
 import { getPlanWeek, getPlanWeekNumber, getPlanAdherence } from '../../utils/trainingPlan.js';
-import { computeFitnessProfile, estimateVO2Max } from '../../utils/fitnessProfile.js';
+import { computeFitnessProfile } from '../../utils/fitnessProfile.js';
+import { estimateVO2maxFromRun } from '../../utils/analytics.js';
 import {
   computeGoalHealthScore, computeCoachInsights,
   computeAdaptiveReco, computeCoachMilestones, computeCatchUpPath,
@@ -80,7 +81,7 @@ export function CoachTab({ acts, analytics, hrProfile, plan }) {
     if (!dist || !mins || dist <= 0 || mins <= 0) return;
     const timeSec = Math.round(mins * 60);
     const paceSecKm = Math.round(timeSec / dist);
-    const vo2 = estimateVO2Max(paceSecKm);
+    const vo2 = estimateVO2maxFromRun(dist, timeSec);
     const raceTimes = {
       '5K':  Math.round(timeSec * Math.pow(5 / dist, 1.06)),
       '10K': Math.round(timeSec * Math.pow(10 / dist, 1.06)),
@@ -411,7 +412,7 @@ export function CoachTab({ acts, analytics, hrProfile, plan }) {
               </div>
               {fitness.longestRun > 0 && (
                 <div>
-                  <div style={{ fontSize: '.62rem', color: 'var(--tx3)', marginBottom: 2 }}>Longest run</div>
+                  <div style={{ fontSize: '.62rem', color: 'var(--tx3)', marginBottom: 2 }}>Longest run (cycle)</div>
                   <div style={{ fontSize: '.86rem', fontWeight: 700 }}>{fmtKm(fitness.longestRun)} km</div>
                 </div>
               )}

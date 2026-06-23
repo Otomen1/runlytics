@@ -1,4 +1,4 @@
-import { normalizeRoute, migrateActivity, classifyRun } from './activity.js';
+import { normalizeRoute, migrateActivity, classifyRun, calcTrainingLoad } from './activity.js';
 import { MAX_GPX_BYTES, MAX_GPX_POINTS, GPX_FALLBACK_SEC } from '../constants/limits.js';
 
 export function readFileText(file){
@@ -95,7 +95,7 @@ export function parseGPX(xmlStr,fileName){
     const firstValidTime=validTimes.length?validTimes[0].time:0;
     const d=firstValidTime?new Date(firstValidTime):new Date();
     const dateStr=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const trainingLoad=timeSec&&avgHR?Math.round((timeSec/60)*(avgHR/100)*1.5):Math.round(distKm*8);
+    const trainingLoad=calcTrainingLoad(timeSec,avgHR,distKm);
     const step=Math.max(1,Math.floor(pts.length/400));
     const route=pts.filter((_,i)=>i%step===0||i===pts.length-1).map(p=>({lat:p.lat,lon:p.lon,sec:p.sec,ele:p.ele}));
     const hrSamples=hrPts.filter((_,i)=>i%Math.max(1,Math.floor(hrPts.length/200))===0).map(p=>({sec:p.sec,hr:p.hr}));

@@ -19,6 +19,12 @@ export function normalizeRoute(pts){
   return out;
 }
 
+export function calcTrainingLoad(movingTimeSec,avgHR,distKm){
+  return movingTimeSec&&avgHR
+    ?Math.round((movingTimeSec/60)*(avgHR/100)*1.5)
+    :Math.round((distKm||0)*8);
+}
+
 export function classifyRun(distKm,paceSecKm){
   if(distKm>=13)return"long";
   if(paceSecKm>0&&paceSecKm<320)return"workout";

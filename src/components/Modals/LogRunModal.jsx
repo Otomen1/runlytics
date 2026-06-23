@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { migrateActivity, classifyRun } from '../../utils/activity.js';
+import { migrateActivity, classifyRun, calcTrainingLoad } from '../../utils/activity.js';
 import { parseDurSec, fmtDur } from '../../utils/formatters.js';
 
 const TYPES = ['Run','Walk','Hike','TrailRun','VirtualRun'];
@@ -41,9 +41,7 @@ export function LogRunModal({ onAdd, onClose, shoes = [] }) {
     const avgHR = parseInt(hrStr, 10) || null;
     const elevGainM = parseInt(elevStr, 10) || 0;
     const avgPaceSecKm = distKm > 0 ? movingTimeSec / distKm : 0;
-    const trainingLoad = movingTimeSec && avgHR
-      ? Math.round((movingTimeSec / 60) * (avgHR / 100) * 1.5)
-      : Math.round(distKm * 8);
+    const trainingLoad = calcTrainingLoad(movingTimeSec, avgHR, distKm);
     const dateTs = new Date(date + 'T12:00:00').getTime();
     const act = migrateActivity({
       id: 'm' + Date.now(),

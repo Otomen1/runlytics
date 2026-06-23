@@ -550,7 +550,7 @@ export function StatsTab({acts,analytics,hrProfile,onViewAll,onViewMonthly,onOpe
         <div className="card a3" style={{padding:16,marginBottom:14}}>
           <SH title="Overall Bests"/>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            {[{l:"Longest",v:fmtKm(overallPRs.longest&&overallPRs.longest.distanceKm||0)+" km",c:"var(--or)",sub:overallPRs.longest?fmtDateS(overallPRs.longest.date):""},
+            {[{l:"Longest (all-time)",v:fmtKm(overallPRs.longest&&overallPRs.longest.distanceKm||0)+" km",c:"var(--or)",sub:overallPRs.longest?fmtDateS(overallPRs.longest.date):""},
               {l:"Best Pace",v:fmtPace(overallPRs.fastest&&overallPRs.fastest.avgPaceSecKm||0)+"/km",c:"var(--bl)",sub:overallPRs.fastest?fmtDateS(overallPRs.fastest.date):""}].map(s=>(
               <div key={s.l} className="card2" style={{padding:"13px 11px"}}>
                 <div style={{fontSize:"var(--fs-xs)",color:"var(--tx3)",marginBottom:6,letterSpacing:".04em"}}>{s.l}</div>

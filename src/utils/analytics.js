@@ -197,6 +197,10 @@ export function computeAtlCtl(acts,displayDays=90){
   return all.slice(-displayDays);
 }
 
+export function estimateVO2maxFromRun(distKm,timeSec){
+  return jackDanielsVO2(distKm,timeSec);
+}
+
 function jackDanielsVO2(distKm,timeSec){
   const v=distKm*1000/(timeSec/60);
   const t=timeSec/60;

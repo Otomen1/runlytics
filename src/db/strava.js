@@ -1,6 +1,6 @@
 import { STRAVA_KEY, STRAVA_ACCESS_KEY, STRAVA_REFRESH_KEY, STRAVA_REFRESH_LS_KEY } from '../constants/keys.js';
 import { REFRESH_TOKEN_MAX_AGE_MS } from '../constants/limits.js';
-import { migrateActivity, decodePolyline, classifyRun } from '../utils/activity.js';
+import { migrateActivity, decodePolyline, classifyRun, calcTrainingLoad } from '../utils/activity.js';
 
 const SESSION_TOKEN_KEY = STRAVA_ACCESS_KEY;
 
@@ -111,9 +111,7 @@ export function mapStravaActivity(a){
   const avgHR=isFinite(+a.average_heartrate)&&+a.average_heartrate>0?Math.round(+a.average_heartrate):null;
   const maxHR=isFinite(+a.max_heartrate)&&+a.max_heartrate>0?Math.round(+a.max_heartrate):null;
   const elevGain=isFinite(+a.total_elevation_gain)?Math.round(+a.total_elevation_gain):0;
-  const trainingLoad=movingTime&&avgHR
-    ?Math.round((movingTime/60)*(avgHR/100)*1.5)
-    :Math.round(distKm*8);
+  const trainingLoad=calcTrainingLoad(movingTime,avgHR,distKm);
   const encoded=a.map?.summary_polyline||a.map?.polyline||'';
   const route=encoded?decodePolyline(encoded):[];
   // Strava workout_type: 0=default, 1=race, 2=long run, 3=workout/tempo
