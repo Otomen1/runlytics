@@ -1,5 +1,6 @@
 import { weekOf } from './formatters.js';
 import { getPlanAdherence } from './trainingPlan.js';
+import { computeRacePRs, estimateVO2max } from './analytics.js';
 
 function riegelTime(refTimeSec, refDistKm, targetKm) {
   return Math.round(refTimeSec * Math.pow(targetKm / refDistKm, 1.06));
@@ -26,7 +27,11 @@ export function computeFitnessProfile(acts, plan, analytics) {
     'HM':  riegelTime(ref.movingTimeSec, ref.distanceKm, 21.0975),
     'FM':  riegelTime(ref.movingTimeSec, ref.distanceKm, 42.195),
   } : null;
-  const vo2max = ref ? estimateVO2Max(ref.avgPaceSecKm) : null;
+  // Use PR-based VO2max (same as Home tab) — race efforts give the true upper bound;
+  // easy-run pace would produce a far lower, misleading estimate.
+  const prs = computeRacePRs(acts);
+  const vo2maxEst = estimateVO2max(prs);
+  const vo2max = vo2maxEst?.vo2max ?? null;
   // Filter to current plan period (or last 180 days) so stale long runs don't mislead
   const cycleStartTs = plan?.startDate
     ? new Date(plan.startDate + 'T00:00:00').getTime()
