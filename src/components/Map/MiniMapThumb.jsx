@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { normalizeRoute } from '../../utils/activity.js';
 
-const W = 84, H = 84;
+const W = 100, H = 100;
 
 function sample(pts, max) {
   if (pts.length <= max) return pts;

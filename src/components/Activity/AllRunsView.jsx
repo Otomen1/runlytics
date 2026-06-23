@@ -144,7 +144,7 @@ export function AllRunsView({ acts, onSelectAct, onClose }) {
                     </div>
 
                     {/* Mini map */}
-                    <div style={{width:64,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',padding:'10px 10px 10px 0'}}>
+                    <div style={{width:80,flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',padding:'6px 8px 6px 0'}}>
                       <MiniMapThumb route={a.route} color={clr}/>
                     </div>
                   </div>
