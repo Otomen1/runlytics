@@ -1,5 +1,5 @@
 import { weekOf } from './formatters.js';
-import { getPlanAdherence, getPlanWeek } from './trainingPlan.js';
+import { getPlanAdherence, getPlanWeek, getWeekDays, checkSessionCompliance } from './trainingPlan.js';
 
 // Returns longest run distance within the current plan period (or last 180 days)
 function getLongestRunInCycle(acts, plan) {
@@ -59,7 +59,7 @@ export function computeGoalHealthScore(plan, analytics, acts) {
   return Math.round(raw * maturity);
 }
 
-export function computeCoachInsights(plan, analytics, acts) {
+export function computeCoachInsights(plan, analytics, acts, mafHR = null) {
   const insights = [];
   if (!plan || !analytics.weeklyKm?.length) return insights;
   const adh = getPlanAdherence(plan, analytics.weeklyKm);
@@ -112,6 +112,25 @@ export function computeCoachInsights(plan, analytics, acts) {
   if (maxConsecMissed >= 2)
     insights.push({ type: 'warning', icon: '📅', title: `${maxConsecMissed} Consecutive Weeks Missed`,
       body: `Your history includes ${maxConsecMissed} near-zero weeks in a row. Re-engage with this week's scheduled plan — do not try to back-fill missed volume.` });
+
+  // Short session this week — fires for any session < threshold (easy: 70%, long: 80%)
+  if (planWeek && currentPhase !== 'taper' && currentPhase !== 'race') {
+    const thisWeekActs = acts.filter(a => weekOf(a.dateTs) === today);
+    const refPaceSec = acts
+      .filter(a => a.distanceKm >= 3 && a.avgPaceSecKm > 0)
+      .sort((a, b) => a.avgPaceSecKm - b.avgPaceSecKm)[0]?.avgPaceSecKm ?? null;
+    for (const day of getWeekDays(planWeek)) {
+      if (day.type === 'rest') continue;
+      const act = thisWeekActs.find(a => a.date === day.date);
+      if (!act) continue;
+      const comp = checkSessionCompliance(day, act, refPaceSec, mafHR);
+      if (comp?.status === 'short') {
+        insights.push({ type: 'info', icon: '📏', title: 'Session ran short',
+          body: `Your ${day.label} was ${comp.label.toLowerCase()}. No need to backfill — keep the next session as planned.` });
+        break;
+      }
+    }
+  }
 
   // No recent activity
   if (daysSinceRun >= 7)

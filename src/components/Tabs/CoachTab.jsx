@@ -4,7 +4,7 @@ import { lsGetV, lsSetV } from '../../utils/storage.js';
 import { weekOf, fmtKm, fmtPace } from '../../utils/formatters.js';
 import { getPlanWeek, getPlanWeekNumber, getPlanAdherence } from '../../utils/trainingPlan.js';
 import { computeFitnessProfile, riegelTime } from '../../utils/fitnessProfile.js';
-import { estimateVO2maxFromRun } from '../../utils/analytics.js';
+import { estimateVO2maxFromRun, getMafHR } from '../../utils/analytics.js';
 import {
   computeGoalHealthScore, computeCoachInsights,
   computeAdaptiveReco, computeCoachMilestones, computeCatchUpPath,
@@ -43,8 +43,9 @@ export function CoachTab({ acts, analytics, hrProfile, plan }) {
   const planWeek      = useMemo(() => plan ? getPlanWeek(plan, today) : null,       [plan, today]);
   const planWeekNum   = useMemo(() => plan ? getPlanWeekNumber(plan, today) : null, [plan, today]);
   const planAdh       = useMemo(() => plan ? getPlanAdherence(plan, analytics.weeklyKm) : null, [plan, analytics]);
+  const mafHR         = useMemo(() => getMafHR(hrProfile),                           [hrProfile]);
   const reco          = useMemo(() => computeAdaptiveReco(plan, analytics),          [plan, analytics]);
-  const insights      = useMemo(() => computeCoachInsights(plan, analytics, acts),   [plan, analytics, acts]);
+  const insights      = useMemo(() => computeCoachInsights(plan, analytics, acts, mafHR), [plan, analytics, acts, mafHR]);
   const health        = useMemo(() => computeGoalHealthScore(plan, analytics, acts), [plan, analytics, acts]);
   const milestones    = useMemo(() => computeCoachMilestones(plan, acts, analytics), [plan, acts, analytics]);
   const fitness       = useMemo(() => computeFitnessProfile(acts, plan, analytics),  [acts, plan, analytics]);

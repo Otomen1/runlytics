@@ -358,6 +358,8 @@ export function checkSessionCompliance(day, act, refPaceSec, mafHR) {
 
   if (day.type === 'easy') {
     if (effort === 'hard') return { status: 'too_hard', label: 'Too hard for an easy day' };
+    if (day.targetKm > 0 && act.distanceKm < day.targetKm * 0.70)
+      return { status: 'short', label: `Short — ${act.distanceKm.toFixed(1)} of ${day.targetKm} km` };
     return { status: effort === 'unknown' ? 'done' : 'compliant', label: null };
   }
   if (day.type === 'long') {
