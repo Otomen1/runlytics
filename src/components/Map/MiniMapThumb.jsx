@@ -1,23 +1,22 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import { normalizeRoute } from '../../utils/activity.js';
 
-// CARTO dark basemap — free, no API key, open for reasonable use
+// CARTO dark basemap — free, no API key required
 const TILE = (z, x, y) => `https://basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`;
 
 const W = 84, H = 84;
 const TILE_PX = 256;
-const GRID = 3; // 3×3 tile grid drawn on canvas
-const GRID_PX = GRID * TILE_PX;   // 768
-const SCALE = W / GRID_PX;        // 84/768 ≈ 0.109
+const GRID = 3;                          // 3×3 tile grid
+const GRID_PX = GRID * TILE_PX;         // 768
+const SCALE = W / GRID_PX;              // 84/768
 
-// Web Mercator: lon/lat → absolute pixel coords at zoom z
+// Web Mercator pixel coords at zoom z
 const mX = (lon, z) => (lon + 180) / 360 * TILE_PX * (1 << z);
 const mY = (lat, z) => {
   const s = Math.sin(lat * Math.PI / 180);
   return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * TILE_PX * (1 << z);
 };
 
-// Largest zoom where the route spans ≤55% of the 3×3 grid
 function bestZoom(west, east, south, north) {
   const limit = GRID_PX * 0.55;
   for (let z = 17; z >= 1; z--) {
@@ -47,35 +46,33 @@ export const MiniMapThumb = React.memo(function MiniMapThumb({ route, color }) {
       if (p.lat < south) south = p.lat; if (p.lat > north) north = p.lat;
     }
 
-    const z = bestZoom(west, east, south, north);
-    const cLon = (west + east) / 2;
-    const cLat = (south + north) / 2;
+    const z    = bestZoom(west, east, south, north);
+    const cTX  = Math.floor(mX((west + east) / 2, z) / TILE_PX);
+    const cTY  = Math.floor(mY((south + north) / 2, z) / TILE_PX);
+    const half = (GRID - 1) >> 1;          // = 1
+    const ox   = (cTX - half) * TILE_PX;   // top-left mercator pixel of the grid
+    const oy   = (cTY - half) * TILE_PX;
 
-    // Center tile index
-    const cTX = Math.floor(mX(cLon, z) / TILE_PX);
-    const cTY = Math.floor(mY(cLat, z) / TILE_PX);
+    // Pre-compute canvas [x,y] for every sampled point
+    const sp  = sample(pts, 80);
+    const cPts = sp.map(p => [
+      (mX(p.lon, z) - ox) * SCALE,
+      (mY(p.lat, z) - oy) * SCALE,
+    ]);
 
-    // Mercator pixel at top-left of the 3×3 grid
-    const half = (GRID - 1) >> 1; // 1
-    const ox = (cTX - half) * TILE_PX;
-    const oy = (cTY - half) * TILE_PX;
-
-    // Canvas pixel from lat/lon
-    const cx = lon => (mX(lon, z) - ox) * SCALE;
-    const cy = lat => (mY(lat, z) - oy) * SCALE;
-
-    const sp = sample(pts, 80);
-    return { z, cTX, cTY, ox, oy, half, sp,
-      sx: cx(sp[0].lon), sy: cy(sp[0].lat),
-      ex: cx(sp[sp.length - 1].lon), ey: cy(sp[sp.length - 1].lat),
-      cx, cy };
+    return {
+      z, cTX, cTY, half, ox, oy,
+      cPts,
+      sx: cPts[0][0],       sy: cPts[0][1],
+      ex: cPts[cPts.length - 1][0], ey: cPts[cPts.length - 1][1],
+    };
   }, [route]);
 
   useEffect(() => {
     if (!geo || !canvasRef.current) return;
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const { z, cTX, cTY, ox, oy, half, sp, sx, sy, ex, ey, cx, cy } = geo;
+    const ctx    = canvas.getContext('2d');
+    const { z, cTX, cTY, half, ox, oy, cPts, sx, sy, ex, ey } = geo;
     const c = color || '#f97316';
     let remaining = GRID * GRID;
     let cancelled = false;
@@ -83,24 +80,36 @@ export const MiniMapThumb = React.memo(function MiniMapThumb({ route, color }) {
     ctx.clearRect(0, 0, W, H);
 
     const drawRoute = () => {
-      // Glow
-      ctx.beginPath();
-      sp.forEach((p, i) => i === 0 ? ctx.moveTo(cx(p.lon), cy(p.lat)) : ctx.lineTo(cx(p.lon), cy(p.lat)));
-      ctx.strokeStyle = c; ctx.lineWidth = 5; ctx.globalAlpha = 0.35;
-      ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+      if (cancelled) return;
 
-      // Main line
-      ctx.beginPath();
-      sp.forEach((p, i) => i === 0 ? ctx.moveTo(cx(p.lon), cy(p.lat)) : ctx.lineTo(cx(p.lon), cy(p.lat)));
-      ctx.strokeStyle = c; ctx.lineWidth = 2.5; ctx.globalAlpha = 1; ctx.stroke();
+      const path = () => {
+        ctx.beginPath();
+        cPts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+      };
+
+      // White shadow for contrast against any tile background
+      path();
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth   = 6;
+      ctx.globalAlpha = 1;
+      ctx.lineCap     = 'round';
+      ctx.lineJoin    = 'round';
+      ctx.stroke();
+
+      // Main orange line
+      path();
+      ctx.strokeStyle = c;
+      ctx.lineWidth   = 3.5;
+      ctx.globalAlpha = 1;
+      ctx.stroke();
 
       // Start dot
-      ctx.beginPath(); ctx.arc(sx, sy, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = '#22c55e'; ctx.fill();
+      ctx.beginPath(); ctx.arc(sx, sy, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#22c55e'; ctx.globalAlpha = 1; ctx.fill();
       ctx.strokeStyle = 'white'; ctx.lineWidth = 1.5; ctx.stroke();
 
       // End dot
-      ctx.beginPath(); ctx.arc(ex, ey, 3.5, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(ex, ey, 4, 0, Math.PI * 2);
       ctx.fillStyle = '#ef4444'; ctx.fill();
       ctx.strokeStyle = 'white'; ctx.lineWidth = 1.5; ctx.stroke();
     };
@@ -109,15 +118,16 @@ export const MiniMapThumb = React.memo(function MiniMapThumb({ route, color }) {
 
     for (let dy = -half; dy <= half; dy++) {
       for (let dx = -half; dx <= half; dx++) {
-        const tx = cTX + dx, ty = cTY + dy;
+        const tx  = cTX + dx, ty = cTY + dy;
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
           if (cancelled) return;
-          const px = (tx * TILE_PX - ox) * SCALE;
-          const py = (ty * TILE_PX - oy) * SCALE;
           ctx.globalAlpha = 1;
-          ctx.drawImage(img, px, py, TILE_PX * SCALE, TILE_PX * SCALE);
+          ctx.drawImage(img,
+            (tx * TILE_PX - ox) * SCALE,
+            (ty * TILE_PX - oy) * SCALE,
+            TILE_PX * SCALE, TILE_PX * SCALE);
           done();
         };
         img.onerror = done;
