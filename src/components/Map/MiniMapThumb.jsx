@@ -1,30 +1,7 @@
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { normalizeRoute } from '../../utils/activity.js';
 
-// CARTO dark basemap — free, no API key required
-const TILE = (z, x, y) => `https://basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`;
-
 const W = 84, H = 84;
-const TILE_PX = 256;
-const GRID = 3;                          // 3×3 tile grid
-const GRID_PX = GRID * TILE_PX;         // 768
-const SCALE = W / GRID_PX;              // 84/768
-
-// Web Mercator pixel coords at zoom z
-const mX = (lon, z) => (lon + 180) / 360 * TILE_PX * (1 << z);
-const mY = (lat, z) => {
-  const s = Math.sin(lat * Math.PI / 180);
-  return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * TILE_PX * (1 << z);
-};
-
-function bestZoom(west, east, south, north) {
-  const limit = GRID_PX * 0.55;
-  for (let z = 17; z >= 1; z--) {
-    if (mX(east, z) - mX(west, z) <= limit &&
-        mY(south, z) - mY(north, z) <= limit) return z;
-  }
-  return 1;
-}
 
 function sample(pts, max) {
   if (pts.length <= max) return pts;
@@ -33,8 +10,6 @@ function sample(pts, max) {
 }
 
 export const MiniMapThumb = React.memo(function MiniMapThumb({ route, color }) {
-  const canvasRef = useRef(null);
-
   const geo = useMemo(() => {
     if (!route || route.length < 2) return null;
     const pts = normalizeRoute(route);
@@ -46,122 +21,46 @@ export const MiniMapThumb = React.memo(function MiniMapThumb({ route, color }) {
       if (p.lat < south) south = p.lat; if (p.lat > north) north = p.lat;
     }
 
-    const z    = bestZoom(west, east, south, north);
-    const cTX  = Math.floor(mX((west + east) / 2, z) / TILE_PX);
-    const cTY  = Math.floor(mY((south + north) / 2, z) / TILE_PX);
-    const half = (GRID - 1) >> 1;          // = 1
-    const ox   = (cTX - half) * TILE_PX;   // top-left mercator pixel of the grid
-    const oy   = (cTY - half) * TILE_PX;
+    const pad = 10;
+    const dLon = east - west || 0.0005;
+    const dLat = north - south || 0.0005;
+    const sc = Math.min((W - pad * 2) / dLon, (H - pad * 2) / dLat);
+    const ox = (W - dLon * sc) / 2;
+    const oy = (H - dLat * sc) / 2;
+    const tx = lon => ox + (lon - west) * sc;
+    const ty = lat => oy + (north - lat) * sc;
 
-    // Pre-compute canvas [x,y] for every sampled point
-    const sp  = sample(pts, 80);
-    const cPts = sp.map(p => [
-      (mX(p.lon, z) - ox) * SCALE,
-      (mY(p.lat, z) - oy) * SCALE,
-    ]);
+    const sp = sample(pts, 80);
+    const d = sp.map((p, i) => `${i === 0 ? 'M' : 'L'}${tx(p.lon).toFixed(1)},${ty(p.lat).toFixed(1)}`).join(' ');
 
     return {
-      z, cTX, cTY, half, ox, oy,
-      cPts,
-      sx: cPts[0][0],       sy: cPts[0][1],
-      ex: cPts[cPts.length - 1][0], ey: cPts[cPts.length - 1][1],
+      d,
+      sx: tx(sp[0].lon),        sy: ty(sp[0].lat),
+      ex: tx(sp[sp.length-1].lon), ey: ty(sp[sp.length-1].lat),
     };
   }, [route]);
 
-  useEffect(() => {
-    if (!geo || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx    = canvas.getContext('2d');
-    const { z, cTX, cTY, half, ox, oy, cPts, sx, sy, ex, ey } = geo;
-    const c = color || '#f97316';
-    let remaining = GRID * GRID;
-    let cancelled = false;
-
-    ctx.clearRect(0, 0, W, H);
-
-    const drawRoute = () => {
-      if (cancelled) return;
-
-      const path = () => {
-        ctx.beginPath();
-        cPts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
-      };
-
-      // White shadow for contrast against any tile background
-      path();
-      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-      ctx.lineWidth   = 3.5;
-      ctx.globalAlpha = 1;
-      ctx.lineCap     = 'round';
-      ctx.lineJoin    = 'round';
-      ctx.stroke();
-
-      // Main orange line
-      path();
-      ctx.strokeStyle = c;
-      ctx.lineWidth   = 2;
-      ctx.globalAlpha = 1;
-      ctx.stroke();
-
-      // Start dot
-      ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2);
-      ctx.fillStyle = '#22c55e'; ctx.globalAlpha = 1; ctx.fill();
-      ctx.strokeStyle = 'white'; ctx.lineWidth = 1.5; ctx.stroke();
-
-      // End dot
-      ctx.beginPath(); ctx.arc(ex, ey, 3, 0, Math.PI * 2);
-      ctx.fillStyle = '#ef4444'; ctx.fill();
-      ctx.strokeStyle = 'white'; ctx.lineWidth = 1.5; ctx.stroke();
-    };
-
-    const done = () => { if (--remaining <= 0 && !cancelled) drawRoute(); };
-
-    for (let dy = -half; dy <= half; dy++) {
-      for (let dx = -half; dx <= half; dx++) {
-        const tx  = cTX + dx, ty = cTY + dy;
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          if (cancelled) return;
-          ctx.globalAlpha = 1;
-          ctx.drawImage(img,
-            (tx * TILE_PX - ox) * SCALE,
-            (ty * TILE_PX - oy) * SCALE,
-            TILE_PX * SCALE, TILE_PX * SCALE);
-          done();
-        };
-        img.onerror = done;
-        img.src = TILE(z, tx, ty);
-      }
-    }
-
-    return () => { cancelled = true; };
-  }, [geo, color]);
-
-  const wrap = { width: W, height: H, borderRadius: 'var(--r-lg)', flexShrink: 0, overflow: 'hidden' };
+  const c = color || '#f97316';
 
   if (!geo) {
     return (
-      <div style={{ ...wrap, background: 'var(--s3)', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.06)', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ position: 'absolute', inset: 0 }}>
-          {Array.from({ length: 7 }, (_, i) => (
-            <g key={i}>
-              <line x1={i * 13 + 3} y1={0} x2={i * 13 + 3} y2={H} stroke="rgba(255,255,255,.03)" strokeWidth={1} />
-              <line x1={0} y1={i * 13 + 3} x2={W} y2={i * 13 + 3} stroke="rgba(255,255,255,.03)" strokeWidth={1} />
-            </g>
-          ))}
-        </svg>
-        <span style={{ fontSize: '.9rem', opacity: .35, position: 'relative' }}>🗺️</span>
-        <span style={{ fontSize: '.48rem', fontWeight: 700, letterSpacing: '.08em', color: 'rgba(255,255,255,.2)', position: 'relative' }}>NO GPS</span>
+      <div style={{ width: W, height: H, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, opacity: .35 }}>
+        <span style={{ fontSize: '.85rem' }}>🗺️</span>
+        <span style={{ fontSize: '.44rem', fontWeight: 700, letterSpacing: '.08em', color: 'var(--tx3)' }}>NO GPS</span>
       </div>
     );
   }
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={W} height={H}
-      style={{ ...wrap, background: '#1a1c2e', display: 'block' }}
-    />
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ flexShrink: 0 }}>
+      {/* subtle glow */}
+      <path d={geo.d} fill="none" stroke={c} strokeWidth={5} strokeOpacity={.2} strokeLinecap="round" strokeLinejoin="round" />
+      {/* main route */}
+      <path d={geo.d} fill="none" stroke={c} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      {/* start dot */}
+      <circle cx={geo.sx} cy={geo.sy} r={3} fill="#22c55e" stroke="var(--bg)" strokeWidth={1.5} />
+      {/* end dot */}
+      <circle cx={geo.ex} cy={geo.ey} r={3} fill="#ef4444" stroke="var(--bg)" strokeWidth={1.5} />
+    </svg>
   );
 });
