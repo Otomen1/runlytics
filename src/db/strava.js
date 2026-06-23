@@ -18,7 +18,8 @@ export function loadStravaAuth(){
       return null;
     }
     const sessionToken=sessionStorage.getItem(SESSION_TOKEN_KEY);
-    const refreshToken=sessionStorage.getItem(STRAVA_REFRESH_KEY)||undefined;
+    // Fall back to localStorage refresh token so auth survives tab close/reopen
+    const refreshToken=sessionStorage.getItem(STRAVA_REFRESH_KEY)||localStorage.getItem(STRAVA_REFRESH_LS_KEY)||undefined;
     if(!refreshToken)return null;
     return{...base,access_token:sessionToken||undefined,refresh_token:refreshToken};
   }catch(e){return null;}
@@ -33,7 +34,7 @@ export function saveStravaAuth(a){
     if(access_token)sessionStorage.setItem(SESSION_TOKEN_KEY,access_token);
     if(refresh_token){
       sessionStorage.setItem(STRAVA_REFRESH_KEY,refresh_token);
-      // Intentionally NOT stored in localStorage — sessionStorage only.
+      localStorage.setItem(STRAVA_REFRESH_LS_KEY,refresh_token);
     }
   }catch(e){}
 }
