@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Ring } from '../common/Ring.jsx';
-import { SH } from '../common/SH.jsx';
 import { ACT_CLR } from '../../constants/activityTypes.js';
 import { fmtKm, fmtPace, fmtDate, todayKey, greet, weekOf } from '../../utils/formatters.js';
 import { getMafHR, computeAtlCtl, computeRacePRs, estimateVO2max, computeTierProgress } from '../../utils/analytics.js';
