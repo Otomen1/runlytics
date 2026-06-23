@@ -89,8 +89,8 @@ export const MiniMapThumb = React.memo(function MiniMapThumb({ route, color }) {
 
       // White shadow for contrast against any tile background
       path();
-      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-      ctx.lineWidth   = 6;
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth   = 3.5;
       ctx.globalAlpha = 1;
       ctx.lineCap     = 'round';
       ctx.lineJoin    = 'round';
@@ -99,17 +99,17 @@ export const MiniMapThumb = React.memo(function MiniMapThumb({ route, color }) {
       // Main orange line
       path();
       ctx.strokeStyle = c;
-      ctx.lineWidth   = 3.5;
+      ctx.lineWidth   = 2;
       ctx.globalAlpha = 1;
       ctx.stroke();
 
       // Start dot
-      ctx.beginPath(); ctx.arc(sx, sy, 4, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(sx, sy, 3, 0, Math.PI * 2);
       ctx.fillStyle = '#22c55e'; ctx.globalAlpha = 1; ctx.fill();
       ctx.strokeStyle = 'white'; ctx.lineWidth = 1.5; ctx.stroke();
 
       // End dot
-      ctx.beginPath(); ctx.arc(ex, ey, 4, 0, Math.PI * 2);
+      ctx.beginPath(); ctx.arc(ex, ey, 3, 0, Math.PI * 2);
       ctx.fillStyle = '#ef4444'; ctx.fill();
       ctx.strokeStyle = 'white'; ctx.lineWidth = 1.5; ctx.stroke();
     };
