@@ -94,6 +94,12 @@ export const MiniMapThumb = React.memo(function MiniMapThumb({ route, color }) {
           alt=""
           loading="lazy"
           onError={() => setImgFailed(true)}
+          onLoad={(e) => {
+            // MapTiler returns a valid PNG for invalid keys (error placeholder).
+            // If the returned image isn't the size we requested, treat as failed.
+            const img = e.currentTarget;
+            if (img.naturalWidth < W || img.naturalHeight < H) setImgFailed(true);
+          }}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'fill', display: 'block' }}
         />
       )}
