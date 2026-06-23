@@ -10,7 +10,10 @@ export function normalizeRoute(pts){
     const lat=+p.lat;
     const lon=p.lon!=null?+p.lon:+p.lng;
     if(isFinite(lat)&&isFinite(lon)&&lat>=-90&&lat<=90&&lon>=-180&&lon<=180){
-      out.push({lat,lon});
+      const pt={lat,lon};
+      if(p.sec!=null&&isFinite(+p.sec))pt.sec=+p.sec;
+      if(p.ele!=null&&isFinite(+p.ele))pt.ele=+p.ele;
+      out.push(pt);
     }
   }
   return out;

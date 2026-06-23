@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Ring } from '../common/Ring.jsx';
-import { SH } from '../common/SH.jsx';
 import { ACT_CLR } from '../../constants/activityTypes.js';
 import { fmtKm, fmtPace, fmtDate, todayKey, greet, weekOf } from '../../utils/formatters.js';
 import { getMafHR, computeAtlCtl, computeRacePRs, estimateVO2max, computeTierProgress } from '../../utils/analytics.js';
@@ -36,18 +35,18 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
     const{form}=data[data.length-1];
     return{...(CONDITIONS.find(c=>form>=c.minForm)||CONDITIONS[CONDITIONS.length-1]),form};
   },[acts]);
-  const today=new Date();today.setHours(0,0,0,0);today.setDate(today.getDate()-((today.getDay()+6)%7));
-  const thisWeekKm=acts.filter(a=>new Date(a.dateTs)>=today).reduce((s,a)=>s+a.distanceKm,0);
+  const today=useMemo(()=>{const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));return d;},[]);
+  const thisWeekKm=useMemo(()=>acts.filter(a=>new Date(a.dateTs)>=today).reduce((s,a)=>s+a.distanceKm,0),[acts,today]);
   const weekPct=Math.min(1,thisWeekKm/(goals.weekly||1));
   const greetPfx=profile.name==="Runner"?"Welcome back":"Welcome back, "+profile.name;
   const weekLeft=parseFloat((goals.weekly-thisWeekKm).toFixed(1));
   // Use local month key so users in UTC+ timezones see the correct month
   const _now=new Date();
   const thisMonthKey=_now.getFullYear()+'-'+String(_now.getMonth()+1).padStart(2,'0');
-  const thisMonthKm=acts.filter(a=>a.date&&a.date.startsWith(thisMonthKey)).reduce((s,a)=>s+a.distanceKm,0);
+  const thisMonthKm=useMemo(()=>acts.filter(a=>a.date&&a.date.startsWith(thisMonthKey)).reduce((s,a)=>s+a.distanceKm,0),[acts,thisMonthKey]);
   const monthPct=Math.min(1,thisMonthKm/(goals.monthly||1));
   const monthLeft=parseFloat(Math.max(0,goals.monthly-thisMonthKm).toFixed(1));
-  const thisWeekRuns=acts.filter(a=>new Date(a.dateTs)>=today).length;
+  const thisWeekRuns=useMemo(()=>acts.filter(a=>new Date(a.dateTs)>=today).length,[acts,today]);
   const _lastMonth=new Date(_now.getFullYear(),_now.getMonth()-1,1);
   const lastMonthKey=_lastMonth.getFullYear()+'-'+String(_lastMonth.getMonth()+1).padStart(2,'0');
   const avgPaceArr=arr=>arr.length?arr.reduce((s,a)=>s+a.avgPaceSecKm,0)/arr.length:null;
