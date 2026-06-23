@@ -4,16 +4,18 @@ import { migrateActivity, decodePolyline, classifyRun, calcTrainingLoad } from '
 
 const SESSION_TOKEN_KEY = STRAVA_ACCESS_KEY;
 
-// Security model: only non-sensitive metadata (athlete name, expires_at, savedAt) goes to
-// localStorage. BOTH access_token AND refresh_token live in sessionStorage only — cleared
-// when the tab closes. Storing a refresh token in localStorage would grant indefinite
-// Strava access to any script that can read the origin's storage (XSS, extensions).
-// Trade-off: users must re-authenticate after closing the browser tab. Acceptable.
+// Security model: non-sensitive metadata (athlete name, expires_at, createdAt) goes to
+// localStorage. The access_token lives in sessionStorage (cleared on tab close). The
+// refresh_token is stored in both sessionStorage AND localStorage so auth survives tab
+// close/reopen — trade-off: any XSS on this origin can read it. Mitigated by REFRESH_TOKEN_MAX_AGE_MS
+// expiry (checked against createdAt, written once at initial OAuth and never overwritten).
 export function loadStravaAuth(){
   try{
     const base=JSON.parse(localStorage.getItem(STRAVA_KEY)||"null");
     if(!base)return null;
-    if(base.savedAt&&Date.now()-base.savedAt>REFRESH_TOKEN_MAX_AGE_MS){
+    // Use createdAt (written once at initial OAuth) so active users aren't exempt from expiry
+    const ageTs=base.createdAt||base.savedAt;
+    if(ageTs&&Date.now()-ageTs>REFRESH_TOKEN_MAX_AGE_MS){
       clearStravaAuth();
       return null;
     }
@@ -29,8 +31,10 @@ export function saveStravaAuth(a){
   try{
     if(!a)return;
     const{access_token,refresh_token,...rest}=a;
-    // Strip tokens from localStorage — only keep non-sensitive metadata
-    localStorage.setItem(STRAVA_KEY,JSON.stringify({...rest,savedAt:Date.now()}));
+    const existing=JSON.parse(localStorage.getItem(STRAVA_KEY)||"null");
+    // createdAt is written once at initial OAuth and never overwritten — used for expiry check
+    const createdAt=existing?.createdAt||Date.now();
+    localStorage.setItem(STRAVA_KEY,JSON.stringify({...rest,createdAt,savedAt:Date.now()}));
     if(access_token)sessionStorage.setItem(SESSION_TOKEN_KEY,access_token);
     if(refresh_token){
       sessionStorage.setItem(STRAVA_REFRESH_KEY,refresh_token);

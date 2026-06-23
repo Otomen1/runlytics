@@ -3,7 +3,7 @@ import { FITNESS_TEST_KEY } from '../../constants/keys.js';
 import { lsGetV, lsSetV } from '../../utils/storage.js';
 import { weekOf, fmtKm, fmtPace } from '../../utils/formatters.js';
 import { getPlanWeek, getPlanWeekNumber, getPlanAdherence } from '../../utils/trainingPlan.js';
-import { computeFitnessProfile } from '../../utils/fitnessProfile.js';
+import { computeFitnessProfile, riegelTime } from '../../utils/fitnessProfile.js';
 import { estimateVO2maxFromRun } from '../../utils/analytics.js';
 import {
   computeGoalHealthScore, computeCoachInsights,
@@ -80,13 +80,14 @@ export function CoachTab({ acts, analytics, hrProfile, plan }) {
     const mins = parseFloat(testInput.timeMin);
     if (!dist || !mins || dist <= 0 || mins <= 0) return;
     const timeSec = Math.round(mins * 60);
+    if (timeSec <= 0) return;
     const paceSecKm = Math.round(timeSec / dist);
     const vo2 = estimateVO2maxFromRun(dist, timeSec);
     const raceTimes = {
-      '5K':  Math.round(timeSec * Math.pow(5 / dist, 1.06)),
-      '10K': Math.round(timeSec * Math.pow(10 / dist, 1.06)),
-      'HM':  Math.round(timeSec * Math.pow(21.0975 / dist, 1.06)),
-      'FM':  Math.round(timeSec * Math.pow(42.195 / dist, 1.06)),
+      '5K':  riegelTime(timeSec, dist, 5),
+      '10K': riegelTime(timeSec, dist, 10),
+      'HM':  riegelTime(timeSec, dist, 21.0975),
+      'FM':  riegelTime(timeSec, dist, 42.195),
     };
     const result = { dist, timeSec, paceSecKm, vo2, raceTimes, ts: Date.now() };
     setTestResult(result);

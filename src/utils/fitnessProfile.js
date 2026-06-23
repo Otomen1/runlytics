@@ -2,7 +2,7 @@ import { weekOf } from './formatters.js';
 import { getPlanAdherence } from './trainingPlan.js';
 import { computeRacePRs, estimateVO2max } from './analytics.js';
 
-function riegelTime(refTimeSec, refDistKm, targetKm) {
+export function riegelTime(refTimeSec, refDistKm, targetKm) {
   return Math.round(refTimeSec * Math.pow(targetKm / refDistKm, 1.06));
 }
 
@@ -11,12 +11,6 @@ function bestRecentRun(acts, minKm, days = 90) {
   return acts
     .filter(a => a.avgPaceSecKm > 0 && a.distanceKm >= minKm && a.dateTs > cutoff)
     .sort((a, b) => a.avgPaceSecKm - b.avgPaceSecKm)[0] || null;
-}
-
-export function estimateVO2Max(paceSecPerKm) {
-  if (!paceSecPerKm) return null;
-  const v = 1000 / (paceSecPerKm / 60);
-  return Math.round(-4.6 + 0.182258 * v + 0.000104 * v * v);
 }
 
 export function computeFitnessProfile(acts, plan, analytics) {

@@ -35,8 +35,8 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
     const{form}=data[data.length-1];
     return{...(CONDITIONS.find(c=>form>=c.minForm)||CONDITIONS[CONDITIONS.length-1]),form};
   },[acts]);
-  const today=useMemo(()=>{const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));return d;},[]);
-  const thisWeekKm=useMemo(()=>acts.filter(a=>new Date(a.dateTs)>=today).reduce((s,a)=>s+a.distanceKm,0),[acts,today]);
+  const todayWeek=weekOf(Date.now());
+  const thisWeekKm=useMemo(()=>acts.filter(a=>weekOf(a.dateTs)===todayWeek).reduce((s,a)=>s+a.distanceKm,0),[acts,todayWeek]);
   const weekPct=Math.min(1,thisWeekKm/(goals.weekly||1));
   const greetPfx=profile.name==="Runner"?"Welcome back":"Welcome back, "+profile.name;
   const weekLeft=parseFloat((goals.weekly-thisWeekKm).toFixed(1));
@@ -46,7 +46,7 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
   const thisMonthKm=useMemo(()=>acts.filter(a=>a.date&&a.date.startsWith(thisMonthKey)).reduce((s,a)=>s+a.distanceKm,0),[acts,thisMonthKey]);
   const monthPct=Math.min(1,thisMonthKm/(goals.monthly||1));
   const monthLeft=parseFloat(Math.max(0,goals.monthly-thisMonthKm).toFixed(1));
-  const thisWeekRuns=useMemo(()=>acts.filter(a=>new Date(a.dateTs)>=today).length,[acts,today]);
+  const thisWeekRuns=useMemo(()=>acts.filter(a=>weekOf(a.dateTs)===todayWeek).length,[acts,todayWeek]);
   const _lastMonth=new Date(_now.getFullYear(),_now.getMonth()-1,1);
   const lastMonthKey=_lastMonth.getFullYear()+'-'+String(_lastMonth.getMonth()+1).padStart(2,'0');
   const avgPaceArr=arr=>arr.length?arr.reduce((s,a)=>s+a.avgPaceSecKm,0)/arr.length:null;
@@ -60,7 +60,6 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
   },[tierProgress]);
   const memories = useMemo(() => (acts||[]).filter(a => a.mood || a.notes || a.photoCount > 0).slice(0, 5), [acts]);
 
-  const todayWeek = weekOf(Date.now());
   const planWeek = plan ? getPlanWeek(plan, todayWeek) : null;
   const planWeekNum = plan ? getPlanWeekNumber(plan, todayWeek) : null;
   const planAdherence = useMemo(()=>plan?getPlanAdherence(plan, analytics.weeklyKm||[]):null,[plan, analytics.weeklyKm]);
