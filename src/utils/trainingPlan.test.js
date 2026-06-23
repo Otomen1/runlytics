@@ -48,7 +48,9 @@ describe('generatePlan', () => {
   it('taper weeks decrease volume', () => {
     const plan = generatePlan('HM', futureDate(16), 40);
     const n = plan.weeks.length;
-    expect(plan.weeks[n - 2].targetKm).toBeLessThan(plan.weeks[n - 4].targetKm);
+    // Compare taper week to peak build volume (not a fixed index, which may be a recovery week)
+    const peakBuildKm = Math.max(...plan.weeks.filter(w => w.phase === 'build').map(w => w.targetKm));
+    expect(plan.weeks[n - 2].targetKm).toBeLessThan(peakBuildKm);
   });
 
   it('caps peak at RACE_PEAK for type', () => {
