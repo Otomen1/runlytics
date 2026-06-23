@@ -177,9 +177,10 @@ export async function addPhoto(activityId, blob, thumbBlob, mimeType){
   return openIDB().then(db=>new Promise((resolve,reject)=>{
     const tx=db.transaction(IDB_PHOTOS,"readwrite");
     const req=tx.objectStore(IDB_PHOTOS).add({activityId,blob,thumbBlob,mimeType,addedAt:Date.now()});
-    req.onsuccess=()=>resolve(req.result);
     req.onerror=e=>reject(e.target.error);
+    tx.oncomplete=()=>resolve(req.result);
     tx.onerror=e=>reject(e.target.error);
+    tx.onabort=e=>reject(new Error("addPhoto aborted: "+e.target.error?.message));
   }));
 }
 

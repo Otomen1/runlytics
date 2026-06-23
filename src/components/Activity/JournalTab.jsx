@@ -66,8 +66,7 @@ export function JournalTab({ act, onPatch }) {
   const onPatchRef     = useRef(onPatch);
   useEffect(() => { onPatchRef.current = onPatch; }, [onPatch]);
 
-  const shoes = useMemo(() => lsGetV(SHOES_KEY, []), []);
-  const activeShoes = shoes.filter(s => s.active !== false);
+  const activeShoes = useMemo(() => lsGetV(SHOES_KEY, []).filter(s => s.active !== false), []);
 
   useEffect(() => {
     getPhotos(act.id).then(setPhotos).catch(console.error);

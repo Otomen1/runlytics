@@ -38,8 +38,8 @@ export function LogRunModal({ onAdd, onClose, shoes = [] }) {
   function handleSave() {
     if (distKm <= 0) { setError('Distance is required'); return; }
     if (movingTimeSec <= 0) { setError('Duration is required'); return; }
-    const avgHR = parseInt(hrStr) || null;
-    const elevGainM = parseInt(elevStr) || 0;
+    const avgHR = parseInt(hrStr, 10) || null;
+    const elevGainM = parseInt(elevStr, 10) || 0;
     const avgPaceSecKm = distKm > 0 ? movingTimeSec / distKm : 0;
     const trainingLoad = movingTimeSec && avgHR
       ? Math.round((movingTimeSec / 60) * (avgHR / 100) * 1.5)

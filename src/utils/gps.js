@@ -85,7 +85,9 @@ export function parseGPX(xmlStr,fileName){
       const de=b.ele-a.ele;if(de>0)elevGain+=de;else elevLoss+=Math.abs(de);
     }
     const distKm=distM/1000;
-    const timeSec=hasTimestamps?Math.max(1,(pts[pts.length-1].sec||0)):GPX_FALLBACK_SEC;
+    // If all timestamps are identical the device clocked wrong — treat as no timestamps
+    const lastSec=pts[pts.length-1].sec||0;
+    const timeSec=hasTimestamps&&lastSec>0?lastSec:GPX_FALLBACK_SEC;
     const paceSecKm=distKm>0?timeSec/distKm:0;
     const hrPts=pts.filter(p=>p.hr&&p.hr>40&&p.hr<220);
     const avgHR=hrPts.length?Math.round(hrPts.reduce((s,p)=>s+p.hr,0)/hrPts.length):null;
