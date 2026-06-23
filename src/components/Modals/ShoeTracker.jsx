@@ -87,7 +87,7 @@ export function ShoeTracker({ acts, onClose }) {
           const warn = pct >= SHOE_WARN_THRESHOLD;
           const last = lastUsed[shoe.id];
           return (
-            <button key={shoe.id} className="card tap" style={{padding:16,cursor:'pointer',borderLeft:`4px solid ${shoe.color||'var(--or)'}`,width:'100%',textAlign:'left',background:'none',border:`1px solid var(--bd)`,borderLeft:`4px solid ${shoe.color||'var(--or)'}`}} onClick={() => setView(shoe.id)} aria-label={`Edit ${shoe.name}`}>
+            <button key={shoe.id} className="card tap" style={{padding:16,cursor:'pointer',width:'100%',textAlign:'left',background:'none',border:`1px solid var(--bd)`,borderLeft:`4px solid ${shoe.color||'var(--or)'}`}} onClick={() => setView(shoe.id)} aria-label={`Edit ${shoe.name}`}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
                 <div>
                   <div style={{fontWeight:700,fontSize:'.92rem',marginBottom:2}}>{shoe.name}</div>
