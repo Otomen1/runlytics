@@ -8,7 +8,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval' https://va.vercel-scripts.com https://vercel.live; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://dgalywyr863hv.cloudfront.net https://api.maptiler.com; connect-src 'self' https://www.strava.com https://vitals.vercel-insights.com https://vercel.live https://api.maptiler.com; worker-src 'self' blob:; font-src 'self' data: https://api.maptiler.com; frame-src https://vercel.live; object-src 'none'; base-uri 'self'"
+          "value": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval' https://va.vercel-scripts.com https://vercel.live; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://dgalywyr863hv.cloudfront.net https://api.maptiler.com https://basemaps.cartocdn.com; connect-src 'self' https://www.strava.com https://vitals.vercel-insights.com https://vercel.live https://api.maptiler.com https://basemaps.cartocdn.com; worker-src 'self' blob:; font-src 'self' data: https://api.maptiler.com; frame-src https://vercel.live; object-src 'none'; base-uri 'self'"
         },
         { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains; preload" },
         { "key": "X-Frame-Options", "value": "DENY" },
