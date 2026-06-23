@@ -9,3 +9,4 @@ export function weekOf(ts){const d=new Date(ts);d.setHours(0,0,0,0);d.setDate(d.
 export function monthOf(ts){const d=new Date(ts);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
 export function greet(){const h=new Date().getHours();if(h<12)return"Good morning";if(h<18)return"Good afternoon";return"Good evening";}
 export function todayKey(){return localDateStr(new Date());}
+export function parseDurSec(str){const p=String(str).trim().split(':').map(Number);if(p.some(isNaN))return 0;if(p.length===3)return p[0]*3600+p[1]*60+p[2];if(p.length===2)return p[0]*60+p[1];return p[0]||0;}

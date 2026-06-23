@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { migrateActivity, classifyRun } from '../../utils/activity.js';
+import { parseDurSec, fmtDur } from '../../utils/formatters.js';
 
 const TYPES = ['Run','Walk','Hike','TrailRun','VirtualRun'];
 const MOODS = [
@@ -9,23 +10,6 @@ const MOODS = [
   { key:'tough',  label:'😓', title:'Tough'  },
   { key:'strong', label:'💪', title:'Strong' },
 ];
-
-function parseDuration(str) {
-  const parts = str.trim().split(':').map(Number);
-  if (parts.some(isNaN)) return 0;
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  return parts[0] || 0;
-}
-
-function fmtHMS(sec) {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  return h > 0
-    ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
-    : `${m}:${String(s).padStart(2,'0')}`;
-}
 
 export function LogRunModal({ onAdd, onClose, shoes = [] }) {
   const today = new Date().toISOString().slice(0, 10);
@@ -43,11 +27,11 @@ export function LogRunModal({ onAdd, onClose, shoes = [] }) {
   const activeShoes = useMemo(() => (shoes || []).filter(s => s.active !== false), [shoes]);
 
   const distKm = parseFloat(distStr) || 0;
-  const movingTimeSec = parseDuration(durStr);
+  const movingTimeSec = parseDurSec(durStr);
 
   const pacePreview = useMemo(() => {
     if (distKm > 0 && movingTimeSec > 0)
-      return fmtHMS(Math.round(movingTimeSec / distKm)) + '/km';
+      return fmtDur(Math.round(movingTimeSec / distKm)) + '/km';
     return null;
   }, [distKm, movingTimeSec]);
 

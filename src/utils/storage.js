@@ -7,7 +7,7 @@ export function lsGetV(key, fallback = null, migrate = null) {
   try {
     const raw = JSON.parse(localStorage.getItem(key) || 'null');
     if (raw === null || raw === undefined) return fallback;
-    if (typeof raw === 'object' && '__v' in raw) return raw.data ?? fallback;
+    if (typeof raw === 'object' && '__v' in raw) return raw.data !== undefined ? raw.data : fallback;
     // Legacy format — run optional migration, then upgrade in place
     const data = migrate ? migrate(raw) : raw;
     try { localStorage.setItem(key, JSON.stringify({ __v: V, data })); } catch {}

@@ -3,6 +3,7 @@ import { addPhoto, getPhotos, deletePhoto } from '../../db/indexedDB.js';
 import { SHOES_KEY } from '../../constants/keys.js';
 import { lsGetV } from '../../utils/storage.js';
 import { classifyRun } from '../../utils/activity.js';
+import { parseDurSec, fmtDur } from '../../utils/formatters.js';
 
 const MOODS = [
   { key: 'great',  emoji: '😀', label: 'Great'  },
@@ -48,20 +49,6 @@ function fmtGoalTime(sec) {
 const ACTIVITY_TYPES = ['Run','Walk','Hike','TrailRun','VirtualRun'];
 const RUN_CLASSES = ['easy','long','workout'];
 
-function parseDurSec(str) {
-  const p = str.trim().split(':').map(Number);
-  if (p.some(isNaN)) return 0;
-  if (p.length === 3) return p[0]*3600 + p[1]*60 + p[2];
-  if (p.length === 2) return p[0]*60 + p[1];
-  return p[0] || 0;
-}
-
-function fmtHMS(sec) {
-  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
-  return h > 0
-    ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
-    : `${m}:${String(s).padStart(2,'0')}`;
-}
 
 export function JournalTab({ act, onPatch }) {
   const [photos, setPhotos] = useState([]);
@@ -71,7 +58,7 @@ export function JournalTab({ act, onPatch }) {
   const [goalInput, setGoalInput] = useState(() => fmtGoalTime(act.raceGoalSec));
   const [nameInput, setNameInput] = useState(act.name || '');
   const [distInput, setDistInput] = useState(() => act.source==='manual'?(act.distanceKm||'').toString():'');
-  const [durInput, setDurInput]   = useState(() => act.source==='manual'&&act.movingTimeSec?fmtHMS(act.movingTimeSec):'');
+  const [durInput, setDurInput]   = useState(() => act.source==='manual'&&act.movingTimeSec?fmtDur(act.movingTimeSec):'');
   const fileInputRef   = useRef(null);
   const debounceRef    = useRef(null);
   const pendingNotes   = useRef(null);
