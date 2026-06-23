@@ -2,19 +2,33 @@ import React, { useMemo, useState } from 'react';
 import { normalizeRoute } from '../../utils/activity.js';
 
 const KEY = import.meta.env.VITE_MAPTILER_KEY;
+const W = 84, H = 84;   // display size
+const PX = W * 2;        // retina tile request size (168)
 
-// Downsample to at most N points for the static-map path parameter
+// Web Mercator helpers
+const mercX = (lon, z) => (lon + 180) / 360 * 256 * Math.pow(2, z);
+const mercY = (lat, z) => {
+  const s = Math.sin(lat * Math.PI / 180);
+  return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * 256 * Math.pow(2, z);
+};
+
+// Largest zoom where the route fits inside PX×PX pixels
+function fitZoom(west, east, south, north) {
+  for (let z = 17; z >= 1; z--) {
+    const x0 = mercX(west, z), x1 = mercX(east, z);
+    const y0 = mercY(north, z), y1 = mercY(south, z);
+    if (x1 - x0 <= PX * 0.65 && y1 - y0 <= PX * 0.65) return z;
+  }
+  return 1;
+}
+
 function samplePts(pts, max) {
   if (pts.length <= max) return pts;
   const step = (pts.length - 1) / (max - 1);
   return Array.from({ length: max }, (_, i) => pts[Math.round(i * step)]);
 }
 
-// MiniMapThumb: when VITE_MAPTILER_KEY is set, shows real MapTiler outdoor tiles
-// with an SVG route overlay. Falls back to SVG-only when no key.
-// React.memo + lazy img keeps list rendering fast even with 200+ activities.
 export const MiniMapThumb = React.memo(function MiniMapThumb({ route, color }) {
-  const W = 84, H = 84;
   const [imgFailed, setImgFailed] = useState(false);
 
   const geo = useMemo(() => {
@@ -22,41 +36,29 @@ export const MiniMapThumb = React.memo(function MiniMapThumb({ route, color }) {
     const pts = normalizeRoute(route);
     if (pts.length < 2) return null;
 
-    // Bounding box
     let west = pts[0].lon, east = pts[0].lon, south = pts[0].lat, north = pts[0].lat;
     for (const p of pts) {
       if (p.lon < west) west = p.lon; if (p.lon > east) east = p.lon;
       if (p.lat < south) south = p.lat; if (p.lat > north) north = p.lat;
     }
 
-    // Pad 25% on each side so the route doesn't touch the edges
-    const dLon = east - west || 0.005;
-    const dLat = north - south || 0.005;
-    west  -= dLon * 0.25; east  += dLon * 0.25;
-    south -= dLat * 0.25; north += dLat * 0.25;
+    const cLon = (west + east) / 2;
+    const cLat = (south + north) / 2;
+    const zoom = fitZoom(west, east, south, north);
 
-    // Make bbox square so there's no stretch (static API preserves aspect ratio)
-    const spanLon = east - west;
-    const spanLat = north - south;
-    if (spanLon > spanLat) {
-      const d = (spanLon - spanLat) / 2;
-      south -= d; north += d;
-    } else {
-      const d = (spanLat - spanLon) / 2;
-      west -= d; east += d;
-    }
-
-    // Static map URL — 2× resolution for retina, bbox-fitted
-    const tileUrl = KEY && !imgFailed
-      ? `https://api.maptiler.com/maps/outdoor-v2/static/${west.toFixed(5)},${south.toFixed(5)},${east.toFixed(5)},${north.toFixed(5)}/${W * 2}x${H * 2}.png?key=${KEY}`
-      : null;
-
-    // SVG projection: linear mapping of the same padded bbox → pixel coords
-    const tx = lon => ((lon - west) / (east - west)) * W;
-    const ty = lat => ((north - lat) / (north - south)) * H; // flip: higher lat = lower y
+    // Pixel coords within the PX×PX image (center = PX/2, PX/2)
+    const cMX = mercX(cLon, zoom);
+    const cMY = mercY(cLat, zoom);
+    // Map image pixel → SVG display pixel (÷2 because image is @2x)
+    const tx = lon => (mercX(lon, zoom) - cMX) / 2 + W / 2;
+    const ty = lat => (mercY(lat, zoom) - cMY) / 2 + H / 2;
 
     const sp = samplePts(pts, 80);
     const d = sp.map((p, i) => `${i === 0 ? 'M' : 'L'}${tx(p.lon).toFixed(1)},${ty(p.lat).toFixed(1)}`).join(' ');
+
+    const tileUrl = KEY && !imgFailed
+      ? `https://api.maptiler.com/maps/outdoor-v2/static/${cLon.toFixed(6)},${cLat.toFixed(6)},${zoom}/${PX}x${PX}.png?key=${KEY}`
+      : null;
 
     return {
       d, tileUrl,
@@ -86,7 +88,8 @@ export const MiniMapThumb = React.memo(function MiniMapThumb({ route, color }) {
   }
 
   return (
-    <div style={{ ...wrap, background: geo.tileUrl ? '#dde' : '#090e1a', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.15)' }}>
+    <div style={{ ...wrap, background: geo.tileUrl ? '#c8d8c0' : '#090e1a', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.15)' }}>
+      {/* Real map tiles — only when key is valid */}
       {geo.tileUrl && (
         <img
           src={geo.tileUrl}
@@ -94,15 +97,15 @@ export const MiniMapThumb = React.memo(function MiniMapThumb({ route, color }) {
           alt=""
           loading="lazy"
           onError={() => setImgFailed(true)}
-          onLoad={(e) => {
-            // MapTiler returns a valid PNG for invalid keys (error placeholder).
-            // If the returned image isn't the size we requested, treat as failed.
+          onLoad={e => {
+            // MapTiler returns a small placeholder PNG for bad keys/params
             const img = e.currentTarget;
-            if (img.naturalWidth < W || img.naturalHeight < H) setImgFailed(true);
+            if (img.naturalWidth < PX - 10 || img.naturalHeight < PX - 10) setImgFailed(true);
           }}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'fill', display: 'block' }}
         />
       )}
+      {/* SVG-only grid background when no tiles */}
       {!geo.tileUrl && (
         <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ position: 'absolute', inset: 0 }}>
           {Array.from({ length: 6 }, (_, i) => (
@@ -113,15 +116,11 @@ export const MiniMapThumb = React.memo(function MiniMapThumb({ route, color }) {
           ))}
         </svg>
       )}
-      {/* Route overlay — always on top of tiles */}
+      {/* Route overlay — Mercator-projected to align with tile pixels */}
       <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ position: 'absolute', inset: 0 }}>
-        {/* glow */}
-        <path d={geo.d} fill="none" stroke={c} strokeWidth={7} strokeOpacity={geo.tileUrl ? .45 : .16} strokeLinecap="round" strokeLinejoin="round" />
-        {/* main line */}
+        <path d={geo.d} fill="none" stroke={c} strokeWidth={7} strokeOpacity={geo.tileUrl ? .4 : .16} strokeLinecap="round" strokeLinejoin="round" />
         <path d={geo.d} fill="none" stroke={c} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
-        {/* start dot */}
         <circle cx={geo.sx} cy={geo.sy} r={4} fill="#22c55e" stroke="white" strokeWidth={1.5} />
-        {/* finish dot */}
         <circle cx={geo.ex} cy={geo.ey} r={4} fill="#ef4444" stroke="white" strokeWidth={1.5} />
       </svg>
     </div>
