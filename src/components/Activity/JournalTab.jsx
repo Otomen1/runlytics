@@ -59,12 +59,20 @@ export function JournalTab({ act, onPatch }) {
   const [nameInput, setNameInput] = useState(act.name || '');
   const [distInput, setDistInput] = useState(() => act.source==='manual'?(act.distanceKm||'').toString():'');
   const [durInput, setDurInput]   = useState(() => act.source==='manual'&&act.movingTimeSec?fmtDur(act.movingTimeSec):'');
+  const [saved, setSaved] = useState(false);
   const fileInputRef   = useRef(null);
   const debounceRef    = useRef(null);
   const pendingNotes   = useRef(null);
   const nameDebRef     = useRef(null);
+  const savedTimerRef  = useRef(null);
   const onPatchRef     = useRef(onPatch);
   useEffect(() => { onPatchRef.current = onPatch; }, [onPatch]);
+
+  const showSaved = () => {
+    setSaved(true);
+    clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setSaved(false), 1500);
+  };
 
   const activeShoes = useMemo(() => lsGetV(SHOES_KEY, []).filter(s => s.active !== false), []);
 
@@ -96,19 +104,21 @@ export function JournalTab({ act, onPatch }) {
     debounceRef.current = setTimeout(() => {
       onPatch({ notes });
       pendingNotes.current = null;
+      showSaved();
     }, 600);
   };
 
   const handleGoalBlur = () => {
     const sec = parseGoalTime(goalInput);
     onPatch({ raceGoalSec: sec });
+    showSaved();
   };
 
   const handleNameChange = e => {
     const name = e.target.value;
     setNameInput(name);
     if (nameDebRef.current) clearTimeout(nameDebRef.current);
-    nameDebRef.current = setTimeout(() => onPatch({ name: name.slice(0,128) }), 600);
+    nameDebRef.current = setTimeout(() => { onPatch({ name: name.slice(0,128) }); showSaved(); }, 600);
   };
 
   const handleManualDistDur = () => {
@@ -119,6 +129,7 @@ export function JournalTab({ act, onPatch }) {
     const trainingLoad = calcTrainingLoad(movingTimeSec, act.avgHR, distKm);
     onPatch({ distanceKm: parseFloat(distKm.toFixed(3)), movingTimeSec, avgPaceSecKm, trainingLoad,
               runClass: classifyRun(distKm, avgPaceSecKm) });
+    showSaved();
   };
 
   const handleFileSelect = async e => {
@@ -168,6 +179,15 @@ export function JournalTab({ act, onPatch }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
+      {/* Save feedback indicator */}
+      <div aria-live="polite" aria-atomic="true" style={{ height: 0, overflow: 'visible', position: 'relative' }}>
+        {saved && (
+          <div style={{ position: 'absolute', right: 0, top: 0, fontSize: '.72rem', fontWeight: 700, color: 'var(--gn)', background: 'var(--gn2)', padding: '3px 10px', borderRadius: 20, animation: 'fadeUp .2s ease both', zIndex: 10 }}>
+            Saved ✓
+          </div>
+        )}
+      </div>
+
       {/* Activity details edit */}
       <div className="card" style={{ padding: 14 }}>
         <div style={secHdr}>Activity</div>
@@ -176,7 +196,7 @@ export function JournalTab({ act, onPatch }) {
           <input style={inpStyle} type="text" placeholder="Activity name" maxLength={128}
             value={nameInput} onChange={handleNameChange} aria-label="Activity name" />
           {/* Type */}
-          <select style={inpStyle} value={act.type||'Run'} onChange={e=>onPatch({type:e.target.value})}
+          <select style={inpStyle} value={act.type||'Run'} onChange={e=>{onPatch({type:e.target.value});showSaved();}}
             aria-label="Activity type">
             {ACTIVITY_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
           </select>
@@ -185,12 +205,12 @@ export function JournalTab({ act, onPatch }) {
             <div style={{fontSize:'.7rem',color:'var(--tx3)',marginBottom:6}}>Run type</div>
             <div style={{display:'flex',gap:6}}>
               {RUN_CLASSES.map(rc=>(
-                <button key={rc} onClick={()=>onPatch({runClass:rc})} aria-pressed={act.runClass===rc}
+                <button key={rc} onClick={()=>{onPatch({runClass:rc});showSaved();}} aria-pressed={act.runClass===rc}
                   style={{...pill(act.runClass===rc),flex:1,textTransform:'capitalize'}}>
                   {rc}
                 </button>
               ))}
-              <button onClick={()=>onPatch({runClass:classifyRun(act.distanceKm,act.avgPaceSecKm)})}
+              <button onClick={()=>{onPatch({runClass:classifyRun(act.distanceKm,act.avgPaceSecKm)});showSaved();}}
                 aria-pressed={false}
                 style={{...pill(false,'var(--tx3)'),flex:1}}>auto</button>
             </div>
@@ -220,7 +240,7 @@ export function JournalTab({ act, onPatch }) {
         <div style={{ fontSize: '.72rem', fontWeight: 700, color: 'var(--tx2)', marginBottom: 10, letterSpacing: '.05em', textTransform: 'uppercase' }}>How did it feel?</div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
           {MOODS.map(m => (
-            <button key={m.key} onClick={() => onPatch({ mood: m.key })}
+            <button key={m.key} onClick={() => { onPatch({ mood: m.key }); showSaved(); }}
               style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '8px 4px',
                 border: act.mood === m.key ? '2px solid var(--or)' : '2px solid var(--bd)',
                 borderRadius: 10, background: 'transparent', cursor: 'pointer',
@@ -247,9 +267,9 @@ export function JournalTab({ act, onPatch }) {
         <div className="card" style={{ padding: 14 }}>
           <div style={{ fontSize: '.72rem', fontWeight: 700, color: 'var(--tx2)', marginBottom: 10, letterSpacing: '.05em', textTransform: 'uppercase' }}>Shoes</div>
           <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-            <button onClick={() => onPatch({ shoeId: null })} style={pill(!act.shoeId, 'var(--tx2)')}>None</button>
+            <button onClick={() => { onPatch({ shoeId: null }); showSaved(); }} style={pill(!act.shoeId, 'var(--tx2)')}>None</button>
             {activeShoes.map(s => (
-              <button key={s.id} onClick={() => onPatch({ shoeId: s.id })}
+              <button key={s.id} onClick={() => { onPatch({ shoeId: s.id }); showSaved(); }}
                 style={pill(act.shoeId === s.id, s.color || 'var(--or)')}>
                 {s.name}
               </button>
@@ -262,7 +282,7 @@ export function JournalTab({ act, onPatch }) {
       <div className="card" style={{ padding: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: act.isRace ? 12 : 0 }}>
           <div style={{ fontSize: '.72rem', fontWeight: 700, color: 'var(--tx2)', letterSpacing: '.05em', textTransform: 'uppercase' }}>🏁 Race</div>
-          <button onClick={() => onPatch({ isRace: !act.isRace })}
+          <button onClick={() => { onPatch({ isRace: !act.isRace }); showSaved(); }}
             style={{ width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', position: 'relative', background: act.isRace ? 'var(--or)' : 'var(--bd2)', transition: 'background .2s' }}>
             <div style={{ position: 'absolute', top: 3, left: act.isRace ? 18 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .2s' }}/>
           </button>

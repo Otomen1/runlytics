@@ -21,6 +21,7 @@ export function LogRunModal({ onAdd, onClose, shoes = [] }) {
   const [hrStr, setHrStr]       = useState('');
   const [elevStr, setElevStr]   = useState('');
   const [mood, setMood]         = useState(null);
+  const [notes, setNotes]       = useState('');
   const [shoeId, setShoeId]     = useState(null);
   const [error, setError]       = useState('');
 
@@ -62,6 +63,7 @@ export function LogRunModal({ onAdd, onClose, shoes = [] }) {
       source: 'manual',
       trainingLoad,
       mood: mood || null,
+      notes: notes.trim() || null,
       shoeId: shoeId || null,
     });
     onAdd([act]);
@@ -163,6 +165,19 @@ export function LogRunModal({ onAdd, onClose, shoes = [] }) {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label style={label}>Notes (optional)</label>
+            <textarea style={{...inp, resize:'vertical', minHeight:72, lineHeight:1.5}}
+              placeholder="How did it feel?"
+              value={notes}
+              onChange={e=>setNotes(e.target.value.slice(0,500))}
+              rows={3}/>
+            {notes.length > 450 && (
+              <div style={{fontSize:'.68rem',color:'var(--tx3)',textAlign:'right',marginTop:3}}>{notes.length}/500</div>
+            )}
           </div>
 
           {/* Shoes */}

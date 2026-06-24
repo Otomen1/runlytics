@@ -38,7 +38,7 @@ function Card({ children, style }) {
 const PHASE_COLORS = { base: '#3b82f6', build: 'var(--or)', taper: '#8b5cf6', race: '#22c55e' };
 const INSIGHT_COLORS = { success: '#22c55e', warning: 'var(--or)', caution: '#ef4444', info: '#3b82f6' };
 
-export function CoachTab({ acts, analytics, hrProfile, plan }) {
+export function CoachTab({ acts, analytics, hrProfile, plan, onOpenPlanBuilder }) {
   const today = weekOf(Date.now());
   const planWeek      = useMemo(() => plan ? getPlanWeek(plan, today) : null,       [plan, today]);
   const planWeekNum   = useMemo(() => plan ? getPlanWeekNumber(plan, today) : null, [plan, today]);
@@ -105,10 +105,16 @@ export function CoachTab({ acts, analytics, hrProfile, plan }) {
           <div style={{ textAlign: 'center', padding: '12px 0' }}>
             <div style={{ fontSize: '2.4rem', marginBottom: 10 }}>🎯</div>
             <div style={{ fontWeight: 700, fontSize: '.95rem', marginBottom: 6 }}>No Training Plan Yet</div>
-            <div style={{ fontSize: '.8rem', color: 'var(--tx2)', lineHeight: 1.6, marginBottom: 4 }}>
-              Set up a Training Plan in the <strong>More</strong> tab to unlock coach insights, health score, and adaptive recommendations.
+            <div style={{ fontSize: '.8rem', color: 'var(--tx2)', lineHeight: 1.6, marginBottom: 12 }}>
+              Set up a Training Plan to unlock coach insights, health score, and adaptive recommendations.
             </div>
-            <div style={{ fontSize: '.74rem', color: 'var(--tx3)', marginTop: 8 }}>
+            {onOpenPlanBuilder && (
+              <button className="btn b-or" onClick={onOpenPlanBuilder}
+                style={{ padding: '9px 22px', fontSize: '.85rem', marginBottom: 10 }}>
+                Build a Training Plan →
+              </button>
+            )}
+            <div style={{ fontSize: '.74rem', color: 'var(--tx3)', marginTop: 6 }}>
               Fitness Profile and Milestones are available regardless.
             </div>
           </div>

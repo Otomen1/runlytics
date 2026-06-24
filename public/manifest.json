@@ -23,6 +23,20 @@
       "description": "Upload a GPX file",
       "url": "/?action=upload",
       "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Log a Run",
+      "short_name": "Log Run",
+      "description": "Manually log a run",
+      "url": "/?action=logrun",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Sync Strava",
+      "short_name": "Sync",
+      "description": "Sync activities from Strava",
+      "url": "/?action=sync",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

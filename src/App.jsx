@@ -12,7 +12,7 @@ import { loadStravaAuth, saveStravaAuth, clearStravaAuth, getStravaToken, mapStr
 import { lsGetV } from './utils/storage.js';
 import { migrateActivity } from './utils/activity.js';
 import { buildAnalytics, computeTierProgress } from './utils/analytics.js';
-import { computeEarnedBadges } from './constants/achievements.js';
+import { computeEarnedBadges, BADGE_DEFS } from './constants/achievements.js';
 import { checkAndNotify } from './utils/notifications.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -148,6 +148,7 @@ const App=()=>{
   },[]);
 
   const isSyncingRef=useRef(false),lastSyncRef=useRef(0),isRepairingRef=useRef(false);
+  const prevBadgesRef=useRef(null);
   // Undo-delete: hold a pending delete in memory for 3 s before committing to IDB
   const pendingDeleteRef=useRef(null);
   const deleteTimerRef=useRef(null);
@@ -404,6 +405,13 @@ const App=()=>{
   },[pullY,stravaAuth,doStravaSync]);
 
   useEffect(()=>{
+    const params=new URLSearchParams(window.location.search);
+    const action=params.get("action");
+    if(action==="logrun"){window.history.replaceState({},"",window.location.pathname);openLogRun();}
+    else if(action==="sync"&&stravaAuth){window.history.replaceState({},"",window.location.pathname);doStravaSync(false);}
+  },[]);// eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(()=>{
     const params=new URLSearchParams(window.location.search);const code=params.get("code");
     if(!code)return;
     const returnedState=params.get("state");
@@ -463,6 +471,20 @@ const App=()=>{
     setToast(milestone);
     toastTimerRef.current=setTimeout(()=>setToast(null),4000);
   },[acts,analytics,dbReady]);
+
+  useEffect(()=>{
+    if(!dbReady)return;
+    const currentSet=new Set(earnedBadgeIds);
+    if(prevBadgesRef.current===null){prevBadgesRef.current=currentSet;return;}
+    const fresh=earnedBadgeIds.filter(id=>!prevBadgesRef.current.has(id));
+    prevBadgesRef.current=currentSet;
+    if(!fresh.length)return;
+    const badge=BADGE_DEFS.find(b=>b.id===fresh[0]);
+    if(!badge)return;
+    clearTimeout(toastTimerRef.current);
+    setToast({emoji:badge.icon,msg:`${badge.name} unlocked!`});
+    toastTimerRef.current=setTimeout(()=>setToast(null),3500);
+  },[earnedBadgeIds,dbReady]);
 
   useEffect(()=>{
     const seen=loadSeenBadges();setHasUnseen(earnedBadgeIds.some(id=>!seen.has(id)));
@@ -545,7 +567,7 @@ const App=()=>{
             {tab==="hr"&&<MoreTab acts={acts} hrProfile={hrProfile} plan={plan} onEditHR={openSettings} onViewMonthly={openMonthly} onViewYearReview={openYearReview} onOpenPlan={()=>setShowPlanBuilder(true)} onManageShoes={openShoes}/>}
             {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail} onOpenWrapped={setWrappedMonth}/>}
             {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={newTiers} plan={plan}/>}
-            {tab==="coach"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><CoachTab acts={acts} analytics={analytics} hrProfile={hrProfile} plan={plan}/></Suspense>}
+            {tab==="coach"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><CoachTab acts={acts} analytics={analytics} hrProfile={hrProfile} plan={plan} onOpenPlanBuilder={()=>setShowPlanBuilder(true)}/></Suspense>}
           </div>
         </div>
       }
