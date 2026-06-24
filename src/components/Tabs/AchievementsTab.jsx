@@ -1,9 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Ring } from '../common/Ring.jsx';
 import { BADGE_DEFS } from '../../constants/achievements.js';
+import { computeCoachMilestones } from '../../utils/adaptiveCoach.js';
 
-export function AchievementsTab({earnedBadges,acts,analytics,tierProgress,newTiers}){
-  const[exp,setExp]=useState(null);
+export function AchievementsTab({earnedBadges,acts,analytics,tierProgress,newTiers,plan}){
+  const milestones = useMemo(() => computeCoachMilestones(plan, acts, analytics), [plan, acts, analytics]);
+  const[exp,setExp]=useState(() => {
+    const active = (tierProgress||[]).filter(t=>t.next).sort((a,b)=>b.pct-a.pct);
+    return active.length ? active[0].id : null;
+  });
   const earned=BADGE_DEFS.filter(b=>earnedBadges.has(b.id));
   const pct=Math.round(earned.length/BADGE_DEFS.length*100);
   return(
@@ -19,6 +24,20 @@ export function AchievementsTab({earnedBadges,acts,analytics,tierProgress,newTie
           <div style={{fontSize:".68rem",color:"var(--tx3)",marginTop:2}}>{analytics.streak}d · {acts.length} runs</div>
         </div>
       </div>
+      {milestones && milestones.some(m => m.earned) && (
+        <div className="card a1" style={{padding:'14px 16px',marginBottom:14}}>
+          <div style={{fontSize:'.62rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'.1em',color:'var(--tx3)',marginBottom:10}}>
+            🏅 Milestones · {milestones.filter(m => m.earned).length}/{milestones.length}
+          </div>
+          {milestones.map(m => (
+            <div key={m.id} style={{display:'flex',alignItems:'center',gap:10,padding:'7px 0',borderBottom:'1px solid var(--bd)',opacity:m.earned?1:0.38}}>
+              <span style={{fontSize:'1rem',flexShrink:0}}>{m.earned?m.icon:'○'}</span>
+              <span style={{fontSize:'.8rem',fontWeight:m.earned?600:400,color:m.earned?'var(--tx)':'var(--tx3)'}}>{m.label}</span>
+              {m.earned&&<span style={{marginLeft:'auto',fontSize:'.68rem',color:'#22c55e',fontWeight:700}}>Earned</span>}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="a1" style={{marginBottom:16}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
           <div style={{fontSize:".62rem",fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--tx3)"}}>Tier Progression</div>

@@ -542,9 +542,9 @@ const App=()=>{
             onTransitionEnd={()=>{if(pullReleasing)setPullReleasing(false);}}>
             {tab==="home"&&<HomeTab acts={acts} analytics={analytics} goals={goals} hrProfile={hrProfile} profile={profile} plan={plan} onSelectAct={openDetail} onUpload={openUpload} onLogRun={openLogRun} onViewAll={openAllRuns} onViewMonthly={openMonthly} onEditGoals={openSettings} onOpenPlan={()=>setShowPlanBuilder(true)} onOpenSettings={openSettings}/>}
             {tab==="stats"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><StatsTab acts={acts} analytics={analytics} hrProfile={hrProfile} onViewAll={openAllRuns} onViewMonthly={openMonthly} onOpenPR={openPR} onViewYearReview={openYearReview} onManageShoes={openShoes}/></Suspense>}
-            {tab==="hr"&&<MoreTab acts={acts} hrProfile={hrProfile} plan={plan} onEditHR={openSettings} onViewMonthly={openMonthly} onViewYearReview={openYearReview} onOpenPlan={()=>setShowPlanBuilder(true)}/>}
+            {tab==="hr"&&<MoreTab acts={acts} hrProfile={hrProfile} plan={plan} onEditHR={openSettings} onViewMonthly={openMonthly} onViewYearReview={openYearReview} onOpenPlan={()=>setShowPlanBuilder(true)} onManageShoes={openShoes}/>}
             {tab==="memories"&&<MemoriesTab acts={acts} onSelectAct={openDetail} onOpenWrapped={setWrappedMonth}/>}
-            {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={newTiers}/>}
+            {tab==="awards"&&<AchievementsTab earnedBadges={earnedBadgesSet} acts={acts} analytics={analytics} tierProgress={tierProgress} newTiers={newTiers} plan={plan}/>}
             {tab==="coach"&&<Suspense fallback={<div style={{display:"flex",justifyContent:"center",paddingTop:60}}><div className="spinner"/></div>}><CoachTab acts={acts} analytics={analytics} hrProfile={hrProfile} plan={plan}/></Suspense>}
           </div>
         </div>

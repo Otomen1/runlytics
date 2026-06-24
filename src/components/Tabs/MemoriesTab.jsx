@@ -210,6 +210,28 @@ export function MemoriesTab({ acts, onSelectAct, onOpenWrapped }) {
     <div style={{padding:'18px 16px 100px'}}>
       <h1 className="sr-only">Memories</h1>
 
+      {/* Highlights */}
+      {highlights.length > 0 && (
+        <section style={{marginBottom:28}}>
+          <div style={{fontSize:'.62rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.08em',textTransform:'uppercase',marginBottom:10}}>✨ Highlights</div>
+          <div style={{display:'flex',gap:10,overflowX:'auto',paddingBottom:4,scrollbarWidth:'none'}}>
+            {highlights.map(h => <HighlightCard key={h.label} {...h} onSelect={onSelectAct}/>)}
+          </div>
+        </section>
+      )}
+
+      {/* Monthly Wrapped */}
+      {months.length > 0 && (
+        <section style={{marginBottom:28}}>
+          <div style={{fontSize:'.62rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.08em',textTransform:'uppercase',marginBottom:10}}>🗓 Monthly Wrapped</div>
+          <div style={{display:'flex',gap:10,overflowX:'auto',paddingBottom:4,scrollbarWidth:'none'}}>
+            {months.map(ym => (
+              <MonthCard key={ym} acts={acts} ym={ym} onOpen={() => onOpenWrapped(ym)}/>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Search + Mood filters */}
       {allMemories.length > 0 && (
         <div style={{marginBottom:16}}>
@@ -261,28 +283,6 @@ export function MemoriesTab({ acts, onSelectAct, onOpenWrapped }) {
               </button>
             </div>
           )}
-        </section>
-      )}
-
-      {/* Highlights */}
-      {highlights.length > 0 && (
-        <section style={{marginBottom:28}}>
-          <div style={{fontSize:'.62rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.08em',textTransform:'uppercase',marginBottom:10}}>✨ Highlights</div>
-          <div style={{display:'flex',gap:10,overflowX:'auto',paddingBottom:4,scrollbarWidth:'none'}}>
-            {highlights.map(h => <HighlightCard key={h.label} {...h} onSelect={onSelectAct}/>)}
-          </div>
-        </section>
-      )}
-
-      {/* Monthly Wrapped */}
-      {months.length > 0 && (
-        <section>
-          <div style={{fontSize:'.62rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.08em',textTransform:'uppercase',marginBottom:10}}>🗓 Monthly Wrapped</div>
-          <div style={{display:'flex',gap:10,overflowX:'auto',paddingBottom:4,scrollbarWidth:'none'}}>
-            {months.map(ym => (
-              <MonthCard key={ym} acts={acts} ym={ym} onOpen={() => onOpenWrapped(ym)}/>
-            ))}
-          </div>
         </section>
       )}
 

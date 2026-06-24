@@ -159,6 +159,17 @@ export function CoachTab({ acts, analytics, hrProfile, plan }) {
         </section>
       )}
 
+      {/* Section 6 — Adaptive Recommendation */}
+      {plan && reco && (
+        <section style={{ marginBottom: 22 }}>
+          <SectionLabel>🧭 Adaptive Recommendation</SectionLabel>
+          <Card style={{ borderLeft: `3px solid ${reco.color}` }}>
+            <div style={{ fontSize: '.82rem', fontWeight: 800, color: reco.color, marginBottom: 5 }}>{reco.status}</div>
+            <div style={{ fontSize: '.8rem', color: 'var(--tx2)', lineHeight: 1.55 }}>{reco.reco}</div>
+          </Card>
+        </section>
+      )}
+
       {/* Section 2 — Goal Health Score */}
       {plan && health !== null && (
         <section style={{ marginBottom: 22 }}>
@@ -212,22 +223,6 @@ export function CoachTab({ acts, analytics, hrProfile, plan }) {
         </section>
       )}
 
-      {/* Section 4 — Coach Insights */}
-      {plan && insights.length > 0 && (
-        <section style={{ marginBottom: 22 }}>
-          <SectionLabel>💡 Coach Insights</SectionLabel>
-          {insights.map((ins, i) => (
-            <div key={i} className="card" style={{ padding: '12px 14px', marginBottom: 8, borderLeft: `3px solid ${INSIGHT_COLORS[ins.type] || 'var(--tx2)'}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <span style={{ fontSize: '1rem' }}>{ins.icon}</span>
-                <span style={{ fontWeight: 700, fontSize: '.84rem', color: 'var(--tx)' }}>{ins.title}</span>
-              </div>
-              <div style={{ fontSize: '.76rem', color: 'var(--tx2)', lineHeight: 1.55 }}>{ins.body}</div>
-            </div>
-          ))}
-        </section>
-      )}
-
       {/* Section 4b — Catch-Up Path (only when behind) */}
       {plan && catchUp && (
         <section style={{ marginBottom: 22 }}>
@@ -259,7 +254,23 @@ export function CoachTab({ acts, analytics, hrProfile, plan }) {
         </section>
       )}
 
-      {/* Section 5 — Fitness Profile */}
+      {/* Section 4 — Coach Insights */}
+      {plan && insights.length > 0 && (
+        <section style={{ marginBottom: 22 }}>
+          <SectionLabel>💡 Coach Insights</SectionLabel>
+          {insights.map((ins, i) => (
+            <div key={i} className="card" style={{ padding: '12px 14px', marginBottom: 8, borderLeft: `3px solid ${INSIGHT_COLORS[ins.type] || 'var(--tx2)'}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: '1rem' }}>{ins.icon}</span>
+                <span style={{ fontWeight: 700, fontSize: '.84rem', color: 'var(--tx)' }}>{ins.title}</span>
+              </div>
+              <div style={{ fontSize: '.76rem', color: 'var(--tx2)', lineHeight: 1.55 }}>{ins.body}</div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {/* Section 5 — Fitness Profile + Fitness Assessment merged */}
       <section style={{ marginBottom: 22 }}>
         <SectionLabel>⚡ Fitness Profile</SectionLabel>
         {fitness.raceTimes ? (
@@ -303,86 +314,56 @@ export function CoachTab({ acts, analytics, hrProfile, plan }) {
             </div>
           </Card>
         )}
-      </section>
-
-      {/* Section 6 — Adaptive Recommendation */}
-      {plan && reco && (
-        <section style={{ marginBottom: 22 }}>
-          <SectionLabel>🧭 Adaptive Recommendation</SectionLabel>
-          <Card style={{ borderLeft: `3px solid ${reco.color}` }}>
-            <div style={{ fontSize: '.82rem', fontWeight: 800, color: reco.color, marginBottom: 5 }}>{reco.status}</div>
-            <div style={{ fontSize: '.8rem', color: 'var(--tx2)', lineHeight: 1.55 }}>{reco.reco}</div>
-          </Card>
-        </section>
-      )}
-
-      {/* Section 7 — Milestones */}
-      <section style={{ marginBottom: 22 }}>
-        <SectionLabel>
-          {`🏅 Milestones · ${milestones.filter(m => m.earned).length}/${milestones.length}`}
-        </SectionLabel>
-        <Card>
-          {milestones.map(m => (
-            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: '1px solid var(--bd)', opacity: m.earned ? 1 : 0.38 }}>
-              <span style={{ fontSize: '1rem', flexShrink: 0 }}>{m.earned ? m.icon : '○'}</span>
-              <span style={{ fontSize: '.8rem', fontWeight: m.earned ? 600 : 400, color: m.earned ? 'var(--tx)' : 'var(--tx3)' }}>{m.label}</span>
-              {m.earned && <span style={{ marginLeft: 'auto', fontSize: '.68rem', color: '#22c55e', fontWeight: 700 }}>Earned</span>}
-            </div>
-          ))}
-        </Card>
-      </section>
-
-      {/* Section 8 — Fitness Test */}
-      <section style={{ marginBottom: 22 }}>
-        <SectionLabel>🧪 Fitness Assessment</SectionLabel>
-        <button
-          onClick={() => setShowFitnessTest(v => !v)}
-          style={{ width: '100%', background: 'var(--s2)', border: '1px solid var(--bd)', borderRadius: 'var(--r-lg)', padding: '11px 14px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '.82rem', fontWeight: 700, color: 'var(--tx)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showFitnessTest ? 8 : 0 }}>
-          <span>Enter a recent race or time trial</span>
-          <span style={{ fontSize: '.8rem', color: 'var(--tx3)' }}>{showFitnessTest ? '▲' : '▼'}</span>
-        </button>
-        {showFitnessTest && (
-          <Card>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-              <div>
-                <div style={{ fontSize: '.68rem', color: 'var(--tx2)', marginBottom: 4 }}>Distance (km)</div>
-                <input className="inp" type="number" min="0.5" step="0.1" placeholder="e.g. 5"
-                  value={testInput.distKm}
-                  onChange={e => setTestInput(p => ({ ...p, distKm: e.target.value }))}
-                  style={{ width: '100%', boxSizing: 'border-box' }}/>
-              </div>
-              <div>
-                <div style={{ fontSize: '.68rem', color: 'var(--tx2)', marginBottom: 4 }}>Time (minutes)</div>
-                <input className="inp" type="number" min="1" step="0.5" placeholder="e.g. 22.5"
-                  value={testInput.timeMin}
-                  onChange={e => setTestInput(p => ({ ...p, timeMin: e.target.value }))}
-                  style={{ width: '100%', boxSizing: 'border-box' }}/>
-              </div>
-            </div>
-            <button onClick={runFitnessTest}
-              style={{ width: '100%', background: 'var(--or)', border: 'none', borderRadius: 10, padding: '10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '.84rem', fontWeight: 700, color: '#fff', marginBottom: 10 }}>
-              Calculate
-            </button>
-            {testResult && (
-              <div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
-                  {Object.entries(testResult.raceTimes).map(([dist, sec]) => (
-                    <div key={dist} style={{ background: 'var(--bd)', borderRadius: 8, padding: '8px 10px' }}>
-                      <div style={{ fontSize: '.6rem', color: 'var(--tx3)', marginBottom: 2 }}>{dist}</div>
-                      <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--or)' }}>{fmtSec(sec)}</div>
-                    </div>
-                  ))}
+        <div style={{ marginTop: 12 }}>
+          <button
+            onClick={() => setShowFitnessTest(v => !v)}
+            style={{ width: '100%', background: 'var(--s2)', border: '1px solid var(--bd)', borderRadius: 'var(--r-lg)', padding: '11px 14px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '.82rem', fontWeight: 700, color: 'var(--tx)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: showFitnessTest ? 8 : 0 }}>
+            <span>🧪 Test your fitness</span>
+            <span style={{ fontSize: '.8rem', color: 'var(--tx3)' }}>{showFitnessTest ? '▲' : '▼'}</span>
+          </button>
+          {showFitnessTest && (
+            <Card>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: '.68rem', color: 'var(--tx2)', marginBottom: 4 }}>Distance (km)</div>
+                  <input className="inp" type="number" min="0.5" step="0.1" placeholder="e.g. 5"
+                    value={testInput.distKm}
+                    onChange={e => setTestInput(p => ({ ...p, distKm: e.target.value }))}
+                    style={{ width: '100%', boxSizing: 'border-box' }}/>
                 </div>
-                {testResult.vo2 && (
-                  <div style={{ fontSize: '.76rem', color: 'var(--tx2)', textAlign: 'center' }}>
-                    Estimated VO₂max: <strong style={{ color: '#3b82f6' }}>{testResult.vo2}</strong>
-                    &ensp;·&ensp; Pace: <strong>{fmtPace(testResult.paceSecKm)}/km</strong>
-                  </div>
-                )}
+                <div>
+                  <div style={{ fontSize: '.68rem', color: 'var(--tx2)', marginBottom: 4 }}>Time (minutes)</div>
+                  <input className="inp" type="number" min="1" step="0.5" placeholder="e.g. 22.5"
+                    value={testInput.timeMin}
+                    onChange={e => setTestInput(p => ({ ...p, timeMin: e.target.value }))}
+                    style={{ width: '100%', boxSizing: 'border-box' }}/>
+                </div>
               </div>
-            )}
-          </Card>
-        )}
+              <button onClick={runFitnessTest}
+                style={{ width: '100%', background: 'var(--or)', border: 'none', borderRadius: 10, padding: '10px', cursor: 'pointer', fontFamily: 'inherit', fontSize: '.84rem', fontWeight: 700, color: '#fff', marginBottom: 10 }}>
+                Calculate
+              </button>
+              {testResult && (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
+                    {Object.entries(testResult.raceTimes).map(([dist, sec]) => (
+                      <div key={dist} style={{ background: 'var(--bd)', borderRadius: 8, padding: '8px 10px' }}>
+                        <div style={{ fontSize: '.6rem', color: 'var(--tx3)', marginBottom: 2 }}>{dist}</div>
+                        <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--or)' }}>{fmtSec(sec)}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {testResult.vo2 && (
+                    <div style={{ fontSize: '.76rem', color: 'var(--tx2)', textAlign: 'center' }}>
+                      Estimated VO₂max: <strong style={{ color: '#3b82f6' }}>{testResult.vo2}</strong>
+                      &ensp;·&ensp; Pace: <strong>{fmtPace(testResult.paceSecKm)}/km</strong>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+          )}
+        </div>
       </section>
 
       {/* Section 9 — Plan Completion Report (only after race date) */}

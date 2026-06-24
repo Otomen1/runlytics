@@ -105,120 +105,6 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
         )}
       </div>
     </div>
-    {condition&&(
-      <div className="card a1" style={{padding:"14px 16px",marginBottom:14,border:`1.5px solid ${condition.color}33`,background:`${condition.color}0d`}}>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:46,height:46,borderRadius:13,background:`${condition.color}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.5rem",flexShrink:0}}>{condition.emoji}</div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:".6rem",fontWeight:700,color:condition.color,letterSpacing:".1em",textTransform:"uppercase",marginBottom:3}}>Today's Condition</div>
-            <div style={{fontWeight:800,fontSize:"1rem",color:"var(--tx)",marginBottom:2}}>{condition.label}</div>
-            <div style={{fontSize:".76rem",color:"var(--tx2)",lineHeight:1.5}}>{condition.desc}</div>
-          </div>
-          <div style={{display:"flex",gap:14,flexShrink:0}}>
-            <div style={{textAlign:"center"}}>
-              <div style={{fontSize:"1rem",fontWeight:800,color:condition.color,lineHeight:1}}>{condition.form>0?"+":""}{condition.form}</div>
-              <div style={{fontSize:".52rem",color:"var(--tx3)",letterSpacing:".05em",marginTop:2}}>FORM</div>
-            </div>
-            {vo2maxEst&&(
-              <div style={{textAlign:"center"}}>
-                <div style={{fontSize:"1rem",fontWeight:800,color:vo2maxEst.color,lineHeight:1}}>{vo2maxEst.vo2max}</div>
-                <div style={{fontSize:".52rem",color:"var(--tx3)",letterSpacing:".05em",marginTop:2}}>VO₂MAX</div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    )}
-    {!condition&&vo2maxEst&&(
-      <div className="card a1" style={{padding:"10px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
-        <span style={{fontSize:".6rem",fontWeight:700,color:"var(--tx3)",letterSpacing:".08em",textTransform:"uppercase",flex:1}}>VO₂max</span>
-        <span style={{fontSize:"1.1rem",fontWeight:800,color:vo2maxEst.color}}>{vo2maxEst.vo2max}</span>
-        <span style={{fontSize:".6rem",color:"var(--tx3)"}}>ml/kg/min</span>
-        <span style={{fontSize:".68rem",fontWeight:700,color:vo2maxEst.color,padding:"2px 9px",borderRadius:20,background:vo2maxEst.color+"22"}}>{vo2maxEst.label}</span>
-      </div>
-    )}
-    {planWeek&&(
-      <div className="card a2" role="button" tabIndex={0} style={{padding:16,marginBottom:14,border:'1.5px solid rgba(249,115,22,.22)',background:'rgba(249,115,22,.04)',cursor:'pointer'}} onClick={onOpenPlan} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onOpenPlan();}}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-          <div>
-            <div style={{fontSize:'.6rem',fontWeight:700,color:'var(--or)',letterSpacing:'.1em',textTransform:'uppercase',marginBottom:3}}>Training Plan</div>
-            <div style={{fontWeight:700,fontSize:'.88rem',color:'var(--tx)'}}>
-              {plan.raceType==='HM'?'Half Marathon':plan.raceType} · {new Date(plan.raceDate+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}
-            </div>
-          </div>
-          <div style={{textAlign:'center',padding:'6px 11px',borderRadius:10,background:'rgba(249,115,22,.12)',border:'1px solid rgba(249,115,22,.22)'}}>
-            <div style={{fontSize:'1.1rem',fontWeight:800,color:'var(--or)',lineHeight:1}}>W{planWeekNum}</div>
-            <div style={{fontSize:'.5rem',color:'var(--or)',letterSpacing:'.06em'}}>of {plan.weeks.length}</div>
-          </div>
-        </div>
-        <div style={{marginBottom:8}}>
-          <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-            <span style={{fontSize:'.72rem',color:'var(--tx2)'}}>This week</span>
-            <span style={{fontSize:'.72rem',fontWeight:600,color:planPct>=0.8?'var(--gn)':planPct>=0.5?'var(--or)':'var(--rd)'}}>
-              {fmtKm(thisWeekKm)} / {fmtKm(planWeek.targetKm)} km
-            </span>
-          </div>
-          <div style={{height:7,borderRadius:4,background:'var(--bd)',overflow:'hidden'}}>
-            <div style={{height:'100%',borderRadius:4,width:Math.min(100,planPct*100)+'%',
-              background:planPct>=0.8?'var(--gn)':planPct>=0.5?'var(--or)':'var(--rd)',transition:'width .4s ease'}}/>
-          </div>
-        </div>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-          <div style={{display:'flex',gap:8}}>
-            {planWeek.easy>0&&<span style={{fontSize:'.65rem',color:'#3b82f6',fontWeight:600}}>Easy ×{planWeek.easy}</span>}
-            {planWeek.long>0&&<span style={{fontSize:'.65rem',color:'#8b5cf6',fontWeight:600}}>Long ×{planWeek.long}</span>}
-            {planWeek.workout>0&&<span style={{fontSize:'.65rem',color:'#f97316',fontWeight:600}}>Workout ×{planWeek.workout}</span>}
-          </div>
-          {planAdherence?.weeksCompleted>0&&(
-            <span style={{fontSize:'.68rem',fontWeight:700,color:planAdherence.adherencePct>=80?'var(--gn)':'var(--or)'}}>
-              {planAdherence.adherencePct}% adherence
-            </span>
-          )}
-        </div>
-      </div>
-    )}
-    {todayWorkout&&!todayWorkout.done&&(
-      <div className="card a1" style={{padding:16,marginBottom:14}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-          <div style={{display:'flex',alignItems:'center',gap:7}}>
-            <span style={{fontSize:'1.1rem'}}>{todayWorkout.icon}</span>
-            <span style={{fontSize:'.65rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.06em',textTransform:'uppercase'}}>{todayWorkout.dayLabel?`Next · ${todayWorkout.dayLabel}`:"Today's Workout"}</span>
-          </div>
-          <span style={{fontSize:'.6rem',fontWeight:700,color:'var(--or)',padding:'2px 9px',borderRadius:20,background:'rgba(249,115,22,.1)',textTransform:'capitalize'}}>
-            {todayWorkout.phase} · W{planWeekNum}/{plan.weeks.length}
-          </span>
-        </div>
-        <div style={{fontSize:'1.05rem',fontWeight:800,color:'var(--tx)',marginBottom:10}}>{todayWorkout.label}</div>
-        <div style={{display:'flex',gap:8,marginBottom:10}}>
-          <div style={{flex:1,textAlign:'center',padding:'10px 6px',background:'var(--s2)',borderRadius:10,border:'1px solid var(--bd)'}}>
-            <div style={{fontSize:'1.25rem',fontWeight:800,color:'var(--or)',lineHeight:1}}>{fmtKm(todayWorkout.distanceKm)}</div>
-            <div style={{fontSize:'.54rem',color:'var(--tx3)',letterSpacing:'.05em',marginTop:2}}>KM</div>
-          </div>
-          <div style={{flex:2,textAlign:'center',padding:'10px 6px',background:'var(--s2)',borderRadius:10,border:'1px solid var(--bd)'}}>
-            {todayWorkout.paceMin?(
-              <>
-                <div style={{fontSize:'1rem',fontWeight:800,color:'var(--tx)',lineHeight:1}}>{fmtPace(todayWorkout.paceMin)}–{fmtPace(todayWorkout.paceMax)}</div>
-                <div style={{fontSize:'.54rem',color:'var(--tx3)',letterSpacing:'.05em',marginTop:2}}>/KM TARGET</div>
-              </>
-            ):(
-              <div style={{fontSize:'.82rem',fontWeight:600,color:'var(--tx2)',lineHeight:1.35,paddingTop:2}}>{todayWorkout.paceNote}</div>
-            )}
-          </div>
-        </div>
-        <div style={{fontSize:'.74rem',color:'var(--tx2)',fontStyle:'italic',lineHeight:1.5}}>↳ {todayWorkout.tip}</div>
-      </div>
-    )}
-    {todayWorkout?.done&&(
-      <div className="card a1" style={{padding:'11px 16px',marginBottom:14,display:'flex',alignItems:'center',gap:10,background:'var(--gn2)',border:'1px solid rgba(34,197,94,.25)'}}>
-        <span style={{fontSize:'1.1rem'}}>✅</span>
-        <span style={{fontSize:'.82rem',fontWeight:600,color:'var(--gn)'}}>All runs logged this week · Rest up!</span>
-      </div>
-    )}
-    {!plan&&acts.length>0&&(
-      <button className="btn b-gh" style={{width:'100%',marginBottom:14,fontSize:'.8rem',padding:'11px'}} onClick={onOpenPlan}>
-        🎯 Set a goal race + training plan
-      </button>
-    )}
     {lastRun&&(
       <button className="card a2" style={{marginBottom:14,overflow:"hidden",cursor:"pointer",width:"100%",textAlign:"left",background:"none",border:"1px solid var(--bd)",padding:0}} onClick={()=>onSelectAct(lastRun)} aria-label={`Open ${lastRun.name}`}>
         {/* Top accent bar */}
@@ -259,6 +145,67 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
         </div>
       </div>
     )}
+    {todayWorkout&&!todayWorkout.done&&(
+      <div className="card a1" style={{padding:16,marginBottom:14}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+          <div style={{display:'flex',alignItems:'center',gap:7}}>
+            <span style={{fontSize:'1.1rem'}}>{todayWorkout.icon}</span>
+            <span style={{fontSize:'.65rem',fontWeight:700,color:'var(--tx2)',letterSpacing:'.06em',textTransform:'uppercase'}}>{todayWorkout.dayLabel?`Next · ${todayWorkout.dayLabel}`:"Today's Workout"}</span>
+          </div>
+          <span style={{fontSize:'.6rem',fontWeight:700,color:'var(--or)',padding:'2px 9px',borderRadius:20,background:'rgba(249,115,22,.1)',textTransform:'capitalize'}}>
+            {todayWorkout.phase} · W{planWeekNum}/{plan.weeks.length}
+          </span>
+        </div>
+        <div style={{fontSize:'1.05rem',fontWeight:800,color:'var(--tx)',marginBottom:10}}>{todayWorkout.label}</div>
+        <div style={{display:'flex',gap:8,marginBottom:10}}>
+          <div style={{flex:1,textAlign:'center',padding:'10px 6px',background:'var(--s2)',borderRadius:10,border:'1px solid var(--bd)'}}>
+            <div style={{fontSize:'1.25rem',fontWeight:800,color:'var(--or)',lineHeight:1}}>{fmtKm(todayWorkout.distanceKm)}</div>
+            <div style={{fontSize:'.54rem',color:'var(--tx3)',letterSpacing:'.05em',marginTop:2}}>KM</div>
+          </div>
+          <div style={{flex:2,textAlign:'center',padding:'10px 6px',background:'var(--s2)',borderRadius:10,border:'1px solid var(--bd)'}}>
+            {todayWorkout.paceMin?(
+              <>
+                <div style={{fontSize:'1rem',fontWeight:800,color:'var(--tx)',lineHeight:1}}>{fmtPace(todayWorkout.paceMin)}–{fmtPace(todayWorkout.paceMax)}</div>
+                <div style={{fontSize:'.54rem',color:'var(--tx3)',letterSpacing:'.05em',marginTop:2}}>/KM TARGET</div>
+              </>
+            ):(
+              <div style={{fontSize:'.82rem',fontWeight:600,color:'var(--tx2)',lineHeight:1.35,paddingTop:2}}>{todayWorkout.paceNote}</div>
+            )}
+          </div>
+        </div>
+        <div style={{fontSize:'.74rem',color:'var(--tx2)',fontStyle:'italic',lineHeight:1.5}}>↳ {todayWorkout.tip}</div>
+      </div>
+    )}
+    {todayWorkout?.done&&(
+      <div className="card a1" style={{padding:'11px 16px',marginBottom:14,display:'flex',alignItems:'center',gap:10,background:'var(--gn2)',border:'1px solid rgba(34,197,94,.25)'}}>
+        <span style={{fontSize:'1.1rem'}}>✅</span>
+        <span style={{fontSize:'.82rem',fontWeight:600,color:'var(--gn)'}}>All runs logged this week · Rest up!</span>
+      </div>
+    )}
+    {condition&&(
+      <div className="card a1" style={{padding:"14px 16px",marginBottom:14,border:`1.5px solid ${condition.color}33`,background:`${condition.color}0d`}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:46,height:46,borderRadius:13,background:`${condition.color}22`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1.5rem",flexShrink:0}}>{condition.emoji}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:".6rem",fontWeight:700,color:condition.color,letterSpacing:".1em",textTransform:"uppercase",marginBottom:3}}>Today's Condition</div>
+            <div style={{fontWeight:800,fontSize:"1rem",color:"var(--tx)",marginBottom:2}}>{condition.label}</div>
+            <div style={{fontSize:".76rem",color:"var(--tx2)",lineHeight:1.5}}>{condition.desc}</div>
+          </div>
+          <div style={{display:"flex",gap:14,flexShrink:0}}>
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:"1rem",fontWeight:800,color:condition.color,lineHeight:1}}>{condition.form>0?"+":""}{condition.form}</div>
+              <div style={{fontSize:".52rem",color:"var(--tx3)",letterSpacing:".05em",marginTop:2}}>FORM</div>
+            </div>
+            {vo2maxEst&&(
+              <div style={{textAlign:"center"}}>
+                <div style={{fontSize:"1rem",fontWeight:800,color:vo2maxEst.color,lineHeight:1}}>{vo2maxEst.vo2max}</div>
+                <div style={{fontSize:".52rem",color:"var(--tx3)",letterSpacing:".05em",marginTop:2}}>VO₂MAX</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
     <div className="card a3" style={{padding:16,marginBottom:14}}>
       <div style={{display:"flex",alignItems:"center",gap:14}}>
         <Ring pct={weekPct} size={60} color={weekPct>=1?"var(--gn)":"var(--or)"}>
@@ -285,6 +232,51 @@ export function HomeTab({acts,analytics,goals,hrProfile,profile,plan,onSelectAct
           :<div style={{fontSize:".72rem",color:"var(--tx2)",marginTop:4}}>{monthLeft} km to go</div>}
       </div>
     </div>
+    {planWeek&&(
+      <div className="card a2" role="button" tabIndex={0} style={{padding:16,marginBottom:14,border:'1.5px solid rgba(249,115,22,.22)',background:'rgba(249,115,22,.04)',cursor:'pointer'}} onClick={onOpenPlan} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onOpenPlan();}}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+          <div>
+            <div style={{fontSize:'.6rem',fontWeight:700,color:'var(--or)',letterSpacing:'.1em',textTransform:'uppercase',marginBottom:3}}>Training Plan</div>
+            <div style={{fontWeight:700,fontSize:'.88rem',color:'var(--tx)'}}>
+              {plan.raceType==='HM'?'Half Marathon':plan.raceType} · {new Date(plan.raceDate+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+            </div>
+          </div>
+          <div style={{textAlign:'center',padding:'6px 11px',borderRadius:10,background:'rgba(249,115,22,.12)',border:'1px solid rgba(249,115,22,.22)'}}>
+            <div style={{fontSize:'1.1rem',fontWeight:800,color:'var(--or)',lineHeight:1}}>W{planWeekNum}</div>
+            <div style={{fontSize:'.5rem',color:'var(--or)',letterSpacing:'.06em'}}>of {plan.weeks.length}</div>
+          </div>
+        </div>
+        <div style={{marginBottom:8}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+            <span style={{fontSize:'.72rem',color:'var(--tx2)'}}>This week</span>
+            <span style={{fontSize:'.72rem',fontWeight:600,color:planPct>=0.8?'var(--gn)':planPct>=0.5?'var(--or)':'var(--rd)'}}>
+              {fmtKm(thisWeekKm)} / {fmtKm(planWeek.targetKm)} km
+            </span>
+          </div>
+          <div style={{height:7,borderRadius:4,background:'var(--bd)',overflow:'hidden'}}>
+            <div style={{height:'100%',borderRadius:4,width:Math.min(100,planPct*100)+'%',
+              background:planPct>=0.8?'var(--gn)':planPct>=0.5?'var(--or)':'var(--rd)',transition:'width .4s ease'}}/>
+          </div>
+        </div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div style={{display:'flex',gap:8}}>
+            {planWeek.easy>0&&<span style={{fontSize:'.65rem',color:'#3b82f6',fontWeight:600}}>Easy ×{planWeek.easy}</span>}
+            {planWeek.long>0&&<span style={{fontSize:'.65rem',color:'#8b5cf6',fontWeight:600}}>Long ×{planWeek.long}</span>}
+            {planWeek.workout>0&&<span style={{fontSize:'.65rem',color:'#f97316',fontWeight:600}}>Workout ×{planWeek.workout}</span>}
+          </div>
+          {planAdherence?.weeksCompleted>0&&(
+            <span style={{fontSize:'.68rem',fontWeight:700,color:planAdherence.adherencePct>=80?'var(--gn)':'var(--or)'}}>
+              {planAdherence.adherencePct}% adherence
+            </span>
+          )}
+        </div>
+      </div>
+    )}
+    {!plan&&acts.length>0&&(
+      <button className="btn b-gh" style={{width:'100%',marginBottom:14,fontSize:'.8rem',padding:'11px'}} onClick={onOpenPlan}>
+        🎯 Set a goal race + training plan
+      </button>
+    )}
     {paceTrendPct!==null&&(
       <div className="card a3" style={{padding:"11px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
         <span style={{fontSize:"1.1rem"}}>{paceTrendPct>0?"📈":paceTrendPct<0?"📉":"➡️"}</span>

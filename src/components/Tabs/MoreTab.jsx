@@ -4,6 +4,8 @@ import { Ring } from '../common/Ring.jsx';
 import { getMafHR, getMafZones, computeZones } from '../../utils/analytics.js';
 import { getPlanAdherence, getPlanWeekNumber, getPlanWeek, getWeekDays, checkSessionCompliance } from '../../utils/trainingPlan.js';
 import { weekOf, fmtKm, todayKey } from '../../utils/formatters.js';
+import { SHOES_KEY } from '../../constants/keys.js';
+import { DEFAULT_SHOE_MAX_KM, SHOE_WARN_THRESHOLD } from '../../constants/limits.js';
 
 function StreakCalendar({ acts }) {
   const now = new Date();
@@ -48,7 +50,7 @@ function StreakCalendar({ acts }) {
   );
 }
 
-export function MoreTab({acts,hrProfile,plan,onEditHR,onViewMonthly,onViewYearReview,onOpenPlan}){
+export function MoreTab({acts,hrProfile,plan,onEditHR,onViewMonthly,onViewYearReview,onOpenPlan,onManageShoes}){
   const mafHR=getMafHR(hrProfile);
   const todayWeek=weekOf(Date.now());
   const planWeekNum=plan?getPlanWeekNumber(plan,todayWeek):null;
@@ -113,12 +115,35 @@ export function MoreTab({acts,hrProfile,plan,onEditHR,onViewMonthly,onViewYearRe
                   </div>
                 ))}
               </div>
-              {planAdherence?.weeksCompleted>0&&(
-                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14,padding:'10px 12px',borderRadius:10,
-                  background:planAdherence.adherencePct>=80?'var(--gn2)':planAdherence.adherencePct>=60?'rgba(234,179,8,.1)':'var(--rd2)',
-                  border:`1px solid ${planAdherence.adherencePct>=80?'rgba(34,197,94,.25)':planAdherence.adherencePct>=60?'rgba(234,179,8,.25)':'rgba(239,68,68,.25)'}`}}>
-                  <div style={{flex:1,fontSize:'.76rem',color:'var(--tx2)'}}>Adherence · {planAdherence.weeksCompleted} week{planAdherence.weeksCompleted!==1?'s':''} tracked</div>
-                  <div style={{fontSize:'1.1rem',fontWeight:800,color:planAdherence.adherencePct>=80?'var(--gn)':planAdherence.adherencePct>=60?'var(--yw)':'var(--rd)'}}>{planAdherence.adherencePct}%</div>
+              {currentWeekDays.length>0&&(
+                <div style={{marginBottom:14,borderBottom:'1px solid var(--bd)',paddingBottom:12}}>
+                  <div style={{fontSize:'.65rem',fontWeight:700,color:'var(--tx3)',letterSpacing:'.06em',textTransform:'uppercase',marginBottom:8}}>
+                    This Week — W{planWeekNum} · <span style={{textTransform:'capitalize'}}>{currentPlanWeek.phase}</span>
+                  </div>
+                  {currentWeekDays.map(day=>{
+                    const isToday=day.date===todayDate;
+                    const act=acts.find(a=>a.date===day.date);
+                    const isDone=day.type!=='rest'&&!!act;
+                    const comp=isDone?checkSessionCompliance(day,act,refPaceSec,mafHR):null;
+                    const isWarn=comp&&(comp.status==='too_hard'||comp.status==='short'||comp.status==='too_easy');
+                    return(
+                      <div key={day.date} style={{
+                        display:'flex',alignItems:'center',gap:10,
+                        padding:'6px 8px',marginBottom:2,borderRadius:8,
+                        background:isToday?'rgba(249,115,22,.07)':'transparent',
+                        borderLeft:isToday?'3px solid var(--or)':'3px solid transparent',
+                      }}>
+                        <span style={{fontSize:'.68rem',fontWeight:isToday?700:500,color:isToday?'var(--or)':'var(--tx3)',width:26,flexShrink:0}}>{day.day}</span>
+                        <span style={{fontSize:'.8rem',width:18,textAlign:'center',flexShrink:0}}>{day.icon}</span>
+                        <span style={{fontSize:'.72rem',flex:1,color:day.type==='rest'?'var(--tx3)':isDone?(isWarn?'var(--or)':'var(--gn)'):'var(--tx)',fontWeight:isDone?600:400}}>{day.label}</span>
+                        {day.targetKm>0&&(
+                          <span style={{fontSize:'.72rem',fontWeight:700,color:isDone?(isWarn?'var(--or)':'var(--gn)'):day.color}}>{fmtKm(day.targetKm)} km</span>
+                        )}
+                        {isDone&&!isWarn&&<span style={{fontSize:'.72rem',color:'var(--gn)'}}>✓</span>}
+                        {isDone&&isWarn&&<span style={{fontSize:'.68rem',color:'var(--or)',fontWeight:700,flexShrink:0}} title={comp.label}>⚠</span>}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               <div style={{fontSize:'.68rem',fontWeight:700,color:'var(--tx3)',letterSpacing:'.06em',textTransform:'uppercase',marginBottom:8}}>All Weeks</div>
@@ -151,46 +176,23 @@ export function MoreTab({acts,hrProfile,plan,onEditHR,onViewMonthly,onViewYearRe
                   </div>
                 ))}
               </div>
-              {currentWeekDays.length>0&&(
-                <div style={{marginTop:14,borderTop:'1px solid var(--bd)',paddingTop:12}}>
-                  <div style={{fontSize:'.65rem',fontWeight:700,color:'var(--tx3)',letterSpacing:'.06em',textTransform:'uppercase',marginBottom:8}}>
-                    This Week — W{planWeekNum} · <span style={{textTransform:'capitalize'}}>{currentPlanWeek.phase}</span>
-                  </div>
-                  {currentWeekDays.map(day=>{
-                    const isToday=day.date===todayDate;
-                    const act=acts.find(a=>a.date===day.date);
-                    const isDone=day.type!=='rest'&&!!act;
-                    const comp=isDone?checkSessionCompliance(day,act,refPaceSec,mafHR):null;
-                    const isWarn=comp&&(comp.status==='too_hard'||comp.status==='short'||comp.status==='too_easy');
-                    return(
-                      <div key={day.date} style={{
-                        display:'flex',alignItems:'center',gap:10,
-                        padding:'6px 8px',marginBottom:2,borderRadius:8,
-                        background:isToday?'rgba(249,115,22,.07)':'transparent',
-                        borderLeft:isToday?'3px solid var(--or)':'3px solid transparent',
-                      }}>
-                        <span style={{fontSize:'.68rem',fontWeight:isToday?700:500,color:isToday?'var(--or)':'var(--tx3)',width:26,flexShrink:0}}>{day.day}</span>
-                        <span style={{fontSize:'.8rem',width:18,textAlign:'center',flexShrink:0}}>{day.icon}</span>
-                        <span style={{fontSize:'.72rem',flex:1,color:day.type==='rest'?'var(--tx3)':isDone?(isWarn?'var(--or)':'var(--gn)'):'var(--tx)',fontWeight:isDone?600:400}}>{day.label}</span>
-                        {day.targetKm>0&&(
-                          <span style={{fontSize:'.72rem',fontWeight:700,color:isDone?(isWarn?'var(--or)':'var(--gn)'):day.color}}>{fmtKm(day.targetKm)} km</span>
-                        )}
-                        {isDone&&!isWarn&&<span style={{fontSize:'.72rem',color:'var(--gn)'}}>✓</span>}
-                        {isDone&&isWarn&&<span style={{fontSize:'.68rem',color:'var(--or)',fontWeight:700,flexShrink:0}} title={comp.label}>⚠</span>}
-                      </div>
-                    );
-                  })}
+              {planAdherence?.weeksCompleted>0&&(
+                <div style={{display:'flex',alignItems:'center',gap:10,marginTop:14,padding:'10px 12px',borderRadius:10,
+                  background:planAdherence.adherencePct>=80?'var(--gn2)':planAdherence.adherencePct>=60?'rgba(234,179,8,.1)':'var(--rd2)',
+                  border:`1px solid ${planAdherence.adherencePct>=80?'rgba(34,197,94,.25)':planAdherence.adherencePct>=60?'rgba(234,179,8,.25)':'rgba(239,68,68,.25)'}`}}>
+                  <div style={{flex:1,fontSize:'.76rem',color:'var(--tx2)'}}>Adherence · {planAdherence.weeksCompleted} week{planAdherence.weeksCompleted!==1?'s':''} tracked</div>
+                  <div style={{fontSize:'1.1rem',fontWeight:800,color:planAdherence.adherencePct>=80?'var(--gn)':planAdherence.adherencePct>=60?'var(--yw)':'var(--rd)'}}>{planAdherence.adherencePct}%</div>
                 </div>
               )}
             </>
           );
         })()}
       </div>
-      <StreakCalendar acts={acts}/>
       <div style={{display:"flex",gap:10,marginBottom:14}}>
         <button className="btn b-gh" style={{flex:1,padding:"13px",fontSize:".86rem"}} onClick={onViewMonthly}>📅 Monthly Wrapped</button>
         <button className="btn b-gh" style={{flex:1,padding:"13px",fontSize:".86rem"}} onClick={onViewYearReview}>🎁 Year Review</button>
       </div>
+      <StreakCalendar acts={acts}/>
       <div className="card a0" style={{padding:20,marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",gap:14}}>
           <div style={{width:64,height:64,borderRadius:18,background:"rgba(249,115,22,.1)",border:"1px solid rgba(249,115,22,.2)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
@@ -223,6 +225,35 @@ export function MoreTab({acts,hrProfile,plan,onEditHR,onViewMonthly,onViewYearRe
           ))}
         </div>
       )}
+      {(()=>{
+        const shoes=(()=>{try{return JSON.parse(localStorage.getItem(SHOES_KEY)||'[]');}catch{return[];}})();
+        const shoeKm=acts.reduce((m,a)=>{if(a.shoeId)m[a.shoeId]=(m[a.shoeId]||0)+a.distanceKm;return m;},{});
+        const active=shoes.filter(s=>s.active!==false);
+        if(!active.length)return null;
+        return(
+          <div className="card" style={{padding:16,marginBottom:14}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <SH title="Shoes"/>
+              <button className="pill" style={{fontSize:".68rem"}} onClick={onManageShoes}>Manage</button>
+            </div>
+            {active.map(shoe=>{
+              const km=shoeKm[shoe.id]||0,pct=Math.min(1,km/(shoe.maxKm||DEFAULT_SHOE_MAX_KM)),warn=pct>=SHOE_WARN_THRESHOLD;
+              return(
+                <div key={shoe.id} style={{marginBottom:12}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                    <span style={{fontSize:".82rem",fontWeight:600}}>{shoe.name}</span>
+                    <span style={{fontSize:".74rem",color:warn?"var(--rd)":"var(--tx2)",fontWeight:warn?700:400}}>{Math.round(km)}/{shoe.maxKm||DEFAULT_SHOE_MAX_KM} km</span>
+                  </div>
+                  <div style={{height:6,borderRadius:3,background:"var(--bd)",overflow:"hidden"}}>
+                    <div style={{height:"100%",borderRadius:3,background:warn?"var(--rd)":shoe.color||"var(--or)",width:(pct*100)+"%"}}/>
+                  </div>
+                  {warn&&<div style={{fontSize:".68rem",color:"var(--rd)",marginTop:3}}>⚠️ Replace soon</div>}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
       {!runsWithHR.length&&(
         <div style={{textAlign:"center",padding:"40px 0 20px"}}>
           <div style={{fontSize:"2.8rem",marginBottom:14}}>❤️</div>
